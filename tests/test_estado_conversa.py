@@ -72,7 +72,7 @@ def test_estado_conversa_recusa_campo_desconhecido_e_acima_de_2kb():
         EstadoConversa(fase="E1", nome_do_cliente="x")
     with pytest.raises(EntradaInvalida) as erro:
         estado_conversa_de_json({"fase": "E1", "contadores": {"rodada": 1, "campo_novo": 2}})
-    assert erro.value.campos == (("contadores.campo_novo", "extra_forbidden"),)
+    assert erro.value.campos == (("contadores.(campo desconhecido)", "extra_forbidden"),)
     estoura = _maximo_permitido_pelos_campos()
     with pytest.raises(EntradaInvalida) as erro:
         estado_conversa_de_json(estoura)
@@ -261,9 +261,9 @@ def test_ultimo_cliente_em_so_avanca_e_nao_incrementa_versao(db_conn, relogio, v
     assert antes.ultimo_cliente_em is None
     t1 = relogio() - timedelta(hours=2)
     t2 = relogio() - timedelta(hours=1)
-    assert registrar_mensagem_do_cliente(db_conn, atd, t1) == t1
-    assert registrar_mensagem_do_cliente(db_conn, atd, t2) == t2
-    assert registrar_mensagem_do_cliente(db_conn, atd, t1) == t2  # mensagem atrasada (fora de ordem) não recua a janela
+    assert registrar_mensagem_do_cliente(db_conn, atd, t1, relogio=relogio) == t1
+    assert registrar_mensagem_do_cliente(db_conn, atd, t2, relogio=relogio) == t2
+    assert registrar_mensagem_do_cliente(db_conn, atd, t1, relogio=relogio) == t2  # mensagem atrasada (fora de ordem) não recua a janela
     depois = ler(db_conn, atd)
     assert (depois.versao, depois.atualizado_em, depois.ultimo_cliente_em) == (v, antes.atualizado_em, t2)
 
@@ -272,7 +272,7 @@ def test_ultimo_cliente_em_so_avanca_e_nao_incrementa_versao(db_conn, relogio, v
 def test_ultimo_cliente_em_nao_disputa_o_cas_do_processador(db_conn, relogio, versoes):
     """O evento da mensagem escreve entre a leitura e a transição do turno sem derrubar a versão que o processador segura."""
     atd, v = _aberto(db_conn, relogio, versoes)
-    registrar_mensagem_do_cliente(db_conn, atd, relogio() - timedelta(minutes=1))
+    registrar_mensagem_do_cliente(db_conn, atd, relogio() - timedelta(minutes=1), relogio=relogio)
     assert aguardar_cliente(db_conn, atd, v, relogio=relogio) == v + 1  # não levanta ConflitoVersao
 
 
@@ -282,9 +282,9 @@ def test_ultimo_cliente_em_exige_fuso_e_atendimento_existente(db_conn, relogio, 
 
     atd, _ = _aberto(db_conn, relogio, versoes)
     with pytest.raises(ValueError, match="fuso"):
-        registrar_mensagem_do_cliente(db_conn, atd, datetime(2026, 11, 24, 10, 0))
+        registrar_mensagem_do_cliente(db_conn, atd, datetime(2026, 11, 24, 10, 0), relogio=relogio)
     with pytest.raises(AtendimentoInexistente):
-        registrar_mensagem_do_cliente(db_conn, uuid.uuid4(), relogio())
+        registrar_mensagem_do_cliente(db_conn, uuid.uuid4(), relogio(), relogio=relogio)
 
 
 def test_janela_de_24h_so_abre_com_mensagem_do_cliente_ha_menos_de_24h():

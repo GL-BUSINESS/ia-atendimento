@@ -56,7 +56,9 @@ SUM2=$(sha256sum migrations/0002_procrastinate.up.sql | cut -d' ' -f1)
 { cat migrations/0002_procrastinate.up.sql
   printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0002_procrastinate', '%s');\nRESET ROLE;\n" "$SUM2"; } \
   | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
-# 3. 0003 (aditiva: ultimo_cliente_em, chats_teste de 24 hex, chat_id de 24 hex) + ledger, igual; o arquivo já traz SET ROLE ia_owner. ANTES da imagem nova
+# 3a. pré-checagem (ADD CONSTRAINT valida a tabela inteira; qualquer linha fora do formato derruba a transação, sem estrago): os dois = 0
+$S4 'sudo -n -u s4_super psql -X -qAt -p 5434 -d ia_atendimento -c "SELECT count(*) FROM ia.atendimento WHERE chat_id !~ '"'"'^[0-9a-f]{24}$'"'"'" -c "SELECT count(*) FROM ia.config_versao WHERE nome = '"'"'chats_teste'"'"' AND jsonb_array_length(valor) > 20"'
+# 3. 0003 (aditiva: ultimo_cliente_em, chats_teste e chat_id de 24 hex, encerrado terminal, fase×estado) + ledger, igual; o arquivo já traz SET ROLE ia_owner. ANTES da imagem nova
 SUM3=$(sha256sum migrations/0003_estado_aditivo.up.sql | cut -d' ' -f1)
 { cat migrations/0003_estado_aditivo.up.sql
   printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0003_estado_aditivo', '%s');\nRESET ROLE;\n" "$SUM3"; } \

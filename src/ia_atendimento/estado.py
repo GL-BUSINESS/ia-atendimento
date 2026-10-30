@@ -16,11 +16,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Annotated, Any, Final, Literal
+from functools import cache
+from inspect import isclass
+from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
 
 import psycopg
@@ -29,10 +32,17 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 
+from ia_atendimento.modelos_conversa import EstadoConversa
+from ia_atendimento.tipos import LIMITE_JSON_OCTETOS, Codigo40, Codigo60, Perfil, octetos_como_jsonb
+
 LEASE_RESERVADO_S: Final = 120  # `reservado` nasce com 2 min (K §8.1)
 LEASE_TURNO_S: Final = 300  # `iniciar` e cada transição renovam para +5 min
-LIMITE_JSON_OCTETOS: Final = 2048  # CHECK do DDL: `octet_length(perfil::text)` e `octet_length(estado_conversa::text)`
+LEASE_AGUARDANDO_S: Final = 12 * 3600  # cobre lembretes (4 h + 4 h) e o encerramento 2 h depois; o reaper não vence quem espera o cliente
+TOLERANCIA_RELOGIO: Final = timedelta(minutes=5)  # relógio de origem adiantado; além disso `ultimo_cliente_em` é recusado
+_ORIGEM: Final = re.compile(r"^[a-z0-9_]{1,40}$")
+_HEX24: Final = re.compile(r"^[0-9a-f]{24}$")
 PREFIXO_FINGERPRINT: Final = b"ia-entrada/v1\n"
+MOTIVO_DEVOLVIDO_S2: Final = "devolvido_pela_s2"  # a S2 devolve o lead: fecha `repassado` sem ter passado por `repassando`
 ARTEFATOS: Final = ("roteiro", "regras", "catalogo", "motor")
 
 Relogio = Callable[[], datetime]
@@ -42,8 +52,6 @@ Faixa = Literal["baixa", "media", "alta", "muito_alta"]
 Desfecho = Literal[
     "sem_venda", "repassado", "sem_resposta", "expirado", "opt_out", "abortado", "vendeu", "destravou", "motivo_identificado"
 ]
-Codigo40 = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]
-Codigo60 = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,60}$")]
 Hex24 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{24}$")]
 
 ESTADOS_NAO_TERMINAIS: Final = frozenset({"reservado", "aberto", "aguardando_cliente", "pausado", "repassando"})
@@ -93,6 +101,15 @@ class ModoInvalido(EstadoErro):
         self.codigo = codigo  # teste_fora_da_lista | persona_fora_de_teste | modo_teste_global | validacao
 
 
+class DadoRecusado(EstadoErro):
+    """O banco recusou o dado (CHECK, NOT NULL, tipo). Só sqlstate e nome da restrição: a mensagem do psycopg traz a LINHA inteira."""
+
+    def __init__(self, *, sqlstate: str | None, restricao: str | None) -> None:
+        super().__init__(f"banco recusou o dado (sqlstate {sqlstate or '?'}, restrição {restricao or '?'})")
+        self.sqlstate = sqlstate
+        self.restricao = restricao
+
+
 class EntradaInvalida(EstadoErro, ValueError):
     """Argumento incoerente que o banco também recusaria (CHECK), barrado antes de chegar nele.
 
@@ -112,11 +129,6 @@ def agora_de(relogio: Relogio) -> datetime:
     if agora.tzinfo is None:
         raise ValueError("o relógio deve devolver datetime com fuso")
     return agora
-
-
-def octetos_como_jsonb(valor: object) -> int:
-    """Tamanho em bytes do `valor::text` do jsonb (`", "` e `": "` como separadores): o que o CHECK `octet_length(...) <= 2048` mede."""
-    return len(json.dumps(valor, ensure_ascii=False, separators=(", ", ": ")).encode("utf-8"))
 
 
 def idempotency_key(chave_logica: str) -> str:
@@ -163,7 +175,7 @@ class EntradaAtendimento(BaseModel):
     motivo_escolha: Literal["mais_antigo_elegivel", "oferta_forte", "consultor_sobrecarregado", "teste", "outro"] | None = None
     motivo_escolha_nota: Annotated[str, StringConstraints(min_length=1, max_length=80)] | None = None
     criterio_versao: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,64}$")] | None = None
-    perfil: dict[str, Any] = Field(default_factory=dict)
+    perfil: Perfil = Field(default_factory=dict)  # rótulos curtos; sem aninhamento, float, texto livre nem dígitos de documento
     perfil_versao: Annotated[int, Field(ge=1, le=32767)] = 1
     responsavel_antes: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
     banco: Annotated[str, StringConstraints(pattern=r"^[A-Z0-9_]{1,32}$")] | None = None
@@ -183,16 +195,44 @@ class EntradaAtendimento(BaseModel):
         return self
 
 
-def campos_invalidos(erro: ValidationError) -> tuple[tuple[str, str], ...]:
-    """`(campo, regra)` de cada recusa. `.errors()` e `.json()` carregam o valor recusado mesmo com `hide_input_in_errors`: aqui não."""
-    achados = erro.errors(include_input=False, include_context=False, include_url=False)
-    return tuple(
-        (
-            ".".join(str(p) for p in e["loc"]) or "(corpo)",
-            e["msg"].removeprefix("Value error, ") if e["type"] == "value_error" else e["type"],
-        )
-        for e in achados
-    )
+@cache
+def _nomes_do_modelo(modelo: type[BaseModel]) -> frozenset[str]:
+    """Nomes de campo do modelo e dos aninhados: o que NÃO está aqui é chave de dicionário ou campo extra (dado do cliente)."""
+    nomes: set[str] = set()
+    pilha, vistos = [modelo], set()
+    while pilha:
+        atual = pilha.pop()
+        if atual in vistos:
+            continue
+        vistos.add(atual)
+        for nome, campo in atual.model_fields.items():
+            nomes.add(nome)
+            pilha.extend(t for t in _tipos_da_anotacao(campo.annotation) if isclass(t) and issubclass(t, BaseModel))
+    return frozenset(nomes)
+
+
+def _tipos_da_anotacao(anotacao: object) -> list[object]:
+    achados = [anotacao]
+    for arg in get_args(anotacao):
+        achados.extend(_tipos_da_anotacao(arg))
+    return achados
+
+
+def campos_invalidos(erro: ValidationError, modelo: type[BaseModel]) -> tuple[tuple[str, str], ...]:
+    """`(campo, regra)` de cada recusa. `.errors()` e `.json()` carregam o valor recusado mesmo com `hide_input_in_errors`: aqui não.
+
+    O nome de uma chave que o cliente mandou também pode ser dado (`"123.456.789-09": "x"`): só nomes de campo do modelo saem;
+    chave extra vira `(campo desconhecido)` e chave de dicionário vira `(chave)`.
+    """
+    conhecidos = _nomes_do_modelo(modelo)
+    saida = []
+    for e in erro.errors(include_input=False, include_context=False, include_url=False):
+        caminho = [str(p) if isinstance(p, int) or p in conhecidos else "(chave)" for p in e["loc"]]
+        if e["type"] == "extra_forbidden":
+            caminho[-1] = "(campo desconhecido)"
+        regra = e["msg"].removeprefix("Value error, ") if e["type"] == "value_error" else e["type"]
+        saida.append((".".join(caminho) or "(corpo)", regra))
+    return tuple(saida)
 
 
 def validar_corpo[M: BaseModel](modelo: type[M], corpo: object) -> M:
@@ -200,7 +240,7 @@ def validar_corpo[M: BaseModel](modelo: type[M], corpo: object) -> M:
     try:
         return modelo.model_validate(corpo)
     except ValidationError as erro:
-        campos = campos_invalidos(erro)
+        campos = campos_invalidos(erro, modelo)
     # fora do `except`: o erro novo não leva `__context__` com a ValidationError (que guarda o valor recusado)
     raise EntradaInvalida("corpo inválido: " + ", ".join(f"{c} ({r})" for c, r in campos), campos=campos)
 
@@ -230,10 +270,21 @@ def entrada_fingerprint(entrada: EntradaAtendimento) -> str:
     return hashlib.sha256(PREFIXO_FINGERPRINT + canonico).hexdigest()
 
 
+def _normalizar_chats_teste(chats: Collection[str]) -> frozenset[str]:
+    """`chat_id in "texto"` é teste de SUBSTRING: uma string no lugar da lista faria um chat virar `teste`. Recusa; confere o formato."""
+    if isinstance(chats, str | bytes):
+        raise TypeError("chats_teste deve ser uma coleção de chat_id, não texto")
+    itens = frozenset(chats)
+    if not all(isinstance(c, str) and _HEX24.fullmatch(c) for c in itens):
+        raise EntradaInvalida("chats_teste com id fora de 24 hex minúsculo")
+    return itens
+
+
 def resolver_modo(
     *, chat_id: str, modo_global: str, chats_teste: Collection[str], persona_id: str | None = None, modo_pedido: str | None = None
 ) -> Modo:
     """Contrato 08 §6: global `real|sombra|duble`; `teste` só com `chat_id ∈ chats_teste`; `persona_id` só em chat de teste."""
+    chats_teste = _normalizar_chats_teste(chats_teste)
     if modo_global == "teste":
         raise ModoInvalido("modo_teste_global")
     if modo_global not in _MODOS_GLOBAIS:
@@ -390,12 +441,16 @@ def abrir(
     O replay vem antes da validação de modo/esforço: ele devolve o que foi gravado, sem reavaliar a configuração de hoje.
     """
     agora = agora_de(relogio)
+    if not _ORIGEM.fullmatch(origem):
+        raise EntradaInvalida("origem fora do padrão ^[a-z0-9_]{1,40}$")
     fp, idem = entrada_fingerprint(entrada), idempotency_key(entrada.chave_logica)
     with conn.transaction():
         achado = _replay(conn, origem, idem, fp)
         if achado is not None:
             return achado
         comissao = _validar_esforco(faixa_esforco, comissao_esperada_brl)
+        if entrada.ultimo_cliente_em is not None and entrada.ultimo_cliente_em > agora + TOLERANCIA_RELOGIO:
+            raise EntradaInvalida("ultimo_cliente_em no futuro (mais de 5 min à frente do relógio)")
         modo = resolver_modo(
             chat_id=entrada.chat_id,
             modo_global=modo_global,
@@ -409,15 +464,12 @@ def abrir(
 
 def _inserir(conn: psycopg.Connection, params: dict[str, Any], origem: str, idem: str, fp: str) -> Resultado:
     try:
-        with conn.transaction():  # savepoint: a violação não envenena a transação de fora, e dá para reler
-            nova = conn.execute(_INSERIR, params).fetchone()
-    except psycopg.errors.UniqueViolation as erro:
-        if erro.diag.constraint_name != "atendimento_ativo_chat_uq":
-            raise
+        nova = executar_traduzindo(conn, _INSERIR, params)
+    except ChatOcupado:
         # perdeu a corrida para a MESMA chave (o índice do chat é o 1º a reclamar)? então é replay, não chat ocupado
         achado = _replay(conn, origem, idem, fp)
         if achado is None:
-            raise ChatOcupado("chat com atendimento não encerrado") from None
+            raise
         return achado
     if nova is not None:
         return Resultado(nova[0], nova[1], nova[2], nova[3], repetido=False)
@@ -427,7 +479,31 @@ def _inserir(conn: psycopg.Connection, params: dict[str, Any], origem: str, idem
     return achado
 
 
+def traduzir_erro_banco(erro: psycopg.Error, *, check_e_transicao: bool = False) -> EstadoErro:
+    """Único ponto que converte erro de integridade/dado do psycopg: a mensagem original traz a LINHA inteira (inclusive o `perfil`)."""
+    nome = erro.diag.constraint_name
+    if isinstance(erro, psycopg.errors.UniqueViolation) and nome == "atendimento_ativo_chat_uq":
+        return ChatOcupado("chat com atendimento não encerrado")
+    if check_e_transicao and isinstance(erro, psycopg.errors.CheckViolation):
+        return TransicaoInvalida(f"viola a restrição {nome or 'desconhecida'}", restricao=nome)
+    return DadoRecusado(sqlstate=erro.sqlstate, restricao=nome)
+
+
+def executar_traduzindo(conn: psycopg.Connection, consulta: Any, params: dict[str, Any], *, check_e_transicao: bool = False) -> Any:
+    """Executa num savepoint (a violação não envenena a transação de fora) e devolve a 1ª linha. Erro do banco sai traduzido."""
+    traduzido: EstadoErro | None = None
+    try:
+        with conn.transaction():
+            return conn.execute(consulta, params).fetchone()
+    except (psycopg.errors.IntegrityError, psycopg.errors.DataError) as erro:
+        traduzido = traduzir_erro_banco(erro, check_e_transicao=check_e_transicao)
+    raise traduzido  # fora do `except`: sem `__context__` com a exceção crua (e a linha dela)
+
+
 # --- aplicar: o único UPDATE com CAS ---------------------------------------------------------------------------------------------
+
+
+_INT4: Final = 2**31 - 1
 
 
 class Mudancas(BaseModel):
@@ -439,7 +515,7 @@ class Mudancas(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     estado: Estado | None = None
-    estado_conversa: dict[str, Any] | None = None
+    estado_conversa: EstadoConversa | None = None  # tipado: um dict cru burlava `extra='forbid'` e o «só códigos»
     lease_ate: AwareDatetime | None = None
     retoma_em: AwareDatetime | None = None
     assumido_em: AwareDatetime | None = None
@@ -447,7 +523,7 @@ class Mudancas(BaseModel):
     responsavel_antes: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
     chatbot_antes: Literal["ligado", "desligado", "desconhecido"] | None = None
     chatbot_estado: Literal["intocado", "desligado_pela_ia", "restaurado", "nao_confirmou"] | None = None
-    ordem_consumida: Annotated[int, Field(ge=0)] | None = None
+    ordem_consumida: Annotated[int, Field(ge=0, le=_INT4)] | None = None
     desfecho: Desfecho | None = None
     motivo_desfecho: Codigo60 | None = None
     contexto_codigos: Annotated[tuple[Codigo40, ...], Field(max_length=10)] | None = None
@@ -461,9 +537,9 @@ class Mudancas(BaseModel):
     confirmacoes_emitidas: Annotated[int, Field(ge=0, le=32767)] | None = None
     confirmacoes_invalidas: Annotated[int, Field(ge=0, le=32767)] | None = None
     nota_repasse_tamanho: Annotated[int, Field(ge=1, le=400)] | None = None
-    turnos: Annotated[int, Field(ge=0)] | None = None
-    mensagens_enviadas: Annotated[int, Field(ge=0)] | None = None
-    lembretes_enviados: Annotated[int, Field(ge=0)] | None = None
+    turnos: Annotated[int, Field(ge=0, le=_INT4)] | None = None
+    mensagens_enviadas: Annotated[int, Field(ge=0, le=_INT4)] | None = None
+    lembretes_enviados: Annotated[int, Field(ge=0, le=_INT4)] | None = None
     custo_modelo_brl: Annotated[Decimal, Field(ge=0)] | None = None
     custo_midia_brl: Annotated[Decimal, Field(ge=0)] | None = None
     repasse_modo: Literal["fila", "indicado"] | None = None
@@ -476,8 +552,6 @@ class Mudancas(BaseModel):
         nulas = [c for c in _NOT_NULL if c in self.model_fields_set and getattr(self, c) is None]
         if nulas:
             raise ValueError("coluna NOT NULL sem valor: " + ", ".join(nulas))
-        if self.estado_conversa is not None and octetos_como_jsonb(self.estado_conversa) > LIMITE_JSON_OCTETOS:
-            raise ValueError("estado_conversa acima de 2 KB")
         return self
 
 
@@ -490,7 +564,7 @@ _NOT_NULL: Final = frozenset(
 
 def _valor_sql(nome: str, valor: Any) -> Any:
     if nome == "estado_conversa":
-        return Jsonb(valor)
+        return Jsonb(valor.para_json())
     if isinstance(valor, tuple):
         return list(valor)  # text[]
     return valor
@@ -544,23 +618,22 @@ def aplicar(
     mudancas: Mudancas,
     *,
     agora: datetime,
-    de: Collection[str] | None = None,
+    de: Collection[str] = ESTADOS_NAO_TERMINAIS,
     fase: str | None = None,
     sem_assumido_em: bool = False,
 ) -> int:
-    """`UPDATE … WHERE atendimento_id = $1 AND versao = $2 [AND estado ∈ de]` com `versao + 1`; devolve a nova `versao`.
+    """`UPDATE … WHERE atendimento_id = $1 AND versao = $2 AND estado ∈ de` com `versao + 1`; devolve a nova `versao`.
+
+    `de` tem por padrão os estados NÃO terminais: `encerrado` é absorvente (o trigger da 0003 também o garante no banco).
 
     `fase` (E0..E10) é escrita no mesmo UPDATE dentro do `estado_conversa`. Zero linhas ⇒ `ConflitoVersao` / `AtendimentoInexistente` /
-    `TransicaoInvalida`. CHECK violado ⇒ `TransicaoInvalida` (com `restricao`), sem valores da linha na mensagem.
+    `TransicaoInvalida`. CHECK violado ⇒ `TransicaoInvalida` (com `restricao`); NOT NULL/tipo ⇒ `DadoRecusado`; sem valores da linha.
     """
+    if agora.tzinfo is None:
+        raise ValueError("`agora` exige datetime com fuso")
     consulta, params = _montar_update(mudancas, fase, de, sem_assumido_em)
     params.update({"agora": agora, "atd": atendimento_id, "versao": versao})
-    try:
-        with conn.transaction():
-            linha = conn.execute(consulta, params).fetchone()
-    except psycopg.errors.CheckViolation as erro:
-        nome = erro.diag.constraint_name or "desconhecida"
-        raise TransicaoInvalida(f"viola a restrição {nome}", restricao=nome) from None
+    linha = executar_traduzindo(conn, consulta, params, check_e_transicao=True)
     if linha is None:
         raise _porque_falhou(conn, atendimento_id, versao, str(mudancas.estado))
     return int(linha[0])
@@ -569,8 +642,13 @@ def aplicar(
 # --- transições (invólucros finos de `aplicar`) ----------------------------------------------------------------------------------
 
 
-def _lease(agora: datetime) -> datetime:
-    return agora + timedelta(seconds=LEASE_TURNO_S)
+def _lease(agora: datetime, segundos: int = LEASE_TURNO_S) -> datetime:
+    return agora + timedelta(seconds=segundos)
+
+
+def _mudancas(**campos: Any) -> Mudancas:
+    """`Mudancas` por `validar_corpo`: recusa sai como `EntradaInvalida` (só nomes), sem o `ValidationError` cru que guarda o valor."""
+    return validar_corpo(Mudancas, campos)
 
 
 def iniciar(
@@ -596,18 +674,30 @@ def iniciar(
     }  # fmt: skip
     if responsavel_antes is not None:
         campos["responsavel_antes"] = responsavel_antes
-    return aplicar(conn, atendimento_id, versao, Mudancas(**campos), agora=agora, de={"reservado"}, fase="E1")
+    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de={"reservado"}, fase="E1")
 
 
 def aguardar_cliente(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, relogio: Relogio) -> int:
     agora = agora_de(relogio)
-    m = Mudancas(estado="aguardando_cliente", lease_ate=_lease(agora))
+    m = _mudancas(
+        estado="aguardando_cliente", lease_ate=_lease(agora, LEASE_AGUARDANDO_S)
+    )  # espera o cliente por horas: não vence em 5 min
     return aplicar(conn, atendimento_id, versao, m, agora=agora, de={"aberto"})
+
+
+def renovar_lease(
+    conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, relogio: Relogio, segundos: int = LEASE_TURNO_S
+) -> int:
+    """Renova a posse sem mudar de estado (turno longo, acima de 5 min). Transição com CAS: `versao + 1`. `pausado` e `reservado` têm
+    lease ligado a `retoma_em` e não passam por aqui; quem espera o cliente renova com `segundos=LEASE_AGUARDANDO_S`."""
+    agora = agora_de(relogio)
+    de = {"aberto", "aguardando_cliente", "repassando"}
+    return aplicar(conn, atendimento_id, versao, _mudancas(lease_ate=_lease(agora, segundos)), agora=agora, de=de)
 
 
 def retomar(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, relogio: Relogio) -> int:
     agora = agora_de(relogio)
-    m = Mudancas(estado="aberto", lease_ate=_lease(agora))
+    m = _mudancas(estado="aberto", lease_ate=_lease(agora))
     return aplicar(conn, atendimento_id, versao, m, agora=agora, de={"aguardando_cliente"})
 
 
@@ -631,7 +721,7 @@ def repassar(
     }  # fmt: skip
     if consultor_ref is not None:
         campos["repasse_consultor_ref"] = consultor_ref
-    return aplicar(conn, atendimento_id, versao, Mudancas(**campos), agora=agora, de=_REPASSAVEIS, fase="E10")
+    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=_REPASSAVEIS, fase="E10")
 
 
 def _exigir_timestamps(desfecho: str, motivo: str, opt_out_em: datetime | None, humano_assumiu_em: datetime | None) -> None:
@@ -673,12 +763,13 @@ def encerrar(
         campos |= {"repasse_modo": None, "repasse_consultor_ref": None, "repasse_nota_enviada": None, "nota_repasse_tamanho": None}
     elif consultor_ref is not None:
         campos["repasse_consultor_ref"] = consultor_ref
-    m = Mudancas(**campos)
-    return aplicar(conn, atendimento_id, versao, m, agora=agora, de=ESTADOS_NAO_TERMINAIS, sem_assumido_em=desfecho == "abortado")
+    # `repassado` só sai de `repassando` (repasse em duas fases); a devolução da S2 é a única exceção (nunca passou pela fase 1)
+    de = {"repassando"} if desfecho == "repassado" and motivo != MOTIVO_DEVOLVIDO_S2 else ESTADOS_NAO_TERMINAIS
+    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=de, sem_assumido_em=desfecho == "abortado")
 
 
 def abortar(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, motivo: str, relogio: Relogio) -> int:
     """`reservado → encerrado(abortado)`: só enquanto `assumido_em IS NULL` (o canal nunca foi tocado)."""
     agora = agora_de(relogio)
-    m = Mudancas(estado="encerrado", desfecho="abortado", motivo_desfecho=motivo, lease_ate=None, retoma_em=None, encerrado_em=agora)
+    m = _mudancas(estado="encerrado", desfecho="abortado", motivo_desfecho=motivo, lease_ate=None, retoma_em=None, encerrado_em=agora)
     return aplicar(conn, atendimento_id, versao, m, agora=agora, de={"reservado"}, sem_assumido_em=True)

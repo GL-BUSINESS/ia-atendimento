@@ -203,3 +203,87 @@ def test_docs_documentam_a_0003_com_o_ledger_na_mesma_transacao(vazio, ate_0002,
         conn.execute(corpo + _epilogo_documentado(doc, "0003_estado_aditivo", soma))
     with vazio.sessao() as conn:
         assert conn.execute("SELECT checksum FROM ia.migracao WHERE migracao_id='0003_estado_aditivo'").fetchone() == (soma,)
+
+
+# --- revisão 1: encerrado é terminal no banco; fase×estado só para os estados da conversa ----------------------------------------------
+
+
+def _inserir_encerrado(conn: psycopg.Connection) -> str:
+    chave = f"venda:{uuid.uuid4().hex}"
+    return conn.execute(
+        """INSERT INTO ia.atendimento (origem, chave_logica, idempotency_key, entrada_fingerprint, gatilho, disparado_por, criterio_versao,
+             faixa_esforco, pessoa_id, chat_id, phone_id, roteiro_versao, regras_versao, catalogo_versao, motor_versao, modo,
+             estado, desfecho, encerrado_em, lease_ate, assumido_em)
+           VALUES ('n8n_braco', %s, encode(sha256(convert_to(%s, 'UTF8')), 'hex'), repeat('a', 64), 'venda', 'operador.teste@exemplo.invalid',
+             'c1.0', 'baixa', '11111111-1111-7111-8111-111111111111', %s, '89abcdef0123456789abcdef', 1, 1, 1, 1, 'duble',
+             'encerrado', 'sem_venda', now(), NULL, now())
+           RETURNING atendimento_id""",
+        (chave, chave, CHAT_OK),
+    ).fetchone()[0]
+
+
+@pytest.mark.banco
+@pytest.mark.parametrize(
+    "atualizacao",
+    [
+        pytest.param("estado = 'aberto', desfecho = NULL, encerrado_em = NULL, lease_ate = now() + interval '5 minutes'", id="ressuscitar"),
+        pytest.param("desfecho = 'vendeu'", id="trocar-o-desfecho"),
+        pytest.param("encerrado_em = now() + interval '1 day'", id="mexer-no-encerrado_em"),
+    ],
+)
+def test_encerrado_e_terminal_no_banco_para_ia_app(banco, atualizacao):
+    with banco.sessao("ia_app_a") as conn:
+        atd = _inserir_encerrado(conn)
+        with pytest.raises(psycopg.errors.CheckViolation) as erro:
+            conn.execute(f"UPDATE ia.atendimento SET {atualizacao} WHERE atendimento_id = %s", (atd,))
+        assert erro.value.diag.constraint_name == "atendimento_terminal_absorvente"
+        assert conn.execute("SELECT estado FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone() == ("encerrado",)
+
+
+@pytest.mark.banco
+def test_encerrado_ainda_aceita_o_que_nao_muda_o_desfecho(banco):
+    """O job noturno grava `contrato_id`, auditoria de PII e o timestamp do cliente depois do encerramento: o trigger não os pega."""
+    with banco.sessao("ia_app_a") as conn:
+        atd = _inserir_encerrado(conn)
+        conn.execute(
+            "UPDATE ia.atendimento SET contrato_id = 7, pii_auditoria = false, ultimo_cliente_em = now(), versao = versao + 1 WHERE atendimento_id = %s",
+            (atd,),
+        )
+
+
+OUTRO_CHAT_HEX = "fedcba9876543210fedcba98"
+
+
+def _inserir_vivo(conn: psycopg.Connection, estado: str, fase: str, com_pausa: bool) -> None:
+    chave = f"venda:{uuid.uuid4().hex}"
+    doc = {"fase": fase, **({"pausa": {"retoma_fase": "E3"}} if com_pausa else {})}
+    conn.execute(
+        """INSERT INTO ia.atendimento (origem, chave_logica, idempotency_key, entrada_fingerprint, gatilho, disparado_por, criterio_versao,
+             faixa_esforco, pessoa_id, chat_id, phone_id, roteiro_versao, regras_versao, catalogo_versao, motor_versao, modo, estado, assumido_em,
+             estado_conversa)
+           VALUES ('n8n_braco', %s, encode(sha256(convert_to(%s, 'UTF8')), 'hex'), repeat('a', 64), 'venda', 'op@exemplo.invalid', 'c1.0',
+             'baixa', '11111111-1111-7111-8111-111111111111', %s, '89abcdef0123456789abcdef', 1, 1, 1, 1, 'duble', %s, now(), %s::jsonb)""",
+        (chave, chave, OUTRO_CHAT_HEX, estado, json.dumps(doc)),
+    )
+
+
+@pytest.mark.banco
+@pytest.mark.parametrize(
+    "estado,fase,com_pausa",
+    [
+        pytest.param("aberto", "E10", False, id="aberto-em-E10"),
+        pytest.param("aguardando_cliente", "E10", False, id="aguardando-em-E10"),
+        pytest.param("aberto", "E3", True, id="pausa-fora-de-pausado"),
+        pytest.param("aguardando_cliente", "E3", True, id="pausa-em-aguardando"),
+    ],
+)
+def test_fase_estado_check_barra_combinacao_impossivel(banco, estado, fase, com_pausa):
+    with banco.sessao("ia_app_a") as conn, pytest.raises(psycopg.errors.CheckViolation) as erro:
+        _inserir_vivo(conn, estado, fase, com_pausa)
+    assert erro.value.diag.constraint_name == "atendimento_fase_estado_check"
+
+
+@pytest.mark.banco
+def test_fase_estado_check_nao_barra_o_que_e_valido(banco):
+    with banco.sessao("ia_app_a") as conn:
+        _inserir_vivo(conn, "aberto", "E9", False)

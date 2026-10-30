@@ -1,4 +1,4 @@
--- 0003_estado_aditivo.up.sql · ciclo de vida do atendimento (B1.1): pendências D1, D2 e D3 do contrato 08 §8. ADITIVA: não altera a 0001.
+-- 0003_estado_aditivo.up.sql · ciclo de vida do atendimento (B1.1): pendências D1, D2 e D3 do contrato 08 §8. ADITIVA: não altera a 0001. Ainda não aplicada em lugar nenhum (pôde mudar na revisão 1).
 -- Aplicar como s4_super (psql -1 -v ON_ERROR_STOP=1) junto com a linha do ledger, como a 0001/0002 (migrations/README.md). NÃO reaplicar: o ledger impede
 -- (ADD CONSTRAINT não é idempotente). Desfazer: o código antigo ignora a coluna e os CHECKs só recusam o que o contrato já recusa; nada é apagado.
 SET ROLE ia_owner; SET lock_timeout = '3s';
@@ -14,4 +14,17 @@ ALTER TABLE ia.config_versao ADD CONSTRAINT config_versao_chats_teste_check CHEC
 -- D3: `chat_id` de 24 hex minúsculo. A 0001 aceita `_` e `-`, mas `passo.msg_chave` (`cg:[A-Za-z0-9]{8,64}:…`) não: um chat assim entraria
 -- e estouraria o CHECK da 1ª mensagem. Fecha na porta.
 ALTER TABLE ia.atendimento ADD CONSTRAINT atendimento_chat_id_hex_check CHECK (chat_id ~ '^[0-9a-f]{24}$');
+-- Revisão 1 (A1): `encerrado` é terminal TAMBÉM no banco. Quem muda estado, desfecho ou encerrado_em de um encerrado (ia_app por SQL direto
+-- incluso) leva check_violation com o nome da restrição. `contrato_id`, auditoria de PII e `ultimo_cliente_em` seguem graváveis depois do fim.
+CREATE OR REPLACE FUNCTION ia.fn_atendimento_terminal() RETURNS trigger LANGUAGE plpgsql AS $f$
+BEGIN
+  RAISE EXCEPTION 'atendimento encerrado é terminal' USING ERRCODE = 'check_violation', CONSTRAINT = 'atendimento_terminal_absorvente';
+END $f$;
+CREATE TRIGGER atendimento_terminal_absorvente BEFORE UPDATE ON ia.atendimento FOR EACH ROW
+  WHEN (OLD.estado = 'encerrado' AND (NEW.estado IS DISTINCT FROM OLD.estado OR NEW.desfecho IS DISTINCT FROM OLD.desfecho
+    OR NEW.encerrado_em IS DISTINCT FROM OLD.encerrado_em)) EXECUTE FUNCTION ia.fn_atendimento_terminal();
+-- Revisão 1 (B4): enquanto o atendimento conversa (`aberto`/`aguardando_cliente`) a fase é E1..E9 (E0 é do reservado, E10 do repassando) e a chave
+-- `pausa` só existe em `pausado`. Os outros estados ficam como a 0001 já os cruza.
+ALTER TABLE ia.atendimento ADD CONSTRAINT atendimento_fase_estado_check
+  CHECK (estado NOT IN ('aberto', 'aguardando_cliente') OR (fase ~ '^E[1-9]$' AND NOT (estado_conversa ? 'pausa')));
 RESET lock_timeout; RESET ROLE;

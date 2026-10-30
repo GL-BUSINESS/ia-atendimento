@@ -136,7 +136,7 @@ def test_contagem_de_objetos_do_estudo(banco: Banco):
     assert banco.escalar(
         APP,
         "SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname='ia'",
-    ) == ("fn_atendimento_podar,fn_texto_podar")
+    ) == ("fn_atendimento_podar,fn_atendimento_terminal,fn_texto_podar")  # + o trigger de terminal absorvente (0003)
     assert (
         banco.escalar(APP, "SELECT rolname FROM pg_roles r JOIN pg_database d ON d.datdba = r.oid WHERE d.datname = current_database()")
         == "ia_owner"

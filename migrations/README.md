@@ -8,7 +8,7 @@
 | `0001_esquema.up.sql` | bloco `sql` do §4 do estudo I (rodada 3c), byte a byte; schemas `ia` e `procrastinate`, 18 tabelas, 1 view, 2 funções de poda, grants, seeds | **Nunca.** O estudo I é a fonte; mudou o desenho = nova migração (0003 em diante) |
 | `0001.sha256` | `sha256sum` do arquivo acima (`5d1ceec1…3808`) | só junto com uma nova extração do estudo |
 | `0002_procrastinate.up.sql` | fila de jobs (Procrastinate 3.10.0), gerada por `scripts/gerar_0002.py` | só regerar ao trocar a versão **antes** de aplicada |
-| `0003_estado_aditivo.up.sql` | ciclo de vida (B1.1), **aditiva**: `ia.atendimento.ultimo_cliente_em` (+ `GRANT UPDATE` próprio a `ia_app`), CHECK `chats_teste` ≤ 20 ids de 24 hex, CHECK `chat_id` de 24 hex minúsculo (D1–D3 do contrato 08 §8) | **Nunca** depois de aplicada: o desenho novo é a 0004 |
+| `0003_estado_aditivo.up.sql` | ciclo de vida (B1.1), **aditiva**: `ia.atendimento.ultimo_cliente_em` (+ `GRANT UPDATE` próprio a `ia_app`), CHECK `chats_teste` ≤ 20 ids de 24 hex, CHECK `chat_id` de 24 hex minúsculo (D1–D3 do contrato 08 §8), trigger de `encerrado` terminal e CHECK fase×estado (revisão 1) | **Nunca** depois de aplicada: o desenho novo é a 0004 |
 
 Convenções: nome `NNNN_nome.up.sql` (casa com o CHECK de `ia.migracao.migracao_id`), numeração contínua, sem `down`
 (desfazer é decisão do dono: `DROP DATABASE … WITH (FORCE)` só com autorização nova). Cada arquivo faz o próprio `SET ROLE ia_owner`
@@ -38,7 +38,7 @@ pode não ler o home).
      printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0002_procrastinate', '%s');\nRESET ROLE;\n" "$SUM2"; } \
      | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
    ```
-3. **0003 + ledger**, igual (o arquivo já traz `SET ROLE ia_owner` e `RESET ROLE`); aplicar **antes** da imagem que usa `ultimo_cliente_em`:
+3. **0003 + ledger**, igual; antes, conferir que `SELECT count(*) FROM ia.atendimento WHERE chat_id !~ '^[0-9a-f]{24}$'` e os `chats_teste` com mais de 20 ids dão 0 (o `ADD CONSTRAINT` valida a tabela inteira; o `psql -1` desfaz sem estrago, mas já avisa) (o arquivo já traz `SET ROLE ia_owner` e `RESET ROLE`); aplicar **antes** da imagem que usa `ultimo_cliente_em`:
    ```bash
    SUM3=$(sha256sum migrations/0003_estado_aditivo.up.sql | cut -d' ' -f1)
    { cat migrations/0003_estado_aditivo.up.sql

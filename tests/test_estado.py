@@ -11,10 +11,10 @@ from datetime import timedelta
 
 import psycopg
 import pytest
-from pydantic import ValidationError
 
 from ia_atendimento import estado
 from ia_atendimento.estado import (
+    LEASE_AGUARDANDO_S,
     LEASE_RESERVADO_S,
     LEASE_TURNO_S,
     ArtefatoAusente,
@@ -37,6 +37,7 @@ from ia_atendimento.estado import (
     retomar,
     versoes_vigentes,
 )
+from ia_atendimento.estado_conversa import EstadoConversa, Pausa
 from tests.banco import Banco
 from tests.estado_apoio import CHAT, CHAVE, INICIO, OUTRA_PESSOA, OUTRO_CHAT, entrada
 
@@ -332,7 +333,7 @@ def test_iniciar_so_vale_a_partir_de_reservado(db_conn, relogio, versoes):
 @pytest.mark.banco
 def test_iniciar_recusa_chatbot_inconsistente(db_conn, relogio, versoes):
     res = _abrir(db_conn, relogio, versoes)
-    with pytest.raises(ValidationError):
+    with pytest.raises(EntradaInvalida):
         iniciar(db_conn, res.atendimento_id, res.versao, chatbot_antes="ligado", chatbot_estado="nada", relogio=relogio)
     with pytest.raises(EntradaInvalida):  # chatbot mexido sem saber o estado anterior (CHECK atendimento_chatbot_check, antes do banco)
         iniciar(db_conn, res.atendimento_id, res.versao, chatbot_antes=None, chatbot_estado="desligado_pela_ia", relogio=relogio)
@@ -370,7 +371,7 @@ def test_aguardar_cliente_e_retomar_alternam_e_renovam_lease(db_conn, relogio, v
     relogio.avancar(minutes=4)
     v = aguardar_cliente(db_conn, atd, v, relogio=relogio)
     a = ler(db_conn, atd)
-    assert (a.estado, a.fase, a.versao, a.lease_ate) == ("aguardando_cliente", "E1", v, relogio() + timedelta(seconds=300))
+    assert (a.estado, a.fase, a.versao, a.lease_ate) == ("aguardando_cliente", "E1", v, relogio() + timedelta(seconds=LEASE_AGUARDANDO_S))
     relogio.avancar(hours=1)
     v = retomar(db_conn, atd, v, relogio=relogio)
     a = ler(db_conn, atd)
@@ -434,7 +435,7 @@ def test_repassando_so_sai_para_encerrado(db_conn, relogio, versoes):
 @pytest.mark.banco
 def test_modo_de_repasse_desconhecido_e_recusado(db_conn, relogio, versoes):
     atd, v = _aberto(db_conn, relogio, versoes)
-    with pytest.raises(ValidationError):
+    with pytest.raises(EntradaInvalida):
         repassar(db_conn, atd, v, modo="qualquer", motivo="m", relogio=relogio)
 
 
@@ -445,10 +446,13 @@ def test_modo_de_repasse_desconhecido_e_recusado(db_conn, relogio, versoes):
 @pytest.mark.parametrize("desfecho", ["vendeu", "repassado"])
 def test_sombra_nao_fecha_vendeu_nem_repassado(db_conn, relogio, versoes, desfecho):
     atd, v = _aberto(db_conn, relogio, versoes, modo_global="sombra")
+    if desfecho == "repassado":
+        v = repassar(db_conn, atd, v, modo="fila", motivo="pediu_humano", relogio=relogio)  # `repassado` só sai de `repassando`
+    estado_antes = _estado_e_versao(db_conn, atd)
     with pytest.raises(TransicaoInvalida) as erro:
         encerrar(db_conn, atd, v, desfecho=desfecho, motivo="x", relogio=relogio)
     assert erro.value.restricao == "atendimento_sombra_check"
-    assert _estado_e_versao(db_conn, atd) == ("aberto", v)
+    assert _estado_e_versao(db_conn, atd) == estado_antes
 
 
 @pytest.mark.banco
@@ -655,9 +659,9 @@ def test_duas_aberturas_concorrentes_da_mesma_chave_geram_um_atendimento_e_um_re
         pytest.param(Mudancas(estado="aguardando_cliente"), "E0", id="nao-reservado-com-fase-E0"),
         pytest.param(Mudancas(estado="repassando"), "E4", id="repassando-fora-de-E10"),
         pytest.param(Mudancas(estado="pausado", retoma_em=INICIO + timedelta(hours=3), lease_ate=INICIO + timedelta(hours=4),
-                              estado_conversa={"fase": "E7", "pausa": {"retoma_fase": "E7"}}), "E7", id="pausado-em-E7"),
+                              estado_conversa=EstadoConversa(fase="E3", pausa=Pausa(retoma_fase="E3"))), "E7", id="pausado-em-E7"),
         pytest.param(Mudancas(estado="pausado", retoma_em=INICIO + timedelta(hours=3), lease_ate=INICIO + timedelta(hours=4),
-                              estado_conversa={"fase": "E3", "pausa": {"retoma_fase": "E4"}}), "E3", id="pausado-com-retoma-fase-diferente"),
+                              estado_conversa=EstadoConversa(fase="E3", pausa=Pausa(retoma_fase="E4"))), "E3", id="pausado-com-retoma-fase-diferente"),
     ],
 )  # fmt: skip
 def test_check_fase_estado_cruzado(db_conn, relogio, versoes, mudanca, fase):
@@ -697,7 +701,7 @@ def test_estrutura_aceita_pausado_e_dele_se_repassa_e_se_encerra(db_conn, relogi
     """As transições de pausa são de B5.7b; o enum e os CHECKs já aceitam `pausado` e o resto do ciclo parte dele."""
     atd, v = _aberto(db_conn, relogio, versoes, 1)
     retoma = relogio() + timedelta(hours=3)
-    pausa = {"fase": "E3", "pausa": {"retoma_fase": "E3"}}
+    pausa = EstadoConversa(fase="E3", pausa=Pausa(retoma_fase="E3"))
     v = aplicar(
         db_conn,
         atd,
@@ -726,7 +730,7 @@ def test_pausado_com_lease_menor_que_retoma_em_e_recusado(db_conn, relogio, vers
     with pytest.raises(TransicaoInvalida) as erro:
         aplicar(
             db_conn, atd, v,
-            Mudancas(estado="pausado", retoma_em=retoma, lease_ate=retoma - timedelta(minutes=1), estado_conversa={"fase": "E3", "pausa": {"retoma_fase": "E3"}}),
+            Mudancas(estado="pausado", retoma_em=retoma, lease_ate=retoma - timedelta(minutes=1), estado_conversa=EstadoConversa(fase="E3", pausa=Pausa(retoma_fase="E3"))),
             agora=relogio(),
         )  # fmt: skip
     assert erro.value.restricao == "atendimento_conversa_check"

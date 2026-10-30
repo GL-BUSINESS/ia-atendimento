@@ -169,7 +169,7 @@ def test_entrada_de_corpo_devolve_so_nomes_de_campo_e_regra_e_nao_encadeia_a_cau
     for campo, valor in sigilosos.items():
         with pytest.raises(EntradaInvalida) as erro:
             entrada_de_corpo({**corpo_da_entrada(), campo: valor})
-        assert erro.value.campos == ((campo, "extra_forbidden"),)
+        assert erro.value.campos == (("(campo desconhecido)", "extra_forbidden"),)
         for texto in (str(erro.value), repr(erro.value), repr(erro.value.args), repr(erro.value.campos)):
             assert valor not in texto
         assert erro.value.__cause__ is None and erro.value.__context__ is None  # a ValidationError (com o valor) não vai junto
