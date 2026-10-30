@@ -19,6 +19,8 @@ Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este re
 | Fila Procrastinate (rajada de 3 s, trava por chat), jobs e bloqueio das 20:15 | `src/ia_atendimento/fila.py`, `jobs.py` | `tests/test_fila.py`, `tests/test_jobs.py` |
 | Prontidão (`readyz`, LISTEN/NOTIFY) | `src/ia_atendimento/prontidao.py` | `tests/test_prontidao.py` |
 
+| Extrator determinístico de horário do agendamento (B5.7a, puro) | `src/ia_atendimento/agenda_extrator.py`, `tests/corpus/` | `tests/test_agenda_extrator.py` (EM1) |
+
 ## Como rodar
 
 Requisitos: `uv`, Python 3.13 (o `uv` instala), `docker` com a imagem `postgres:18` (os testes sobem um Postgres descartável em
