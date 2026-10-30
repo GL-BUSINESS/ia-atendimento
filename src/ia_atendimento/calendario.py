@@ -205,3 +205,6 @@ def limites_do_mes(agora: datetime) -> tuple[datetime, datetime]:
         datetime.combine(primeiro, time(0, 0), tzinfo=FUSO).astimezone(UTC),
         datetime.combine(seguinte, time(0, 0), tzinfo=FUSO).astimezone(UTC),
     )
+
+
+BLOQUEIO_DATAPREV_EM = datetime(2026, 11, 20, 21, 50, tzinfo=FUSO)  # B6.7: o job único fecha a entrada 10 min antes da janela DATAPREV

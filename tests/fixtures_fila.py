@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -16,7 +18,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from ia_atendimento.relogio import RelogioFalso
-from tests.banco import SENHA_LOGIN, Banco
+from tests.banco import SENHA_LOGIN, SENHA_SUPER, SUPER, Banco
 
 # terça-feira 17/11/2026 12:00 em São Paulo: dentro da janela, sem feriado, sem DATAPREV
 INSTANTE_UTIL = datetime(2026, 11, 17, 15, 0, tzinfo=UTC)
@@ -30,7 +32,8 @@ def relogio() -> RelogioFalso:
 
 def conninfo(banco: Banco, usuario: str = LOGIN_APP) -> str:
     s = banco.servidor
-    return f"host={s.host} port={s.port} dbname={banco.nome} user={usuario} password={SENHA_LOGIN}"
+    senha = SENHA_SUPER if usuario == SUPER else SENHA_LOGIN
+    return f"host={s.host} port={s.port} dbname={banco.nome} user={usuario} password={senha}"
 
 
 @pytest.fixture
@@ -38,17 +41,24 @@ def conninfo_app(banco: Banco) -> str:
     return conninfo(banco)
 
 
+def abrir(banco: Banco, usuario: str = LOGIN_APP) -> psycopg.Connection:
+    """Conexão com `search_path=procrastinate,public` (gatilhos do Procrastinate usam nomes sem schema), como a do runtime (OPERACAO §4)."""
+    from ia_atendimento.fila import conninfo_da_fila
+
+    return psycopg.connect(conninfo_da_fila(conninfo(banco, usuario)), autocommit=True, connect_timeout=5)
+
+
 @pytest.fixture
 def conn_app(banco: Banco) -> Iterator[psycopg.Connection]:
     """Conexão como o runtime (`ia_app_a`): o que o código de produção pode, o teste pode; nada além."""
-    with banco.conectar(LOGIN_APP) as conn:
+    with abrir(banco) as conn:
         yield conn
 
 
 @pytest.fixture
 def conn_super(banco: Banco) -> Iterator[psycopg.Connection]:
     """Superusuário só para montar cenário (linhas que o runtime não insere) e para o teste olhar o estado."""
-    with banco.conectar() as conn:
+    with abrir(banco, "postgres") as conn:
         yield conn
 
 
@@ -132,3 +142,95 @@ def inserir_opt_out(conn: psycopg.Connection, pessoa_id: uuid.UUID, tipo: str = 
 
 def estados_dos_atendimentos(conn: psycopg.Connection) -> dict[uuid.UUID, tuple[str, int]]:
     return {r[0]: (r[1], r[2]) for r in conn.execute("SELECT atendimento_id, estado, versao FROM ia.atendimento")}
+
+
+# --- fila ------------------------------------------------------------------------------------------------------------------------------
+
+
+@dataclass
+class Chamadas:
+    """Espião dos serviços injetados: cada lista guarda o que o handler chamou (mutável de propósito, é instrumento de teste)."""
+
+    turnos: list[uuid.UUID] = field(default_factory=list)
+    iniciados: list[uuid.UUID] = field(default_factory=list)
+    lembretes: list[tuple[uuid.UUID, int, bool]] = field(default_factory=list)
+    encerrados_sem_lembrete: list[tuple[uuid.UUID, str]] = field(default_factory=list)
+    expirados: int = 0
+    leases: list[Any] = field(default_factory=list)
+    auditados: list[tuple[uuid.UUID, ...]] = field(default_factory=list)
+    instantaneos: dict[uuid.UUID, Any] = field(default_factory=dict)
+
+
+def montar_servicos(banco: Banco, relogio: RelogioFalso, chamadas: Chamadas, **troca: Any):
+    """`Servicos` com fakes que só registram; `troca` substitui qualquer campo (ex.: `processar_turno=lento`)."""
+    from ia_atendimento.chave import LeitorConfig
+    from ia_atendimento.jobs import Servicos
+
+    @contextmanager
+    def abrir_conexao() -> Iterator[psycopg.Connection]:
+        with abrir(banco) as conn:
+            yield conn
+
+    async def processar_turno(atendimento_id: uuid.UUID) -> None:
+        chamadas.turnos.append(atendimento_id)
+
+    async def iniciar_atendimento(atendimento_id: uuid.UUID) -> None:
+        chamadas.iniciados.append(atendimento_id)
+
+    async def ler_para_lembrete(atendimento_id: uuid.UUID):
+        return chamadas.instantaneos.get(atendimento_id)
+
+    async def enviar_lembrete(atendimento_id: uuid.UUID, n: int, janela_24h: bool) -> None:
+        chamadas.lembretes.append((atendimento_id, n, janela_24h))
+
+    async def encerrar_sem_lembrete(atendimento_id: uuid.UUID, motivo: str) -> None:
+        chamadas.encerrados_sem_lembrete.append((atendimento_id, motivo))
+
+    async def expirar_parados() -> int:
+        chamadas.expirados += 1
+        return 0
+
+    async def tratar_lease(lease) -> None:
+        chamadas.leases.append(lease)
+
+    async def auditar_pii(ids) -> int:
+        chamadas.auditados.append(tuple(ids))
+        return len(ids)
+
+    base = {
+        "relogio": relogio,
+        "abrir_conexao": abrir_conexao,
+        "leitor_config": LeitorConfig(relogio),
+        "processar_turno": processar_turno,
+        "iniciar_atendimento": iniciar_atendimento,
+        "ler_para_lembrete": ler_para_lembrete,
+        "enviar_lembrete": enviar_lembrete,
+        "encerrar_sem_lembrete": encerrar_sem_lembrete,
+        "expirar_parados": expirar_parados,
+        "tratar_lease_vencido": tratar_lease,
+        "auditar_pii": auditar_pii,
+    }
+    return Servicos(**{**base, **troca})
+
+
+async def esperar(condicao, limite_s: float = 10.0, passo_s: float = 0.02) -> None:
+    """Espera a CONDIÇÃO (não um sinal nem um tempo fixo); estourar o limite é falha do teste."""
+    import asyncio
+    import time
+
+    prazo = time.monotonic() + limite_s
+    while not condicao():
+        if time.monotonic() > prazo:
+            raise AssertionError("condição não ocorreu no prazo")
+        await asyncio.sleep(passo_s)
+
+
+def tornar_vencidos(conn: psycopg.Connection) -> None:
+    """Os jobs agendados para o futuro passam a valer agora (o worker compara `scheduled_at` com o `now()` do banco, que o teste não controla)."""
+    conn.execute("UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second' WHERE status = 'todo'")
+
+
+def jobs_por_status(conn: psycopg.Connection, tarefa: str | None = None) -> list[tuple[str, str, str | None, str | None]]:
+    filtro, params = ("WHERE task_name = %s", (tarefa,)) if tarefa else ("", ())
+    consulta = f"SELECT task_name, status::text, lock, queueing_lock FROM procrastinate.procrastinate_jobs {filtro} ORDER BY id"
+    return [tuple(r) for r in conn.execute(consulta, params)]
