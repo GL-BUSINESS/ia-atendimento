@@ -46,4 +46,8 @@ ensinaram uma correção saem do hold-out e viram `regressao` (o teste `test_r11
 - **Hold-out v2 (43 casos novos, revisão 1 item 11).** Escritos e congelados ANTES das correções R1-R10; 1ª rodada contra o código da
   revisão (HEAD `065c03f`): **43/43 = 100%**. Nota honesta: eles não exercitam os mecanismos que a revisão achou (data inválida, minutos
   perdidos, relativo com dia), por isso 100% aqui não substitui os testes `regressao`/`test_r*`. Os 52 do v1 seguem em 52/52 após os ajustes.
+- **Hold-out v3 (35 casos, revisão 2).** Escritos e congelados ANTES de corrigir N1–N8, a partir dos exemplos do revisor; 1ª rodada contra o
+  HEAD `377720a`: **0/35**; depois das correções: 35/35 (e 95/95 nos v1+v2, sem mudança). Eles miram os achados, então o placar NÃO mede acerto
+  geral: serve para provar que cada classe apontada fechou. Na revisão 2 o motivo de «15 e trinta e cinco» e de lista com ponta recusada passou a
+  `hora_incompleta`, e há dois novos motivos: `intervalo` (faixa «das 14 às 16h») e `duracao_ambigua` («daqui a 1 hora ou 2 horas»).
 - Para medir de novo com honestidade, acrescente casos novos de hold-out; não reaproveite os que já viram o código.

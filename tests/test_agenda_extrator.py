@@ -487,3 +487,113 @@ def test_r11_holdout_nao_reutiliza_caso_que_ensinou_correcao():
     textos_regressao = {f["texto"] for f in FRASES if f["tag"] == "regressao"}
     assert not [f for f in HOLDOUT if f["texto"] in textos_regressao]
     assert len(HOLDOUT) >= 90  # 52 da rodada 1 + 43 novos congelados antes da revisão
+
+
+# ------------------------------------------------------------------ revisão adversarial 2 (docs/REVISAO-B5.7a-3010-r2.md)
+def _sem_alta(texto: str) -> bool:
+    return all(c.confianca != "alta" for c in _ex(texto).candidatos)
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("às 15h e 16h", ["15:00", "16:00"]),
+        ("15h e 16h30", ["15:00", "16:30"]),
+        ("15:30 e 16h", ["15:30", "16:00"]),
+        ("às 15 e 16:30", ["15:00", "16:30"]),
+        ("às 15 e 4 da tarde", ["15:00", "16:00"]),
+        ("às três ou 16:30", ["15:00", "16:30"]),
+        ("às 3 e meia ou 16:30", ["15:30", "16:30"]),
+        ("às 3 e meia ou 4 e meia", ["15:30", "16:30"]),
+        ("15h ou meio-dia", ["12:00", "15:00"]),
+        ("14h ou depois das 16", ["14:00", "16:15"]),
+        ("14h ou umas três", ["14:00", "15:00"]),
+        ("15h ou quatro da tarde", ["15:00", "16:00"]),
+        ("15h ou meio dia e meia", ["12:30", "15:00"]),
+        ("10h ou meio-dia e meia", None),  # 10h de hoje já passou: só confere que não sobra alta
+        ("às 14h ou 15 e meia", ["14:00", "15:30"]),
+        ("15h ou 16h30min", ["15:00", "16:30"]),
+    ],
+)
+def test_n1_n2_n5_lista_ou_alternativa_nunca_deixa_so_uma_metade(texto, esperado):
+    r = _ex(texto)
+    assert r.candidatos and _sem_alta(texto), texto
+    if esperado is not None:
+        assert sorted(c.quando.strftime("%H:%M") for c in r.candidatos) == esperado, texto
+
+
+@pytest.mark.parametrize(
+    "texto", ["às 15h ou 16:99", "16:99 ou 15h", "às 15 e trinta e cinco", "às 10 e 15 parcelas", "15h e 16:99", "15h ou 20:75 ou 16h"]
+)
+def test_n1_n2_metade_recusada_recusa_a_frase_inteira(texto):
+    r = _ex(texto)
+    assert r.candidatos == () and r.motivo_recusa == "hora_incompleta", texto
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "das 14 às 16h",
+        "de 14 às 16",
+        "15h até 16h",
+        "10 às 12",
+        "das 10 às 12",
+        "15 às 16h30",
+        "às 15 a 16",
+        "de 14h a 16h",
+        "das 9h às 11h30",
+    ],
+)
+def test_n3_faixa_nao_e_hora_unica(texto):
+    r = _ex(texto)
+    assert r.candidatos == () and r.motivo_recusa == "intervalo", texto
+
+
+def test_n3_faixa_nao_confunde_quantidade_nem_data():
+    assert _ex("de 12 a 24 parcelas").motivo_recusa == "sem_hora_explicita"
+    assert _ex("dia 5 a 7").candidatos == ()
+    assert _ex("às 15h, até 17h").motivo_recusa != "intervalo"  # «até» sozinho segue sendo limite (R3/R4 antigos)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    ["por volta das 15h", "mais ou menos 15h", "15h mais ou menos", "aproximadamente 15h", "perto das 15h", "lá pelas 15h", "pelas 15h", "uns 15h",
+     "tipo 15h", "15h por aí", "umas 15:30", "umas às 3 da tarde", "umas as 15", "15h ou mais", "a partir das 15h", "após as 15h", "talvez 15h",
+     "acho que 15h", "quem sabe 15h", "15h se der", "cerca de 15h", "quase 15h", "em torno de 15h", "daqui a 1 hora mais ou menos"],
+)  # fmt: skip
+def test_n4_aproximacao_nunca_e_alta(texto):
+    r = _ex(texto)
+    assert r.candidatos and _sem_alta(texto), texto
+
+
+def test_n4_hedge_distante_ou_vizinho_so_rebaixa_nunca_inventa_hora():
+    assert _ex("depois de amanhã às 15h").candidatos[0].confianca == "alta"  # «depois de» não é aproximação
+    assert _ex("às 15h").candidatos[0].confianca == "alta"
+    assert _ex("tipo 15h").candidatos[0].quando.strftime("%H:%M") == "15:00"
+
+
+@pytest.mark.parametrize(
+    "texto", ["trabalho 16 horas por dia", "trabalho 12 horas por dia", "demora 15 horas", "espero há 15 horas", "faz 15h que espero"]
+)
+def test_n6_duracao_nao_e_horario(texto):
+    assert _ex(texto).candidatos == (), texto
+
+
+@pytest.mark.parametrize("texto", ["daqui a 1 hora ou 2 horas", "daqui a 1 ou 2 horas", "dentro de 1 hora ou 2"])
+def test_n6_duracao_alternativa_recusa(texto):
+    r = _ex(texto)
+    assert r.candidatos == () and r.motivo_recusa == "duracao_ambigua", texto
+
+
+def test_n7_contradicao_parcial_recusa_ou_rebaixa():
+    r = _ex("amanhã às 10 daqui a 1 hora")
+    assert r.candidatos == () and r.motivo_recusa == "dia_contraditorio"
+
+
+def test_n8_nao_recusa_demais():
+    assert _horas(_ex("às 15h 06/11")) == ["06/11 15:00"]
+    assert _horas(_ex("às 15h 6/11/2026")) == ["06/11 15:00"]
+    assert _horas(_ex("às 3 e meia dia 6")) == ["06/11 15:30"]
+    assert _horas(_ex("às quatro e meia dia 10 de novembro")) == ["10/11 16:30"]
+    assert _horas(_ex("às 15 dia 6")) == ["06/11 15:00"]
+    assert _ex("15h 30").candidatos == ()  # continua recusando minutos soltos
