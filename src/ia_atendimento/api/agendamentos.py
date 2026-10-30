@@ -81,6 +81,13 @@ def criar_agendamento(ctx: ContextoApi, origem: str, corpo: dict[str, Any]) -> t
         return _reservar(ctx, conn, origem, entrada, chave, hash_do_texto, horario, agora)
 
 
+def _replay_sob_a_trava(conn: psycopg.Connection, chave: str, hash_do_texto: str) -> ag.Agendado | None:
+    try:
+        return ag.procurar_replay(conn, chave, hash_do_texto)
+    except estado.ConflitoIdempotencia:
+        raise ErroApi("chave_reutilizada", campo="chave") from None
+
+
 def _reservar(
     ctx: ContextoApi,
     conn: psycopg.Connection,
@@ -100,6 +107,8 @@ def _reservar(
         with conn.transaction():
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (TRAVA_ABRIR,))
             # a contagem de `_recusa` foi feita fora da trava: duas requisições concorrentes passariam. Repete AQUI, já serializado.
+            if (repetido := _replay_sob_a_trava(conn, chave, hash_do_texto)) is not None:
+                return 200, repetido.corpo()  # o gêmeo concorrente da MESMA chave já reservou: é repetição, não `chat_ocupado`
             if ag.agendamentos_hoje(conn, agora) >= ctx.leitor.valor(conn, "agenda_max_dia"):
                 raise ErroApi("agenda_max_dia")
             reservado = ag.reservar(

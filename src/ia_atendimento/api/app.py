@@ -82,7 +82,7 @@ async def _responder(logica: Logica) -> JSONResponse:
     return JSONResponse(corpo, status_code=status)
 
 
-def _registrar_rotas(app: FastAPI) -> None:
+def _rotas_de_entrada(app: FastAPI) -> None:
     @app.post("/atendimentos")
     async def post_atendimentos(request: Request) -> JSONResponse:
         identidade = _token(request, ORIGENS_ENTRADA)
@@ -126,6 +126,8 @@ def _registrar_rotas(app: FastAPI) -> None:
         corpo = objeto_do_corpo(await ler_corpo(request, LIMITE_PADRAO))
         return await _responder(lambda: anotacoes.criar_anotacao(_ctx(request), atendimento_id, corpo))
 
+
+def _rotas_de_config_e_saude(app: FastAPI) -> None:
     @app.get("/config")
     async def get_config(request: Request) -> JSONResponse:
         _token(request, ORIGENS_LEITURA_DE_CONFIG)
@@ -238,7 +240,8 @@ def criar_app(
     # sem /docs, /redoc nem /openapi.json: o esquema não é público (só /healthz é aberto)
     app = FastAPI(title="ia-atendimento", version=ctx.versao, docs_url=None, redoc_url=None, openapi_url=None, lifespan=ciclo_de_vida)
     app.state.ctx = ctx
-    _registrar_rotas(app)
+    _rotas_de_entrada(app)
+    _rotas_de_config_e_saude(app)
     _registrar_tratadores(app)
     _middleware_de_log(app)
     return app

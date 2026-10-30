@@ -726,6 +726,27 @@ def test_agenda_max_dia_e_conferido_de_novo_dentro_da_trava(ambiente, monkeypatc
     assert ambiente.escalar("SELECT count(*) FROM ia.cofre") == 1, "a reserva barrada não deixa cofre"
 
 
+def test_gemeo_concorrente_da_mesma_chave_e_repeticao_e_nao_chat_ocupado(ambiente):
+    """Duas requisições idênticas passam juntas pelo replay do começo; a que entra depois na trava vê a reserva da outra e devolve 200."""
+    from ia_atendimento import agendamento as ag
+    from ia_atendimento.api import agendamentos as rota
+
+    ambiente.ligar()
+    corpo = corpo_de_agendamento()
+    entrada = ag.EntradaAgendamento(**corpo)
+    chave, texto = ag.validar_chave(entrada), ag.texto_hash(entrada.texto_mensagem, ambiente.ctx.chaves_msg.h16)
+    quando = (datetime(2026, 11, 17, 20, 0, tzinfo=UTC), "alta")
+    agora = ambiente.relogio.agora()
+    with ambiente.runtime() as conn:
+        primeiro = rota._reservar(ambiente.ctx, conn, "n8n_braco", entrada, chave, texto, quando, agora)
+        segundo = rota._reservar(ambiente.ctx, conn, "n8n_braco", entrada, chave, texto, quando, agora)
+        with pytest.raises(rota.ErroApi) as erro:  # mesma chave, outro texto
+            rota._reservar(ambiente.ctx, conn, "n8n_braco", entrada, chave, "f" * 64, quando, agora)
+    assert primeiro[0] == 201 and segundo[0] == 200 and segundo[1]["repetido"] is True
+    assert segundo[1]["atendimento_id"] == primeiro[1]["atendimento_id"] and erro.value.codigo == "chave_reutilizada"
+    assert ambiente.escalar("SELECT count(*) FROM ia.agendamento") == 1
+
+
 def test_agendamento_opt_out_409(ambiente):
     ambiente.ligar()
     with ambiente.super() as conn:
