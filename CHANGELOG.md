@@ -33,7 +33,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
   - **Revisão 2 (`docs/REVISAO-B1.5-3010-r2.md`; 0 crítico/alto, 3 MÉDIO, 8 BAIXO):** R2-01 parada leve como alarme sem lock (o turno do cliente não fica preso até 19 min); R2-02 `datetime_post` adiantado grava pelo recebimento com `relogio_futuro` (**o contrato 08 §5.3 precisa dizer «grava limitado»**);
     R2-03 log da aplicação configurado na fábrica (a linha `req trace=…` e os alarmes 401/403 saem em produção); R2-04 `+dialeto` na `DATABASE_URL` derruba a subida; R2-05 anos fora de 2020–2999 ⇒ 422; R2-06 testes do `FOR UPDATE` e do boot real; R2-07 flags do uvicorn e `HEAD /healthz`;
     R2-08 pool com `lock_timeout`/`statement_timeout`/`check`; R2-09 FIFO e JSON profundo nos segredos; R2-10 normalização antes do `descartado`; R2-11 as revisões versionadas; R1-24 parágrafo de segredos sem contradição.
-  - **Testes:** 1.891 → 2.221 (+3 xfail estritos) (`test_api`, `test_contrato_api`, `test_migracao_0004`, `test_enfileirador`, `test_ambiente_api`, `test_segredos`, `test_esforco`, `test_mensagens`, mais os de `config`).
+  - **Testes:** 1.891 → 2.252 (+3 xfail estritos) (`test_api`, `test_contrato_api`, `test_migracao_0004`, `test_enfileirador`, `test_ambiente_api`, `test_segredos`, `test_esforco`, `test_mensagens`, mais os de `config`).
 
 - **B8.1a, corpus da F3** (`tests/corpus/`, pacote `src/ia_atendimento/corpus/`, `tests/test_corpus*.py`): 60 personas P01-P60 (40 da F3 curta,
   C5) + 24 P-M, 60 diálogos-gabarito (40 da F3 curta + as 20 P-M críticas; 739 turnos; o texto da IA não é fixado), semente determinística
