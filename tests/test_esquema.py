@@ -293,10 +293,10 @@ def test_controle_negativo_sem_o_indice_duas_t7_vivas_da_mesma_pessoa_entram(sem
 
 
 def test_banco_intacto_recusa_duas_t7_vivas_da_mesma_pessoa(banco: Banco):
-    with banco.sessao(APP) as conn:
-        _abrir_com_t7(conn, "chatNEG00002", "cc", P1)
+    with banco.sessao(APP) as conn:  # com a 0003 o chat_id é de 24 hex minúsculo
+        _abrir_com_t7(conn, "00000000000000000000aa02", "cc", P1)
         with pytest.raises(psycopg.errors.UniqueViolation) as erro:
-            _abrir_com_t7(conn, "chatNEG00003", "dd", P1)
+            _abrir_com_t7(conn, "00000000000000000000aa03", "dd", P1)
     assert erro.value.diag.constraint_name == "ferramenta_chamada_t7_viva_uq"
 
 
@@ -310,9 +310,9 @@ def test_ia_app_nao_concede_privilegio_a_ninguem(banco: Banco):
 
 def test_banco_intacto_recusa_o_que_o_controle_negativo_deixa_passar(banco: Banco):
     with banco.sessao(APP) as conn:
-        conn.execute(atd("chatNEG00001", "venda:" + "aa" * 16, FP, P1))
+        conn.execute(atd("00000000000000000000aa01", "venda:" + "aa" * 16, FP, P1))
         with pytest.raises(psycopg.errors.UniqueViolation) as erro:
-            conn.execute(atd("chatNEG00001", "venda:" + "bb" * 16, FP, P3))
+            conn.execute(atd("00000000000000000000aa01", "venda:" + "bb" * 16, FP, P3))
     assert erro.value.diag.constraint_name == "atendimento_ativo_chat_uq"
 
 
