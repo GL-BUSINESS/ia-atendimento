@@ -5,9 +5,10 @@
 
 | Arquivo | O que é | Edita? |
 |---|---|---|
-| `0001_esquema.up.sql` | bloco `sql` do §4 do estudo I (rodada 3c), byte a byte; schemas `ia` e `procrastinate`, 18 tabelas, 1 view, 2 funções de poda, grants, seeds | **Nunca.** O estudo I é a fonte; mudou o desenho = 0003+ |
+| `0001_esquema.up.sql` | bloco `sql` do §4 do estudo I (rodada 3c), byte a byte; schemas `ia` e `procrastinate`, 18 tabelas, 1 view, 2 funções de poda, grants, seeds | **Nunca.** O estudo I é a fonte; mudou o desenho = nova migração (0003 em diante) |
 | `0001.sha256` | `sha256sum` do arquivo acima (`5d1ceec1…3808`) | só junto com uma nova extração do estudo |
 | `0002_procrastinate.up.sql` | fila de jobs (Procrastinate 3.10.0), gerada por `scripts/gerar_0002.py` | só regerar ao trocar a versão **antes** de aplicada |
+| `0003_estado_aditivo.up.sql` | ciclo de vida (B1.1), **aditiva**: `ia.atendimento.ultimo_cliente_em` (+ `GRANT UPDATE` próprio a `ia_app`), CHECK `chats_teste` ≤ 20 ids de 24 hex, CHECK `chat_id` de 24 hex minúsculo (D1–D3 do contrato 08 §8) | **Nunca** depois de aplicada: o desenho novo é a 0004 |
 
 Convenções: nome `NNNN_nome.up.sql` (casa com o CHECK de `ia.migracao.migracao_id`), numeração contínua, sem `down`
 (desfazer é decisão do dono: `DROP DATABASE … WITH (FORCE)` só com autorização nova). Cada arquivo faz o próprio `SET ROLE ia_owner`
@@ -37,15 +38,22 @@ pode não ler o home).
      printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0002_procrastinate', '%s');\nRESET ROLE;\n" "$SUM2"; } \
      | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
    ```
-3. **`search_path` da fila**, por **login** (passo de infra, `s4_super`, depois do «sim»; ver «Pontos de atenção»):
+3. **0003 + ledger**, igual (o arquivo já traz `SET ROLE ia_owner` e `RESET ROLE`); aplicar **antes** da imagem que usa `ultimo_cliente_em`:
+   ```bash
+   SUM3=$(sha256sum migrations/0003_estado_aditivo.up.sql | cut -d' ' -f1)
+   { cat migrations/0003_estado_aditivo.up.sql
+     printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0003_estado_aditivo', '%s');\nRESET ROLE;\n" "$SUM3"; } \
+     | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
+   ```
+4. **`search_path` da fila**, por **login** (passo de infra, `s4_super`, depois do «sim»; ver «Pontos de atenção»):
    ```sql
    ALTER ROLE ia_app_a IN DATABASE ia_atendimento SET search_path = procrastinate, public;
    ALTER ROLE ia_app_b IN DATABASE ia_atendimento SET search_path = procrastinate, public;
    ```
-4. **Conferir** (como `ia_app_a`): `ia_ativa = false`, `modo = "duble"`, `ia.migracao` com 2 linhas e checksums iguais aos arquivos;
+5. **Conferir** (como `ia_app_a`): `ia_ativa = false`, `modo = "duble"`, `ia.migracao` com 3 linhas e checksums iguais aos arquivos;
    `DROP TABLE ia.passo` e `DELETE FROM ia.passo` falham com `permission denied`/`must be owner`.
 
-Reaplicar a **0001** é idempotente (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`; provado em teste). A **0002 não** se reaplica: o ledger é
+Reaplicar a **0001** é idempotente (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`; provado em teste). A **0002 e a 0003 não** se reaplicam (`ADD CONSTRAINT` não é idempotente): o ledger é
 quem impede (`aplicar()` do repo faz isso sozinho, mas só para banco **local**).
 
 ### Pontos de atenção
@@ -58,9 +66,9 @@ quem impede (`aplicar()` do repo faz isso sozinho, mas só para banco **local**)
   `INSERT` em `procrastinate_jobs` falha no gatilho. As tabelas de `ia` são sempre qualificadas no DDL.
 - **Default privileges** da 0001 já cobrem a 0002: tabela nova em `procrastinate` nasce com DML ao `ia_app`; em `ia` não nasce com grant.
 - **Texto da conversa e cofre** são cifrados na aplicação (sem pgcrypto); a chave nunca passa pelo banco.
-- Uma migração `0003+` nova segue o mesmo caminho: arquivo com `SET ROLE ia_owner`, transação única, ledger com o sha256.
+- Uma migração `0004+` nova segue o mesmo caminho: arquivo com `SET ROLE ia_owner`, transação única, ledger com o sha256.
 
 ## Verificação local (sem S4)
 
-`bash scripts/aplicar_migracoes_local.sh` sobe um `postgres:18` descartável, aplica as duas migrações com `migracoes.aplicar` e mostra o ledger.
+`bash scripts/aplicar_migracoes_local.sh` sobe um `postgres:18` descartável, aplica as três migrações com `migracoes.aplicar` e mostra o ledger.
 `uv run pytest tests/test_migracoes.py tests/test_esquema.py` prova a aplicação, o ledger, o checksum e os 350 casos.

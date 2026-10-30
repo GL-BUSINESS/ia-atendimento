@@ -177,3 +177,29 @@ def test_atendimento_com_chat_id_fora_de_24_hex_reprova_no_check_novo(banco, cha
     with banco.sessao("ia_app_a") as conn, pytest.raises(psycopg.errors.CheckViolation) as erro:
         _inserir_atendimento(conn, chat_id)
     assert erro.value.diag.constraint_name == "atendimento_chat_id_hex_check"
+
+
+# --- o passo a passo do dono (docs) é testado contra o banco --------------------------------------------------------------------
+
+
+@pytest.mark.banco
+@pytest.mark.parametrize("doc", [RAIZ / "docs" / "OPERACAO.md", MIGRACOES / "README.md"], ids=lambda d: d.name)
+def test_docs_documentam_a_0003_com_o_ledger_na_mesma_transacao(vazio, ate_0002, doc):
+    """`{ cat 0003; printf ledger; } | psql -1`: o arquivo e a linha do ledger entram juntos ou nenhum dos dois."""
+    from tests.test_migracoes import _epilogo_documentado
+
+    with vazio.conectar(autocommit=False) as conn:
+        aplicar(conn, ate_0002)
+    corpo = ARQUIVO_0003.read_text(encoding="utf-8")
+    soma = hashlib.sha256(ARQUIVO_0003.read_bytes()).hexdigest()
+    ruim = _epilogo_documentado(doc, "0003_estado_aditivo", "xyz")  # checksum inválido: o CHECK do ledger recusa
+    with vazio.conectar(autocommit=False) as conn, pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+        conn.execute(corpo + ruim)
+    with vazio.sessao() as conn:  # nada ficou: nem a coluna nem os CHECKs
+        assert conn.execute(
+            "SELECT count(*) FROM information_schema.columns WHERE table_name='atendimento' AND column_name='ultimo_cliente_em'"
+        ).fetchone() == (0,)
+    with vazio.conectar(autocommit=False) as conn, conn.transaction():
+        conn.execute(corpo + _epilogo_documentado(doc, "0003_estado_aditivo", soma))
+    with vazio.sessao() as conn:
+        assert conn.execute("SELECT checksum FROM ia.migracao WHERE migracao_id='0003_estado_aditivo'").fetchone() == (soma,)

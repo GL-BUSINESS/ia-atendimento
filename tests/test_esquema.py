@@ -66,7 +66,7 @@ def test_checksum_0001():
     assert nome == SQL_0001.name
     assert re.fullmatch(r"[0-9a-f]{64}", esperado)
     assert hashlib.sha256(SQL_0001.read_bytes()).hexdigest() == esperado, (
-        "0001 foi editada: aplicada não se edita, o desenho novo é a 0003+"
+        "0001 foi editada: aplicada não se edita, o desenho novo é uma migração nova"
     )
 
 
