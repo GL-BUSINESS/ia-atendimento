@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import sys
 from collections.abc import Sequence
@@ -123,10 +124,22 @@ def conferir(conn: psycopg.Connection, diretorio: Path | str) -> None:
         raise MigracoesPendentes("migrações não aplicadas: " + ", ".join(pendentes))
 
 
+def _so_local(entradas: str, aceitos: frozenset[str]) -> bool:
+    return all(e in aceitos or e.startswith("/") for e in entradas.split(","))
+
+
 def _host_local(dsn: str) -> bool:
-    partes = conninfo_to_dict(dsn)
-    host = partes.get("host", "") or ""
-    return host in HOSTS_LOCAIS or host.startswith("/")
+    """O DSN só pode chegar a loopback ou socket unix. Olha `host`, `hostaddr` (que vence o host na conexão) e as variáveis
+    PGHOST/PGHOSTADDR quando o DSN não diz; recusa `service` (o pg_service.conf pode apontar para qualquer host)."""
+    try:
+        partes = conninfo_to_dict(dsn)
+    except psycopg.ProgrammingError:
+        return False
+    if "service" in partes or (os.environ.get("PGSERVICE") and "host" not in partes and "hostaddr" not in partes):
+        return False
+    host = partes.get("host") or os.environ.get("PGHOST") or ""
+    hostaddr = partes.get("hostaddr") or os.environ.get("PGHOSTADDR") or ""
+    return _so_local(host, HOSTS_LOCAIS) and (not hostaddr or _so_local(hostaddr, HOSTS_LOCAIS))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

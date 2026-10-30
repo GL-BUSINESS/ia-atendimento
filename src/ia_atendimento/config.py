@@ -19,11 +19,12 @@ HOSTS_LOCAIS = frozenset({"localhost", "127.0.0.1", "::1"})
 DOMINIOS_PROIBIDOS = ("deepseek.com", "deepseek.ai", "anthropic.com", "claude.ai")
 # Mesma regra do CHECK `modelo_por_faixa` do esquema (famílias abertas) + roteador do provedor (`accounts/.../deepseek-...-us`).
 PADRAO_MODELO = re.compile(r"^(?:[a-z0-9._-]+/)*(?:deepseek|gemini)-[a-z0-9][a-z0-9._-]{0,59}$")
+LOGINS_PROIBIDOS = frozenset({"postgres", "s4_super", "ia_owner"})
 CHAVE_ID_MAX = 32767  # coluna smallint (conversa_cifrada.chave_id, cofre.chave_id)
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", frozen=True)
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", frozen=True, hide_input_in_errors=True)
 
     # Banco `ia_atendimento` na S4, login `ia_app_a`/`ia_app_b` (sem DDL, sem DELETE). A URL leva a senha: SecretStr.
     database_url: SecretStr
@@ -36,6 +37,17 @@ class Settings(BaseSettings):
     # Chave AES-256-GCM da conversa/cofre: id vigente (mensal) + arquivo 0600 com {"<id>": "<base64 de 32 bytes>"}.
     chave_aes_id: int = Field(ge=1, le=CHAVE_ID_MAX)
     chave_aes_arquivo: Path
+
+    @field_validator("database_url")
+    @classmethod
+    def _banco_como_ia_app(cls, valor: SecretStr) -> SecretStr:
+        """O runtime conecta como ia_app_* (sem DDL, sem DELETE): nunca como dono nem superusuário. Não ecoa a URL no erro."""
+        partes = urlsplit(valor.get_secret_value())
+        if partes.scheme.split("+")[0] not in ("postgresql", "postgres") or not partes.hostname:
+            raise ValueError("database_url deve ser postgresql://usuario:senha@host:porta/banco")
+        if (partes.username or "") in LOGINS_PROIBIDOS or not partes.username:
+            raise ValueError("database_url deve usar um login ia_app_* (nunca ia_owner, s4_super ou postgres)")
+        return valor
 
     @field_validator("modelo_nome")
     @classmethod

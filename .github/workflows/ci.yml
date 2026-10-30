@@ -1,0 +1,48 @@
+# Portão de qualidade: ruff + pytest com Postgres 18 como serviço. SEM segredos (tudo é dado sintético e banco descartável).
+# Observação (memória ci-parado-cobranca): enquanto o CI do GitHub estiver parado por cobrança, o portão é `bash scripts/check.sh` local + revisão.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: descartavel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -h 127.0.0.1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      IA_TESTE_PG_HOST: localhost
+      IA_TESTE_PG_PORT: "5432"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run python scripts/varredura.py
+      - run: sha256sum -c migrations/0001.sha256
+        working-directory: migrations
+      - run: uv run python scripts/gerar_0002.py --verificar
+      - run: uv run pytest -q

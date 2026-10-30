@@ -21,9 +21,18 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 - Limitação registrada, fora de escopo: dígitos por extenso e dígitos misturados com letras (`5x2x9...`) não são mascarados.
 
 ### Adicionado
-- Esqueleto do repositório: Python 3.13, dependências pinadas, ruff, pytest, `.env.example` só com nomes.
-- `config.Settings` (pydantic-settings, `SecretStr`, recusa API oficial da DeepSeek e qualquer coisa da Anthropic).
-- `cifra`: AES-256-GCM com AAD (`atendimento_id`, ou a forma completa do esquema), chaveiro em arquivo 0600.
-- `mascara`: máscara determinística de PII.
-- `migrations/0001` (bloco `sql` do estudo I, byte a byte, `0001.sha256`) e `0002` (Procrastinate 3.10.0), `migracoes.aplicar`
-  idempotente com ledger `ia.migracao`.
+- Esqueleto do repositório: Python 3.13, dependências pinadas (`uv.lock`), ruff, pytest, `.env.example` só com nomes, `LICENSE` privada.
+- `config.Settings` (pydantic-settings, `SecretStr`, `hide_input_in_errors`): recusa API oficial da DeepSeek, qualquer coisa da
+  Anthropic, modelo fora de `deepseek-*`/`gemini-*` e `DATABASE_URL` com login `postgres`/`s4_super`/`ia_owner` (o runtime é `ia_app_*`).
+- `cifra`: AES-256-GCM com AAD (`atendimento_id`, ou a forma completa do esquema `atendimento_id|seq|remetente|tipo|chave_id`),
+  chaveiro em arquivo 0600 por `chave_id`; erros e logs sem texto, chave ou ciphertext.
+- `mascara`: máscara determinística de PII (CPF por DV, telefone, e-mail, CEP, UUID, número longo, nome marcado).
+- `migrations/0001` = bloco `sql` do estudo I **rodada 3c**, byte a byte (`5d1ceec1…3808`, `0001.sha256`); `0002` = Procrastinate 3.10.0
+  (`scripts/gerar_0002.py`, com `--verificar`); `migracoes.aplicar`/`conferir` idempotentes com ledger `ia.migracao`, uma transação por arquivo,
+  advisory lock e CLI que só aceita banco local (`host`, `hostaddr`, `PGHOST`, `service` verificados).
+- Testes: os **350 casos** do `i-teste-0001.sh` portados como dados (nome, papel, SQL, expectativa) para pytest, mais checksum da 0001,
+  igualdade com o bloco do estudo I, seeds (27 chaves), `ia_app` sem DDL/DELETE (lido do catálogo), controle negativo (sem os índices de
+  trava por chat e de T7 viva as inserções passam) e a 0002.
+- `scripts/check.sh` (portão local), `scripts/aplicar_migracoes_local.sh`, `scripts/varredura.py` (segredo, CPF com DV válido, e-mail real),
+  `.github/workflows/ci.yml` (ruff + pytest com serviço `postgres:18`, sem segredos, `permissions: contents: read`, actions fixadas por SHA),
+  `docs/OPERACAO.md` e `migrations/README.md` (aplicação na S4 = texto para o dono, **não executar sem o «sim»**).

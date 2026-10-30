@@ -238,3 +238,35 @@ def test_cli_aplica_em_banco_local_e_nao_imprime_senha(vazio, servidor, capsys):
     saida = capsys.readouterr().out
     assert "0001_esquema" in saida and "0002_procrastinate" in saida and "descartavel" not in saida
     assert main(["--dsn", dsn, "--conferir"]) == 0
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "host=localhost hostaddr=10.9.0.4 dbname=x user=s4_super",  # hostaddr vence o host: conectaria na S4
+        "host=localhost,10.9.0.4 dbname=x user=s4_super",
+        "postgresql://u:p@db.exemplo.test/x",
+        "service=s4 user=s4_super",  # pg_service.conf pode apontar para qualquer host
+        "dbname=x user=s4_super hostaddr=100.117.206.94",
+    ],
+)
+def test_cli_recusa_dsn_que_pode_chegar_a_um_host_remoto(dsn, capsys):
+    with pytest.raises(SystemExit) as saida:
+        main(["--dsn", dsn])
+    assert saida.value.code == 2
+
+
+def test_cli_sem_host_no_dsn_respeita_pghost_do_ambiente(monkeypatch):
+    monkeypatch.setenv("PGHOST", "10.9.0.4")
+    with pytest.raises(SystemExit) as saida:
+        main(["--dsn", "dbname=x user=s4_super"])
+    assert saida.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "dsn", ["host=/var/run/postgresql dbname=x", "host=127.0.0.1 hostaddr=127.0.0.1 dbname=x", "host=localhost dbname=x"]
+)
+def test_host_local_aceita_socket_e_loopback(dsn):
+    from ia_atendimento.migracoes import _host_local
+
+    assert _host_local(dsn)

@@ -128,3 +128,28 @@ def test_env_example_so_tem_nomes_dos_campos():
     for linha in exemplo.splitlines():
         if linha.startswith(("DATABASE_URL", "MODELO_API_KEY_1", "API_TOKEN")):
             assert linha.split("=", 1)[1] == "", f"valor secreto no exemplo: {linha.split('=', 1)[0]}"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://postgres:segredo-do-super@127.0.0.1:5434/ia_atendimento",
+        "postgresql://s4_super:segredo-do-super@127.0.0.1:5434/ia_atendimento",
+        "postgresql://ia_owner:segredo-do-super@127.0.0.1:5434/ia_atendimento",
+        "mysql://ia_app_a:segredo-do-super@127.0.0.1/ia",
+        "postgresql://127.0.0.1/ia_atendimento",
+        "isto nao e url",
+    ],
+)
+def test_database_url_recusa_dono_superusuario_e_esquema_errado_sem_ecoar_a_senha(monkeypatch, url):
+    """O runtime conecta como ia_app_* (sem DDL, sem DELETE): nunca como dono ou superusuário."""
+    _definir(monkeypatch, {**BASE, "DATABASE_URL": url})
+    with pytest.raises(ValidationError) as erro:
+        Settings()
+    assert "segredo-do-super" not in str(erro.value)
+
+
+@pytest.mark.parametrize("scheme", ["postgresql", "postgres", "postgresql+psycopg"])
+def test_database_url_do_ia_app_e_aceita(monkeypatch, scheme):
+    _definir(monkeypatch, {**BASE, "DATABASE_URL": f"{scheme}://ia_app_a:senha@127.0.0.1:5434/ia_atendimento"})
+    assert Settings().database_url.get_secret_value().startswith(scheme)
