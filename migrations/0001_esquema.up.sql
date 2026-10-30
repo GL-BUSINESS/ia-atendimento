@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS ia.config_versao (
     WHEN nome = 'agenda_max_por_atendimento' THEN CASE WHEN jsonb_typeof(valor) = 'number' THEN (valor)::numeric BETWEEN 1 AND 2 AND (valor)::numeric = trunc((valor)::numeric) ELSE false END   -- teto do DDL: seq 1..2
     WHEN nome = 'agenda_janela' THEN jsonb_path_exists(valor, '$ ? (@.inicio like_regex "^([01][0-9]|2[0-3]):[0-5][0-9]$" && @.fim like_regex "^([01][0-9]|2[0-3]):[0-5][0-9]$" && @.inicio < @.fim && @.inicio >= "08:00" && @.fim <= "20:00"
       && (!exists(@.sabado_fim) || (@.sabado_fim like_regex "^([01][0-9]|2[0-3]):[0-5][0-9]$" && @.sabado_fim > @.inicio && @.sabado_fim <= @.fim)))')
-    WHEN nome IN ('max_disparos_dia', 'max_abertos', 'ia_repasse_dias', 'agenda_max_pausados', 'agenda_folga_min') THEN CASE WHEN jsonb_typeof(valor) = 'number'
+    WHEN nome = 'chats_teste' THEN jsonb_typeof(valor) = 'array' AND jsonb_array_length(valor) <= 50 AND NOT jsonb_path_exists(valor, '$[*] ? (!(@.type() == "string" && @ like_regex "^[A-Za-z0-9_-]{1,128}$"))')   -- allowlist de chat_id do modo teste
+    WHEN nome = 'agenda_periodos' THEN jsonb_typeof(valor) = 'object' AND NOT jsonb_path_exists(valor, '$.keyvalue() ? (!(@.key like_regex "^[a-z_]{1,30}$" && @.value like_regex "^([01][0-9]|2[0-3]):[0-5][0-9]$" && @.value >= "08:00" && @.value <= "20:00"))')   -- «de manhã» → 09:00…
+    WHEN nome IN ('max_disparos_dia', 'max_abertos', 'ia_repasse_dias', 'agenda_max_pausados', 'agenda_folga_min', 'agenda_max_dia') THEN CASE WHEN jsonb_typeof(valor) = 'number'
       THEN (valor)::numeric BETWEEN 1 AND 200 AND (valor)::numeric = trunc((valor)::numeric) ELSE false END
     WHEN nome = 'modo' THEN jsonb_typeof(valor) = 'string' AND (valor #>> '{}') IN ('real', 'sombra', 'duble', 'teste')
     WHEN nome = 'bancos_digitacao' THEN jsonb_typeof(valor) = 'array' AND valor <@ '["FACTA", "3RN", "C6"]'::jsonb
@@ -54,7 +56,7 @@ CREATE TABLE IF NOT EXISTS ia.config_versao (
       AND coalesce(valor ?& ARRAY['baixa', 'media', 'alta', 'muito_alta'] AND (valor - ARRAY['baixa', 'media', 'alta', 'muito_alta']) = '{}'::jsonb, false)
       AND NOT jsonb_path_exists(valor, '$.* ? (!(@.modelo like_regex "^(deepseek|gemini)-[a-z0-9][a-z0-9._-]{0,59}$" && @.provedor like_regex "^[a-z0-9_-]{1,30}$" && @.raciocinio.type() == "boolean"
         && @.custo_max_brl > 0 && @.custo_max_brl <= 3))')
-    WHEN nome IN ('ia_ativa', 'verificador_ativo', 'agenda_ativa', 'agenda_b_digita') THEN jsonb_typeof(valor) = 'boolean'
+    WHEN nome IN ('ia_ativa', 'verificador_ativo', 'agenda_ativa', 'agenda_b_digita', 'bloqueio_entrada') THEN jsonb_typeof(valor) = 'boolean'
     ELSE true END),
   CONSTRAINT config_versao_autor_check CHECK (char_length(publicado_por) BETWEEN 1 AND 128 AND (motivo IS NULL OR char_length(motivo) BETWEEN 1 AND 500)));
 -- Tudo nasce DESLIGADO e no modo mais seguro (D27; D1). Rampa do piloto (J §2.4) = versões novas de max_disparos_dia (15, 20). alcada_valor_max_brl = 6000: p90 do valor_contratado do robô na FACTA, 30 d, n=1.495 (REVISAO-LACUNAS §Medição para D15; D15, só FACTA no MVP).
@@ -76,6 +78,8 @@ INSERT INTO ia.config_versao (nome, versao, valor, publicado_por, motivo) VALUES
   ('modelo_por_faixa', 1, '{"baixa": {"modelo": "deepseek-v4p1-flash-1017", "provedor": "fireworks-us", "raciocinio": false, "custo_max_brl": 1.0}, "media": {"modelo": "deepseek-v4p1-flash-1017", "provedor": "fireworks-us", "raciocinio": false, "custo_max_brl": 2.0},
     "alta": {"modelo": "deepseek-v4p1-flash-1017", "provedor": "fireworks-us", "raciocinio": false, "custo_max_brl": 3.0}, "muito_alta": {"modelo": "deepseek-v4p1-flash-1017", "provedor": "fireworks-us", "raciocinio": false, "custo_max_brl": 3.0}}',
    'migracao:0001', 'ag: MVP com um modelo só em todas as faixas; trocar por faixa (V4 Pro, V4.1 Flash com raciocínio, Gemini Flash) só depois da F3, com o dono'),
+  ('bloqueio_entrada', 1, 'false', 'migracao:0001', 'sem disparo novo (timer 20:15); abertos e pausados seguem as réguas deles'), ('chats_teste', 1, '[]', 'migracao:0001', 'allowlist de chat_id do modo teste; vazia = nenhum chat pode ser teste'),
+  ('agenda_max_dia', 1, '5', 'migracao:0001', 'M §5.3: caso (b) começa baixo (5, 10, 15)'), ('agenda_periodos', 1, '{"cedo": "08:30", "manha": "09:00", "almoco": "12:00", "depois_do_almoco": "13:30", "tarde": "14:00", "fim_da_tarde": "17:30", "noite": "19:00"}', 'migracao:0001', 'M §2.3: padrões de período do extrator (noite = teto da janela)'),
   ('agenda_ativa', 1, 'false', 'migracao:0001', 'M: nasce desligado'), ('agenda_janela', 1, '{"inicio": "08:30", "fim": "19:00", "sabado_fim": "12:00"}', 'migracao:0001', 'M §2.4: seg–sáb, sábado até 12:00 no piloto (J §1.4)'),
   ('agenda_teto_horas', 1, '23', 'migracao:0001', 'M: última msg do cliente + 23 h (janela de 24 h)'), ('agenda_max_por_atendimento', 1, '2', 'migracao:0001', 'M: 2 por atendimento'), ('agenda_max_pausados', 1, '10', 'migracao:0001', 'M/K: fora de max_abertos'),
   ('agenda_folga_min', 1, '30', 'migracao:0001', 'M/K: a vigia só devolve em retoma_em + 30 min'), ('agenda_b_digita', 1, 'false', 'migracao:0001', 'M: caso (b) não abre digitação no MVP'),
@@ -276,7 +280,7 @@ CREATE TABLE IF NOT EXISTS ia.passo (
     AND (msg_fingerprint IS NULL OR msg_fingerprint ~ '^[0-9a-f]{64}$') AND (msg_chave_rpa IS NULL OR msg_chave_rpa ~ '^[A-Za-z0-9_-]{8,64}$')
     AND (msg_chave IS NULL OR msg_chave ~ '^(cg:[A-Za-z0-9]{8,64}:[0-9a-f]{16}|cgid:[A-Za-z0-9_.=-]{1,120}|rpa:[A-Za-z0-9_-]{8,64})$')),
   CONSTRAINT passo_turno_check CHECK ((tipo = 'anotacao_operador' OR (turno IS NOT NULL AND turno >= 0 AND fase IS NOT NULL AND fase ~ '^E([0-9]|10)$'))   -- turno e fase sempre (L G6, A1)
-    AND (tx_id IS NULL OR (tipo IN ('resposta_enviada', 'lembrete') AND tx_id ~ '^TX-[0-9]{2}$')) AND (transversal IS NULL OR transversal ~ '^[a-z0-9_]{1,40}$')   -- tx_id NULL = texto livre do modelo
+    AND (tx_id IS NULL OR (tipo IN ('resposta_enviada', 'lembrete', 'repasse', 'agendamento') AND tx_id ~ '^TX-(M)?[0-9]{2}$')) AND (transversal IS NULL OR transversal ~ '^[a-z0-9_]{1,40}$')   -- tx_id: TX-nn (H) ou TX-Mnn (M); NULL = texto livre do modelo
     AND (responde_ordem IS NULL OR (responde_ordem >= 1 AND responde_ordem < ordem AND tipo <> 'mensagem_recebida'))),
   CONSTRAINT passo_modelo_check CHECK (((tipo = 'decisao' AND motor = 'modelo') = (intencao IS NOT NULL AND confianca IS NOT NULL)) AND (tipo = 'decisao' OR num_nonnulls(intencao, objecao, confianca) = 0)
     AND (objecao IS NULL OR intencao IS NOT NULL) AND (intencao IS NULL OR (intencao ~ '^[a-z0-9_]{1,40}$' AND confianca IN ('alta', 'media', 'baixa')))  -- vocabulário da intenção/objeção: Pydantic (H a marca como hipótese)
