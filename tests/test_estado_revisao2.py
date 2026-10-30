@@ -93,7 +93,7 @@ def test_r1_referencia_aceita_uuid4_e_uuid7_sempre():
 
 def test_r1_uuid_do_caso_do_revisor_e_oferta_numerica_de_6_a_10_digitos():
     assert Pausa(agendamento_ref="01912345-6789-7abc-8def-0123456789ab", retoma_fase="E3")
-    for oferta in ("115716", "48213", "4821300000", "12345678"):
+    for oferta in ("115716", "48213", "482130000", "12345678"):
         assert OfertaCorrente(banco="FACTA", oferta_id=oferta, oferta_versao=1).oferta_id == oferta
 
 
