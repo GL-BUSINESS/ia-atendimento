@@ -50,6 +50,7 @@ log = logging.getLogger(__name__)
 
 TOLERANCIA_FUTURO: Final = timedelta(minutes=5)  # mesma tolerância de `registrar_mensagem_do_cliente`
 PECA_DO_CONFLITO: Final = "receptor"
+CODIGO_RELOGIO_FUTURO: Final = "relogio_futuro"
 Resultado = Literal["gravado", "repetido", "anexado", "descartado", "conflito"]
 
 
@@ -213,6 +214,17 @@ def _registrar_conflito(conn: psycopg.Connection, atendimento_id: uuid.UUID, ati
     log.warning("alerta ti: evento_conflito atendimento=%s estado=%s", str(atendimento_id)[:6], ativo.estado)
 
 
+def _marcar_relogio_futuro(conn: psycopg.Connection, atendimento_id: uuid.UUID) -> None:
+    """Código `relogio_futuro` em `contexto_codigos` (uma vez; até 10 códigos). Como `ultimo_cliente_em`, não toca `versao`: é sinal para o
+    TI, não estado de negócio (o `FOR UPDATE` do registro já está pego, então não há corrida com outra escrita desta linha)."""
+    conn.execute(
+        "UPDATE ia.atendimento SET contexto_codigos = array_append(contexto_codigos, %s) WHERE atendimento_id = %s"
+        " AND NOT (%s = ANY(contexto_codigos)) AND cardinality(contexto_codigos) < 10",
+        (CODIGO_RELOGIO_FUTURO, atendimento_id, CODIGO_RELOGIO_FUTURO),
+    )
+    log.warning("alerta ti: datetime_post adiantado (relogio_futuro) atendimento=%s", str(atendimento_id)[:6])
+
+
 def registrar_mensagem(
     conn: psycopg.Connection,
     evento: EventoMensagem,
@@ -221,6 +233,7 @@ def registrar_mensagem(
     agora: datetime,
     delegacao_externa: bool,
     deps: DepsMensagem,
+    relogio_futuro: bool = False,
 ) -> RespostaMensagem:
     """Grava a mensagem do cliente no atendimento ativo do chat (decide `gravado|repetido|anexado|conflito|descartado`).
 
@@ -236,9 +249,11 @@ def registrar_mensagem(
         )
         decisao = gravar_mensagem_recebida(
             conn, ativo.atendimento_id, evento=evento, chaves=deps.chaves, recebido_em=agora, casar=criar_casador(deps),
-            fora_de_ordem=fora_de_ordem,
+            fora_de_ordem=fora_de_ordem, enviada_em=agora if relogio_futuro else None,
         )  # fmt: skip
         if isinstance(decisao, Gravada):
+            if relogio_futuro:
+                _marcar_relogio_futuro(conn, ativo.atendimento_id)
             return _gravada(
                 conn, ativo, evento, decisao, chat_id=chat_id, agora=agora, delegacao_externa=delegacao_externa, deps=deps,
                 fora_de_ordem=fora_de_ordem,

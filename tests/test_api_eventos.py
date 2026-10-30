@@ -187,7 +187,7 @@ def test_fora_de_ordem_quando_a_hora_e_anterior_a_da_ultima_mensagem(ambiente):
     assert ambiente.escalar("SELECT ultimo_cliente_em FROM ia.atendimento") == datetime(2026, 11, 17, 12, 0, tzinfo=UTC), "só avança"
 
 
-def test_mensagem_sem_hora_usa_o_recebimento_e_hora_no_futuro_nao_adianta_a_janela(ambiente):
+def test_mensagem_sem_hora_ou_com_hora_adiantada_usa_o_recebimento_na_janela(ambiente):
     abrir_ativo(ambiente)
     ambiente.evento_chatguru(mensagem_nativa("sem hora", datetime_post=None))
     ambiente.evento_chatguru(mensagem_nativa("futuro", datetime_post="2026-12-31T10:00:00-03:00"))

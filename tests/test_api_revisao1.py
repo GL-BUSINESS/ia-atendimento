@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -83,12 +84,59 @@ def test_rfc3339_com_z_e_com_fracao_continua_valendo(ambiente):
         assert ambiente.evento_chatguru(mensagem_nativa(f"oi {valor}", datetime_post=valor)).json()["resultado"] == "gravado", valor
 
 
-def test_datetime_post_mais_de_5_min_no_futuro_422_e_ate_5_min_vale(ambiente):
-    abrir_ativo(ambiente)
-    r = ambiente.evento_chatguru(mensagem_nativa("futuro", datetime_post="2026-12-31T10:00:00-03:00"))
-    assert r.status_code == 422 and r.json()["erro"]["campo"] == "datetime_post"
+@pytest.mark.parametrize(
+    "hora",
+    [
+        "2026-11-17T15:06:00Z",
+        "2026-11-17T18:00:00-03:00",
+        "2026-12-31T10:00:00-03:00",
+        "2099-01-01T00:00:00Z",
+    ],  # +6 min, fuso trocado (+3 h), meses, anos
+)
+@pytest.mark.parametrize("rota", ["chatguru", "mensagem"])
+def test_datetime_post_adiantado_nao_perde_a_mensagem_grava_pelo_recebimento_e_marca_o_atendimento(ambiente, rota, hora):
+    """R2-02: relógio (ou fuso) do ChatGuru/RPA adiantado é sinal para o TI, não motivo para descartar a mensagem real do cliente."""
+    atd = abrir_ativo(ambiente)
+    if rota == "chatguru":
+        r = ambiente.evento_chatguru(mensagem_nativa("quero a proposta", datetime_post=hora))
+    else:
+        corpo = {
+            "chat_id": CHAT,
+            "phone_id": PHONE,
+            "tipo": "texto",
+            "texto": "quero a proposta",
+            "origem_evento": "webhook",
+            "datetime_post": hora,
+        }
+        r = ambiente.post("/eventos/mensagem", corpo, token="ti")
+    assert r.status_code == 200 and r.json()["resultado"] == "gravado", r.text
+    agora = ambiente.relogio.agora()
+    assert ambiente.escalar("SELECT msg_enviada_em FROM ia.passo WHERE atendimento_id = %s", (atd,)) == agora, (
+        "vale o recebimento, nunca a hora do futuro"
+    )
+    assert ambiente.escalar("SELECT ultimo_cliente_em FROM ia.atendimento WHERE atendimento_id = %s", (atd,)) == agora
+    assert ambiente.escalar("SELECT contexto_codigos FROM ia.atendimento WHERE atendimento_id = %s", (atd,)) == ["relogio_futuro"]
+    assert ambiente.ctx.metricas.valor("datetime_post_adiantado") == 1 and ambiente.fila.turnos == [(atd, CHAT)]
+
+
+def test_datetime_post_adiantado_o_retry_do_gateway_nao_duplica_e_o_codigo_entra_uma_vez(ambiente):
+    atd = abrir_ativo(ambiente)
+    corpo = mensagem_nativa("quero a proposta", datetime_post="2026-12-31T10:00:00-03:00")
+    assert ambiente.evento_chatguru(corpo).json()["resultado"] == "gravado"
+    assert ambiente.evento_chatguru(corpo).json()["resultado"] == "repetido", "as 3 tentativas do ChatGuru chegam em segundos"
+    assert ambiente.escalar("SELECT count(*) FROM ia.passo WHERE atendimento_id = %s", (atd,)) == 1
+    ambiente.evento_chatguru(mensagem_nativa("outra", datetime_post="2099-01-01T00:00:00Z"))
+    assert ambiente.escalar("SELECT contexto_codigos FROM ia.atendimento WHERE atendimento_id = %s", (atd,)) == ["relogio_futuro"]
+
+
+def test_ate_5_min_a_frente_vale_a_hora_do_evento_e_sem_codigo(ambiente):
+    atd = abrir_ativo(ambiente)
     assert ambiente.evento_chatguru(mensagem_nativa("quase", datetime_post="2026-11-17T09:04:00-03:00")).json()["resultado"] == "gravado"
-    assert ambiente.escalar("SELECT count(*) FROM ia.passo") == 1, "o futuro distante não chegou a msg_enviada_em"
+    assert ambiente.escalar("SELECT msg_enviada_em FROM ia.passo WHERE atendimento_id = %s", (atd,)) == datetime(
+        2026, 11, 17, 12, 4, tzinfo=UTC
+    )
+    assert ambiente.escalar("SELECT contexto_codigos FROM ia.atendimento WHERE atendimento_id = %s", (atd,)) == []
+    assert ambiente.ctx.metricas.valor("datetime_post_adiantado") == 0
 
 
 # --- R1-15 e R1-16 --------------------------------------------------------------------------------------------------------------------------

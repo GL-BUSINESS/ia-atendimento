@@ -255,14 +255,14 @@ def _replay_sem_hora(conn: psycopg.Connection, atendimento_id: uuid.UUID, evento
     return linha[0] if linha else None
 
 
-def _dados_da_mensagem(evento: EventoMensagem, ident: Identidade, fora_de_ordem: bool) -> MensagemRecebida:
+def _dados_da_mensagem(evento: EventoMensagem, ident: Identidade, fora_de_ordem: bool, enviada_em: datetime | None) -> MensagemRecebida:
     return MensagemRecebida(
         msg_chave=ident.msg_chave,
         msg_fingerprint=ident.msg_fingerprint,
         msg_tipo=evento.tipo,
         msg_tamanho=ident.msg_tamanho,
         origem_evento=evento.origem_evento,
-        msg_enviada_em=evento.datetime_post,
+        msg_enviada_em=enviada_em or evento.datetime_post,
         msg_chave_rpa=None,
         fora_de_ordem=fora_de_ordem,
     )
@@ -277,6 +277,7 @@ def gravar_mensagem_recebida(
     recebido_em: datetime | None = None,
     casar: Casador | None = None,
     fora_de_ordem: bool = False,
+    enviada_em: datetime | None = None,
 ) -> Gravada | Duplicada | Casada | Conflito:
     """Grava a mensagem como passo `mensagem_recebida` (só códigos e tamanho: o texto vai, mascarado e cifrado, a `conversa`).
 
@@ -285,7 +286,7 @@ def gravar_mensagem_recebida(
     evento viram dois passos: `casar` é o gancho do casamento (contrato 08 §5.3 passo 7, B1.5); roda DENTRO do `FOR UPDATE` do
     atendimento, depois da busca exata e antes do INSERT, e devolve a `ordem` do passo já gravado (ou `None`)."""
     ident = identidade(evento, chaves, recebido_em=recebido_em or datetime.now(UTC))
-    dados = _dados_da_mensagem(evento, ident, fora_de_ordem)
+    dados = _dados_da_mensagem(evento, ident, fora_de_ordem, enviada_em)
     with conn.transaction():
         fase, rodada = travar_atendimento(conn, atendimento_id)
         anterior = _existente(conn, ident, evento.rpa_id)

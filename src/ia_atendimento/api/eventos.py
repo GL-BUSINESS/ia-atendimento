@@ -79,23 +79,23 @@ def url_sem_query(url: str | None, campo: str) -> str | None:
     return f"{partes.scheme}://{host}{f':{porta}' if porta else ''}{partes.path}"
 
 
-def _evento_de_nativo(dados: NativoChatguru, origem_evento: str) -> EventoMensagem | None:
+def _evento_de_nativo(dados: NativoChatguru, origem_evento: str, hora: datetime | None) -> EventoMensagem | None:
     """`None` = `chat` sem texto (descartado `texto_vazio`)."""
     tipo = TIPOS_NATIVOS.get(dados.tipo_mensagem, "outro")
     if tipo == "texto" and not (dados.texto_mensagem or "").strip():
         return None
     return EventoMensagem.criar(
         chat_id=dados.chat_id, phone_id=dados.phone_id, tipo=tipo, texto=dados.texto_mensagem if tipo == "texto" else None,
-        url_arquivo=url_sem_query(dados.url_arquivo, "url_arquivo"), datetime_post=dados.datetime_post, origem_evento=origem_evento,
+        url_arquivo=url_sem_query(dados.url_arquivo, "url_arquivo"), datetime_post=hora, origem_evento=origem_evento,
     )  # fmt: skip
 
 
-def _evento_de_normalizado(dados: MensagemNormalizada) -> EventoMensagem | None:
+def _evento_de_normalizado(dados: MensagemNormalizada, hora: datetime | None) -> EventoMensagem | None:
     if dados.tipo == "texto" and not (dados.texto or "").strip():
         return None
     return EventoMensagem.criar(
         chat_id=dados.chat_id, phone_id=dados.phone_id, tipo=dados.tipo, texto=dados.texto if dados.tipo == "texto" else None,
-        url_arquivo=url_sem_query(dados.url_arquivo, "url_arquivo"), datetime_post=dados.datetime_post, origem_evento=dados.origem_evento,
+        url_arquivo=url_sem_query(dados.url_arquivo, "url_arquivo"), datetime_post=hora, origem_evento=dados.origem_evento,
         rpa_id=dados.rpa_id,
     )  # fmt: skip
 
@@ -124,7 +124,7 @@ def _deps(ctx: ContextoApi) -> DepsMensagem:
 
 
 def _tratar(
-    ctx: ContextoApi, identidade: Identidade, chat_id: str, montar: Any, delegacao_externa: bool, agora: datetime
+    ctx: ContextoApi, identidade: Identidade, chat_id: str, montar: Any, delegacao_externa: bool, agora: datetime, relogio_futuro: bool
 ) -> tuple[int, dict[str, Any]]:
     with ctx.conexao() as conn:
         ativo = atendimento_ativo(conn, chat_id)
@@ -134,29 +134,38 @@ def _tratar(
         evento = montar()
         if evento is None:
             return 200, RespostaMensagem("descartado", motivo="texto_vazio", atendimento_id=ativo.atendimento_id).corpo()
-        resposta = registrar_mensagem(conn, evento, chat_id=chat_id, agora=agora, delegacao_externa=delegacao_externa, deps=_deps(ctx))
+        resposta = registrar_mensagem(
+            conn, evento, chat_id=chat_id, agora=agora, delegacao_externa=delegacao_externa, deps=_deps(ctx), relogio_futuro=relogio_futuro
+        )
+        if relogio_futuro and resposta.resultado == "gravado":
+            ctx.metricas.somar("datetime_post_adiantado")  # alerta do TI: relógio (ou fuso) do ChatGuru/RPA adiantado
         return 200, resposta.corpo()
 
 
-def _conferir_hora(instante: datetime | None, agora: datetime) -> None:
-    """`datetime_post` mais de 5 min à frente do relógio é recusado (422, sem o valor): iria CRU a `msg_enviada_em` e ao casamento."""
+def _hora_utilizavel(instante: datetime | None, agora: datetime) -> tuple[datetime | None, bool]:
+    """`datetime_post` mais de 5 min à frente do relógio da API não é erro de forma: a mensagem é REAL e perdê-la (422 definitivo; o gateway
+    vira 424 e o ChatGuru repete 3×) é pior que desconfiar da hora. Vale como AUSENTE (identidade, casamento e dedupe pelo recebimento, como
+    `sem_hora`); `msg_enviada_em` guarda o recebimento e o atendimento ganha `relogio_futuro`. Devolve (hora a usar, estava adiantada)."""
     if instante is not None and instante > agora + TOLERANCIA_RELOGIO:
-        raise erro_de_validacao((("datetime_post", "no_futuro"),))
+        return None, True
+    return instante, False
 
 
 def evento_chatguru(ctx: ContextoApi, identidade: Identidade, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Origem `gateway_chatguru` (assinatura) ⇒ `webhook`; origem `ti` (replay manual, sem `x-gl-*`) ⇒ `replay`."""
     dados = validar(NativoChatguru, corpo, codigo_de_chave_extra="campo_fora_da_allowlist")
-    _conferir_hora(dados.datetime_post, ctx.relogio.agora())
+    agora = ctx.relogio.agora()
+    hora, adiantada = _hora_utilizavel(dados.datetime_post, agora)
     origem_evento = "webhook" if identidade.canal_origem is not None else "replay"
     return _tratar(
-        ctx, identidade, dados.chat_id, lambda: _evento_de_nativo(dados, origem_evento),
-        _delegacao_externa(ctx, dados.responsavel_email), ctx.relogio.agora(),
+        ctx, identidade, dados.chat_id, lambda: _evento_de_nativo(dados, origem_evento, hora),
+        _delegacao_externa(ctx, dados.responsavel_email), agora, adiantada,
     )  # fmt: skip
 
 
 def evento_mensagem(ctx: ContextoApi, identidade: Identidade, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Normalizado (o reconciliador do RPA chama a mesma função por dentro): `origem_evento` e `rpa_id` vêm no corpo."""
     dados = validar(MensagemNormalizada, corpo, codigo_de_chave_extra="campo_fora_da_allowlist")
-    _conferir_hora(dados.datetime_post, ctx.relogio.agora())
-    return _tratar(ctx, identidade, dados.chat_id, lambda: _evento_de_normalizado(dados), False, ctx.relogio.agora())
+    agora = ctx.relogio.agora()
+    hora, adiantada = _hora_utilizavel(dados.datetime_post, agora)
+    return _tratar(ctx, identidade, dados.chat_id, lambda: _evento_de_normalizado(dados, hora), False, agora, adiantada)
