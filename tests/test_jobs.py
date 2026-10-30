@@ -241,8 +241,8 @@ def test_podar_jobs_periodicos_antigos_nao_quebram_a_chave_estrangeira(conn_supe
     agora = relogio.agora()
     job = inserir_job(conn_super, "succeeded", 10, agora, nome="ia:bloqueio_2015")
     conn_super.execute(
-        "INSERT INTO procrastinate.procrastinate_periodic_defers (task_name, defer_timestamp, job_id, periodic_id) VALUES ('ia:bloqueio_2015', 1, %s, '')",
-        (job,),
+        "INSERT INTO procrastinate.procrastinate_periodic_defers (task_name, defer_timestamp, job_id, periodic_id) VALUES ('ia:bloqueio_2015', %s, %s, '')",
+        (int((agora - timedelta(days=1)).timestamp()), job),
     )
     assert jobs.podar_jobs(conn_super, agora, dias_concluidos=7, dias_falhos=30) == 1
     assert conn_super.execute("SELECT job_id FROM procrastinate.procrastinate_periodic_defers").fetchone()[0] is None
@@ -281,3 +281,16 @@ async def test_expirar_parados_delega_ao_servico(banco, relogio):
     chamadas = Chamadas()
     await jobs.executar_expirar(montar_servicos(banco, relogio, chamadas))
     assert chamadas.expirados == 1
+
+
+def test_podar_apaga_o_rastro_antigo_das_periodicas(conn_super, relogio):
+    """Revisão A13: `procrastinate_periodic_defers` cresce ~1440 linhas/dia com o reaper por minuto; sem job e velho, sai."""
+    agora = relogio.agora()
+    velho, novo = int((agora - timedelta(days=40)).timestamp()), int((agora - timedelta(days=2)).timestamp())
+    for ts in (velho, novo):
+        conn_super.execute(
+            "INSERT INTO procrastinate.procrastinate_periodic_defers (task_name, defer_timestamp, job_id) VALUES ('ia:reaper_lease', %s, NULL)",
+            (ts,),
+        )
+    jobs.podar_jobs(conn_super, agora)
+    assert [r[0] for r in conn_super.execute("SELECT defer_timestamp FROM procrastinate.procrastinate_periodic_defers")] == [novo]

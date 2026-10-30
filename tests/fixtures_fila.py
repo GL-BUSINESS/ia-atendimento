@@ -226,8 +226,12 @@ async def esperar(condicao, limite_s: float = 10.0, passo_s: float = 0.02) -> No
 
 
 def tornar_vencidos(conn: psycopg.Connection) -> None:
-    """Os jobs agendados para o futuro passam a valer agora (o worker compara `scheduled_at` com o `now()` do banco, que o teste não controla)."""
-    conn.execute("UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second' WHERE status = 'todo'")
+    """Vence a espera curta da rajada (3 s), mas NÃO os jobs agendados para longe (lembrete de horas): o worker compara `scheduled_at` com o
+    `now()` do banco, que o teste não controla, e vencer tudo escondia o bloqueio de turno atrás de lembrete futuro (revisão A1)."""
+    conn.execute(
+        "UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second' "
+        "WHERE status = 'todo' AND scheduled_at < now() + interval '1 minute'"
+    )
 
 
 def jobs_por_status(conn: psycopg.Connection, tarefa: str | None = None) -> list[tuple[str, str, str | None, str | None]]:

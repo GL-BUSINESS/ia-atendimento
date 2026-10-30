@@ -62,6 +62,7 @@ RECUSAS_DE_ENTRADA = (
 )
 # pares (A, B) com A <= B: agenda_max_dia nunca passa de max_disparos_dia (R2-17)
 LIMITES_CRUZADOS = (("agenda_max_dia", "max_disparos_dia"),)
+CHAVE_TRAVA_LIMITES = "ia_atendimento.config.limites_cruzados"
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,8 @@ def registrar_config(
         raise ConfigInexistente(f"chave fora do registro: {nome}")
     normalizado = especificacao.validar(valor)
     with conn.transaction():
+        if any(nome in par for par in LIMITES_CRUZADOS):  # duas escritas do par não se enxergam em READ COMMITTED: serializa (revisão A6)
+            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (CHAVE_TRAVA_LIMITES,))
         _conferir_limites_cruzados(conn, nome, normalizado)
         atual = config_vigente(conn, nome)
         versao_atual = atual.versao if atual else 0
@@ -159,7 +162,8 @@ class LeitorConfig:
         if guardado is not None and 0 <= (agora - guardado[0]).total_seconds() < self._ttl_s:
             return guardado[1]
         lida = config_vigente(conn, nome)
-        self._cache = {**self._cache, nome: (agora, lida)}
+        if lida is not None:  # chave ausente não é cacheada: a recém-criada aparece na hora
+            self._cache = {**self._cache, nome: (agora, lida)}
         return lida
 
     def valor(self, conn: psycopg.Connection, nome: str) -> Any:
@@ -169,7 +173,10 @@ class LeitorConfig:
 
     def registrar(self, conn: psycopg.Connection, nome: str, valor: Any, por: str, **opcoes: Any) -> VersaoConfig:
         nova = registrar_config(conn, nome, valor, por, relogio=self._relogio, **opcoes)
-        self._cache = {**self._cache, nome: (self._relogio.agora(), nova)}
+        if conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE:  # gravado de verdade
+            self._cache = {**self._cache, nome: (self._relogio.agora(), nova)}
+        else:  # o chamador ainda pode dar rollback: nada de cachear versão que talvez não exista
+            self._cache = {k: v for k, v in self._cache.items() if k != nome}
         return nova
 
 

@@ -373,6 +373,7 @@ dependencies = [
     { name = "pydantic-ai-slim", extra = ["openai"] },
     { name = "pydantic-settings" },
     { name = "sqlalchemy" },
+    { name = "tzdata" },
     { name = "uvicorn" },
 ]
 
@@ -396,6 +397,7 @@ requires-dist = [
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = "==2.63.0" },
     { name = "pydantic-settings", specifier = "==2.16.2" },
     { name = "sqlalchemy", specifier = "==2.1.6" },
+    { name = "tzdata", specifier = "==2026.6" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 

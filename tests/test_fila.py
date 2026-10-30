@@ -189,9 +189,9 @@ async def test_iniciar_e_lembrete_rodam_com_lock_do_chat(conninfo_app, conn_supe
         assert await fila.agendar_lembrete(app, atendimento, chat, 1, relogio.agora() + timedelta(hours=4)) is None  # mesmo lembrete: um só
         assert [(t, lk, ql) for t, _, lk, ql in jobs_por_status(conn_super)] == [
             ("ia:iniciar", f"chat:{chat}", f"iniciar:{atendimento}"),
-            ("ia:lembrete", f"chat:{chat}", f"lembrete:{atendimento}:1"),
+            ("ia:alarme_lembrete", None, f"lembrete:{atendimento}:1"),  # o alarme agendado não leva lock (revisão A1)
         ]
-        tornar_vencidos(conn_super)
+        conn_super.execute("UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second' WHERE status = 'todo'")
         await rodar(app, servicos)
     assert chamadas.iniciados == [atendimento]
     assert chamadas.lembretes == [(atendimento, 1, True)]
@@ -278,7 +278,7 @@ async def test_job_unico_de_2011_grava_bloqueio(conninfo_app, conn_app, conn_sup
 
         # na hora: grava true e não encerra ninguém; a volta não é automática
         ativo = ff.inserir_atendimento(conn_super, estado="aberto")
-        tornar_vencidos(conn_super)
+        conn_super.execute("UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second'")  # chegou 20/11 21:50
         na_hora = RelogioFalso(datetime(2026, 11, 21, 0, 51, tzinfo=UTC))
         await rodar(app, montar_servicos(banco, na_hora, Chamadas()))
     assert config_vigente(conn_app, "bloqueio_entrada").valor is True

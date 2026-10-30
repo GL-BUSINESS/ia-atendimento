@@ -151,3 +151,15 @@ def test_limites_do_dia_e_do_mes_sao_de_sao_paulo():
     # 01/11 02:30 UTC é 31/10 23:30 em SP: ainda é outubro
     assert limites_do_mes(utc(2026, 11, 1, 2, 30)) == (utc(2026, 10, 1, 3), utc(2026, 11, 1, 3))
     assert limites_do_mes(utc(2026, 12, 15, 12)) == (utc(2026, 12, 1, 3), utc(2027, 1, 1, 3))
+
+
+def test_base_de_fusos_nao_depende_do_sistema(monkeypatch):
+    """Revisão A10: o `tzdata` é dependência declarada; sem `TZPATH` do sistema o fuso de São Paulo ainda carrega."""
+    import zoneinfo
+
+    monkeypatch.setattr(zoneinfo, "TZPATH", ())
+    zoneinfo.ZoneInfo.clear_cache()
+    try:
+        assert zoneinfo.ZoneInfo("America/Sao_Paulo").utcoffset(datetime(2026, 11, 17, 12)).total_seconds() == -3 * 3600
+    finally:
+        zoneinfo.ZoneInfo.clear_cache()

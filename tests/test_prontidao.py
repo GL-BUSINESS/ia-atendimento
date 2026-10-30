@@ -19,29 +19,28 @@ MIGRACOES = Path(__file__).resolve().parent.parent / "migrations"
 VENCIDO_NO_BANCO = datetime.now(UTC) - timedelta(hours=1)
 
 
-def semear_saudavel(conn, agora) -> None:
+def semear_saudavel(conn) -> None:
     """Estado de uma instância pronta: worker com batimento, os 4 artefatos, nada atrasado."""
-    conn.execute("INSERT INTO procrastinate.procrastinate_workers (last_heartbeat) VALUES (%s)", (agora - timedelta(seconds=5),))
+    conn.execute("INSERT INTO procrastinate.procrastinate_workers (last_heartbeat) VALUES (now() - interval '5 seconds')")
     for tipo in ("roteiro", "regras", "catalogo", "motor"):
         conn.execute("INSERT INTO ia.artefato_versao (tipo, numero, descricao, aprovado_por) VALUES (%s, 1, 'v1', 'teste')", (tipo,))
 
 
-def job_todo(conn, agora, idade: timedelta) -> None:
+def job_todo(conn, idade: timedelta) -> None:
     conn.execute(
-        "INSERT INTO procrastinate.procrastinate_jobs (queue_name, task_name, status, scheduled_at) VALUES ('default', 'ia:turno', 'todo', %s)",
-        (agora - idade,),
+        "INSERT INTO procrastinate.procrastinate_jobs (queue_name, task_name, status, scheduled_at) VALUES ('default', 'ia:turno', 'todo', now() - %s)",
+        (idade,),
     )
 
 
 def test_le_a_view_v_prontidao(conn_app, conn_super, relogio):
-    agora = relogio.agora()
-    semear_saudavel(conn_super, agora)
+    semear_saudavel(conn_super)
     inserir_atendimento(conn_super, estado="aberto")
     inserir_atendimento(conn_super, estado="aguardando_cliente")
     inserir_atendimento(conn_super, estado="pausado")
     inserir_atendimento(conn_super, estado="reservado")
     inserir_atendimento(conn_super, estado="aberto", iniciado_em=VENCIDO_NO_BANCO, lease_ate=VENCIDO_NO_BANCO + timedelta(minutes=1))
-    p = ler_prontidao(conn_app, relogio)
+    p = ler_prontidao(conn_app)
     # `abertos` = tudo que a IA atende agora, inclusive o `reservado` comum; pausado e agendado ficam de fora
     assert (p.abertos, p.reservados, p.pausados, p.repassando, p.agendados, p.lease_vencidos) == (4, 1, 1, 0, 0, 1)
     assert (p.modo, p.ia_ativa) == ("duble", False)
@@ -50,58 +49,57 @@ def test_le_a_view_v_prontidao(conn_app, conn_super, relogio):
 
 
 def test_falhas_duras_derrubam_o_pronto_e_as_moles_nao(conn_app, conn_super, relogio):
-    agora = relogio.agora()
-    p = ler_prontidao(conn_app, relogio)  # banco vazio: sem worker e sem artefatos
+    p = ler_prontidao(conn_app)  # banco vazio: sem worker e sem artefatos
     assert not p.pronto
     assert set(p.falhas_duras) == {"workers_sem_heartbeat", "artefatos_ausentes"}
     assert p.artefatos_faltando == ("catalogo", "motor", "regras", "roteiro")
 
-    semear_saudavel(conn_super, agora)
-    assert ler_prontidao(conn_app, relogio).pronto
+    semear_saudavel(conn_super)
+    assert ler_prontidao(conn_app).pronto
 
     # job todo vencido há mais de 10 min: fila parada
-    job_todo(conn_super, agora, timedelta(minutes=11))
-    assert ler_prontidao(conn_app, relogio).falhas_duras == ("fila_parada",)
-    assert round(ler_prontidao(conn_app, relogio).todo_mais_velho_s) == 660
+    job_todo(conn_super, timedelta(minutes=11))
+    assert ler_prontidao(conn_app).falhas_duras == ("fila_parada",)
+    assert 659 <= ler_prontidao(conn_app).todo_mais_velho_s <= 670  # idade pelo relógio do banco
     conn_super.execute("DELETE FROM procrastinate.procrastinate_jobs")
-    job_todo(conn_super, agora, timedelta(minutes=9))  # 9 min: ainda tolerável
-    assert ler_prontidao(conn_app, relogio).pronto
+    job_todo(conn_super, timedelta(minutes=9))  # 9 min: ainda tolerável
+    assert ler_prontidao(conn_app).pronto
     conn_super.execute("DELETE FROM procrastinate.procrastinate_jobs")
-    job_todo(conn_super, agora, -timedelta(hours=2))  # agendado para daqui a 2 h: não conta como atrasado
-    assert ler_prontidao(conn_app, relogio).pronto
+    job_todo(conn_super, -timedelta(hours=2))  # agendado para daqui a 2 h: não conta como atrasado
+    assert ler_prontidao(conn_app).pronto
 
     # batimento velho (> 30 s) = worker morto
-    conn_super.execute("UPDATE procrastinate.procrastinate_workers SET last_heartbeat = %s", (agora - timedelta(seconds=31),))
-    assert ler_prontidao(conn_app, relogio).falhas_duras == ("workers_sem_heartbeat",)
+    conn_super.execute("UPDATE procrastinate.procrastinate_workers SET last_heartbeat = now() - interval '31 seconds'")
+    assert ler_prontidao(conn_app).falhas_duras == ("workers_sem_heartbeat",)
 
     # campos moles (lease vencido, repassando parado) aparecem, mas não derrubam
-    conn_super.execute("UPDATE procrastinate.procrastinate_workers SET last_heartbeat = %s", (agora,))
+    conn_super.execute("UPDATE procrastinate.procrastinate_workers SET last_heartbeat = now()")
     inserir_atendimento(conn_super, estado="aberto", iniciado_em=VENCIDO_NO_BANCO, lease_ate=VENCIDO_NO_BANCO + timedelta(minutes=1))
-    p = ler_prontidao(conn_app, relogio)
+    p = ler_prontidao(conn_app)
     assert p.lease_vencidos == 1 and p.pronto
 
 
 def test_readyz_confere_o_checksum_das_migracoes(conn_app, conn_super, relogio, tmp_path):
-    semear_saudavel(conn_super, relogio.agora())
-    assert readyz(conn_app, relogio, diretorio_migracoes=MIGRACOES).pronto
+    semear_saudavel(conn_super)
+    assert readyz(conn_app, diretorio_migracoes=MIGRACOES).pronto
     # arquivo com conteúdo diferente do aplicado: divergência é falha dura
     copia = tmp_path / "migracoes"
     copia.mkdir()
     for arquivo in MIGRACOES.glob("*.up.sql"):
         (copia / arquivo.name).write_bytes(arquivo.read_bytes() + (b"\n-- editada\n" if arquivo.name.startswith("0001") else b""))
-    assert readyz(conn_app, relogio, diretorio_migracoes=copia).falhas_duras == ("migracao_divergente",)
+    assert readyz(conn_app, diretorio_migracoes=copia).falhas_duras == ("migracao_divergente",)
     pendente = tmp_path / "pendente"
     pendente.mkdir()
     for arquivo in MIGRACOES.glob("*.up.sql"):
         (pendente / arquivo.name).write_bytes(arquivo.read_bytes())
     (pendente / "0003_nova.up.sql").write_text("SELECT 1;\n")
-    assert readyz(conn_app, relogio, diretorio_migracoes=pendente).falhas_duras == ("migracao_pendente",)
+    assert readyz(conn_app, diretorio_migracoes=pendente).falhas_duras == ("migracao_pendente",)
 
 
-def test_readyz_banco_inacessivel_e_falha_dura_sem_vazar_a_conexao(relogio):
+def test_readyz_banco_inacessivel_e_falha_dura_sem_vazar_a_conexao():
     from ia_atendimento.prontidao import readyz_por_dsn
 
-    p = readyz_por_dsn("host=127.0.0.1 port=1 dbname=x user=u password=segredo-xyz connect_timeout=1", relogio)
+    p = readyz_por_dsn("host=127.0.0.1 port=1 dbname=x user=u password=segredo-xyz connect_timeout=1")
     assert not p.pronto and p.falhas_duras == ("banco_inacessivel",)
     assert "segredo-xyz" not in repr(p)
 
@@ -131,7 +129,7 @@ def test_listen_notify_so_vale_se_o_payload_for_o_nosso(conninfo_app):
 
 
 def test_readyz_inclui_listen_notify_quando_pedido(conn_app, conn_super, relogio, conninfo_app):
-    semear_saudavel(conn_super, relogio.agora())
-    p = readyz(conn_app, relogio, conninfo_direto=conninfo_app)
+    semear_saudavel(conn_super)
+    p = readyz(conn_app, conninfo_direto=conninfo_app)
     assert p.listen_notify is True and p.pronto
-    assert readyz(conn_app, relogio).listen_notify is None  # não verificado
+    assert readyz(conn_app).listen_notify is None  # não verificado
