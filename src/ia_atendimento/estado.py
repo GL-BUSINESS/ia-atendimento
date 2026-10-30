@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -37,7 +37,9 @@ from ia_atendimento.tipos import LIMITE_JSON_OCTETOS, Codigo40, Codigo60, Perfil
 
 LEASE_RESERVADO_S: Final = 120  # `reservado` nasce com 2 min (K §8.1)
 LEASE_TURNO_S: Final = 300  # `iniciar` e cada transição renovam para +5 min
-LEASE_AGUARDANDO_S: Final = 12 * 3600  # cobre lembretes (4 h + 4 h) e o encerramento 2 h depois; o reaper não vence quem espera o cliente
+LEASE_AGUARDANDO_S: Final = 96 * 3600  # teto de quem espera o cliente sem lease calculado: fim de semana + feriado + janela DATAPREV
+ENCERRA_APOS_ULTIMO_LEMBRETE_MIN: Final = 120  # H E9: encerra 2 h depois do último lembrete permitido
+FOLGA_ESPERA_MIN: Final = 30
 TOLERANCIA_RELOGIO: Final = timedelta(minutes=5)  # relógio de origem adiantado; além disso `ultimo_cliente_em` é recusado
 _ORIGEM: Final = re.compile(r"^[a-z0-9_]{1,40}$")
 _HEX24: Final = re.compile(r"^[0-9a-f]{24}$")
@@ -570,11 +572,13 @@ def _valor_sql(nome: str, valor: Any) -> Any:
     return valor
 
 
-def _expressoes(mudancas: Mudancas, fase: str | None) -> dict[str, sql.Composable]:
+def _expressoes(mudancas: Mudancas, fase: str | None, lease_so_cresce: bool = False) -> dict[str, sql.Composable]:
     """`coluna → expressão` do SET. Com `fase`, o `estado_conversa` sai de `jsonb_set(...)`: a fase vai no mesmo UPDATE, atômica."""
     exprs: dict[str, sql.Composable] = {}
     for nome in sorted(mudancas.model_fields_set):
         exprs[nome] = sql.SQL("%(p_estado_conversa)s::jsonb" if nome == "estado_conversa" else f"%(p_{nome})s")
+    if lease_so_cresce and "lease_ate" in exprs:
+        exprs["lease_ate"] = sql.SQL("greatest(lease_ate, %(p_lease_ate)s)")  # nunca encurta (quem espera o cliente tem lease de dias)
     if fase is not None:
         base = exprs.get("estado_conversa", sql.SQL("estado_conversa"))
         exprs["estado_conversa"] = sql.SQL("jsonb_set({}, '{{fase}}', to_jsonb(%(p_fase)s::text))").format(base)
@@ -582,10 +586,10 @@ def _expressoes(mudancas: Mudancas, fase: str | None) -> dict[str, sql.Composabl
 
 
 def _montar_update(
-    mudancas: Mudancas, fase: str | None, de: Collection[str] | None, sem_assumido_em: bool
+    mudancas: Mudancas, fase: str | None, de: Collection[str] | None, sem_assumido_em: bool, lease_so_cresce: bool
 ) -> tuple[sql.Composed, dict[str, Any]]:
     params: dict[str, Any] = {f"p_{n}": _valor_sql(n, getattr(mudancas, n)) for n in mudancas.model_fields_set}
-    sets = [sql.SQL("{} = {}").format(sql.Identifier(nome), expr) for nome, expr in _expressoes(mudancas, fase).items()]
+    sets = [sql.SQL("{} = {}").format(sql.Identifier(nome), expr) for nome, expr in _expressoes(mudancas, fase, lease_so_cresce).items()]
     sets.append(sql.SQL("versao = versao + 1, atualizado_em = %(agora)s"))
     onde = [sql.SQL("atendimento_id = %(atd)s AND versao = %(versao)s")]
     if fase is not None:
@@ -621,6 +625,7 @@ def aplicar(
     de: Collection[str] = ESTADOS_NAO_TERMINAIS,
     fase: str | None = None,
     sem_assumido_em: bool = False,
+    lease_so_cresce: bool = False,
 ) -> int:
     """`UPDATE … WHERE atendimento_id = $1 AND versao = $2 AND estado ∈ de` com `versao + 1`; devolve a nova `versao`.
 
@@ -631,7 +636,7 @@ def aplicar(
     """
     if agora.tzinfo is None:
         raise ValueError("`agora` exige datetime com fuso")
-    consulta, params = _montar_update(mudancas, fase, de, sem_assumido_em)
+    consulta, params = _montar_update(mudancas, fase, de, sem_assumido_em, lease_so_cresce)
     params.update({"agora": agora, "atd": atendimento_id, "versao": versao})
     linha = executar_traduzindo(conn, consulta, params, check_e_transicao=True)
     if linha is None:
@@ -677,22 +682,52 @@ def iniciar(
     return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de={"reservado"}, fase="E1")
 
 
-def aguardar_cliente(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, relogio: Relogio) -> int:
+def lease_de_espera(
+    agora: datetime,
+    *,
+    intervalos_min: Sequence[int],
+    proxima_janela: Callable[[datetime], datetime],
+    lembretes_max: int = 2,
+    encerra_apos_min: int = ENCERRA_APOS_ULTIMO_LEMBRETE_MIN,
+    folga_min: int = FOLGA_ESPERA_MIN,
+) -> datetime:
+    """Lease de quem espera o cliente: até o ENCERRAMENTO por vácuo (+ folga), seguindo a linha do tempo dos lembretes.
+
+    Cada lembrete sai `intervalos_min[n]` depois do anterior e, se cair fora da janela de mensagem (08–20 seg–sáb, feriado, DATAPREV), é
+    ADIADO para a próxima abertura (`proxima_janela`, a do `Calendario` da B1.3; `intervalos_min` = `lembretes_intervalos_min`). O alarme do
+    lembrete não leva lock do chat, então o reaper de lease só enxerga o `lease_ate`: se ele vencer antes disso, o lead que espera como
+    planejado é repassado e o lembrete agendado fica órfão.
+    """
+    if not intervalos_min or lembretes_max < 1:
+        raise EntradaInvalida("intervalos_min vazio ou lembretes_max < 1")
+    momento = agora
+    for n in range(lembretes_max):
+        momento = proxima_janela(momento + timedelta(minutes=intervalos_min[min(n, len(intervalos_min) - 1)]))
+    return momento + timedelta(minutes=encerra_apos_min + folga_min)
+
+
+def aguardar_cliente(
+    conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, relogio: Relogio, lease_ate: datetime | None = None
+) -> int:
+    """`aberto → aguardando_cliente`. O lease cobre a espera (`lease_de_espera`, que o chamador calcula com o calendário); sem ele,
+    vale o teto de `LEASE_AGUARDANDO_S` (96 h). Nunca os 5 min do turno: o cliente leva horas."""
     agora = agora_de(relogio)
-    m = _mudancas(
-        estado="aguardando_cliente", lease_ate=_lease(agora, LEASE_AGUARDANDO_S)
-    )  # espera o cliente por horas: não vence em 5 min
+    if lease_ate is not None and lease_ate <= agora:
+        raise EntradaInvalida("lease_ate de espera no passado")
+    m = _mudancas(estado="aguardando_cliente", lease_ate=lease_ate or _lease(agora, LEASE_AGUARDANDO_S))
     return aplicar(conn, atendimento_id, versao, m, agora=agora, de={"aberto"})
 
 
 def renovar_lease(
     conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, relogio: Relogio, segundos: int = LEASE_TURNO_S
 ) -> int:
-    """Renova a posse sem mudar de estado (turno longo, acima de 5 min). Transição com CAS: `versao + 1`. `pausado` e `reservado` têm
+    """Renova a posse sem mudar de estado (turno longo, acima de 5 min). Transição com CAS: `versao + 1`. NUNCA encurta (`greatest`).
+    `pausado` e `reservado` têm
     lease ligado a `retoma_em` e não passam por aqui; quem espera o cliente renova com `segundos=LEASE_AGUARDANDO_S`."""
     agora = agora_de(relogio)
     de = {"aberto", "aguardando_cliente", "repassando"}
-    return aplicar(conn, atendimento_id, versao, _mudancas(lease_ate=_lease(agora, segundos)), agora=agora, de=de)
+    m = _mudancas(lease_ate=_lease(agora, segundos))
+    return aplicar(conn, atendimento_id, versao, m, agora=agora, de=de, lease_so_cresce=True)
 
 
 def retomar(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, relogio: Relogio) -> int:

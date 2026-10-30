@@ -85,6 +85,8 @@ def registrar_mensagem_do_cliente(conn: psycopg.Connection, atendimento_id: UUID
 
 def janela_24h_aberta(ultimo_cliente_em: datetime | None, agora: datetime) -> bool:
     """Texto livre só com `agora − ultimo_cliente_em < 24 h`. Desconhecido (None) ou mais de 5 min no futuro = fechada (só template)."""
+    if agora.tzinfo is None or (ultimo_cliente_em is not None and ultimo_cliente_em.tzinfo is None):
+        raise ValueError("janela_24h_aberta exige datetimes com fuso")
     if ultimo_cliente_em is None or ultimo_cliente_em > agora + TOLERANCIA_RELOGIO:
         return False
     return agora - ultimo_cliente_em < JANELA_SERVICO

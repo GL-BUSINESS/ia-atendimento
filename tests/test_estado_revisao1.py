@@ -11,7 +11,6 @@ import pytest
 from pydantic import ValidationError
 
 from ia_atendimento.estado import (
-    LEASE_AGUARDANDO_S,
     LEASE_TURNO_S,
     DadoRecusado,
     EntradaAtendimento,
@@ -20,7 +19,6 @@ from ia_atendimento.estado import (
     Mudancas,
     TransicaoInvalida,
     abrir,
-    aguardar_cliente,
     aplicar,
     encerrar,
     entrada_de_corpo,
@@ -239,15 +237,6 @@ def test_m3_devolucao_da_s2_e_a_unica_excecao(db_conn, relogio, versoes):
 
 
 # --- M4: lease ---------------------------------------------------------------------------------------------------------------------
-
-
-@pytest.mark.banco
-def test_m4_aguardar_cliente_nao_vence_em_minutos(db_conn, relogio, versoes):
-    atd, v = _aberto(db_conn, relogio, versoes)
-    aguardar_cliente(db_conn, atd, v, relogio=relogio)
-    relogio.avancar(hours=10)  # 240 + 240 min de lembretes + 2 h até encerrar
-    a = ler(db_conn, atd)
-    assert LEASE_AGUARDANDO_S >= 10 * 3600 and a.lease_ate > relogio()
 
 
 @pytest.mark.banco

@@ -56,7 +56,8 @@ SUM2=$(sha256sum migrations/0002_procrastinate.up.sql | cut -d' ' -f1)
 { cat migrations/0002_procrastinate.up.sql
   printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0002_procrastinate', '%s');\nRESET ROLE;\n" "$SUM2"; } \
   | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
-# 3a. pré-checagem (ADD CONSTRAINT valida a tabela inteira; qualquer linha fora do formato derruba a transação, sem estrago): os dois = 0
+# 3a. pré-checagem (ADD CONSTRAINT valida a tabela inteira; qualquer linha fora do formato derruba a transação, sem estrago): os três = 0
+#     (3º: SELECT count(*) FROM ia.atendimento WHERE estado IN ('aberto','aguardando_cliente') AND (fase !~ '^E[1-9]$' OR estado_conversa ? 'pausa'))
 $S4 'sudo -n -u s4_super psql -X -qAt -p 5434 -d ia_atendimento -c "SELECT count(*) FROM ia.atendimento WHERE chat_id !~ '"'"'^[0-9a-f]{24}$'"'"'" -c "SELECT count(*) FROM ia.config_versao WHERE nome = '"'"'chats_teste'"'"' AND jsonb_array_length(valor) > 20"'
 # 3. 0003 (aditiva: ultimo_cliente_em, chats_teste e chat_id de 24 hex, encerrado terminal, fase×estado) + ledger, igual; o arquivo já traz SET ROLE ia_owner. ANTES da imagem nova
 SUM3=$(sha256sum migrations/0003_estado_aditivo.up.sql | cut -d' ' -f1)
@@ -67,7 +68,9 @@ SUM3=$(sha256sum migrations/0003_estado_aditivo.up.sql | cut -d' ' -f1)
 
 **Conferir** (como `ia_app_a`, da VPS): `select migracao_id, left(checksum,8) from ia.migracao` (3 linhas); `select valor from
 ia.config_versao where nome='ia_ativa'` = `false` e `nome='modo'` = `"duble"`; `DROP TABLE ia.passo` falha; `ia_app_a` sem `DELETE`; `ia.atendimento.ultimo_cliente_em` existe e um `INSERT` de `chats_teste` com 21 ids ou id fora de 24 hex minúsculo é recusado
-(`config_versao_chats_teste_check`). A 0003 é aditiva: o código sem ela segue funcionando, e ela é inofensiva sem o código novo (desfazer = parar o app).
+(`config_versao_chats_teste_check`). Depois do fim, `ia_app` ainda grava `contrato_id`, `pii_auditoria`, `sinais_cliente`, `ultimo_cliente_em` e os contadores; `estado`, `desfecho`,
+`encerrado_em`, `estado_conversa`, `motivo_desfecho`, `contexto_codigos` e `repasse_modo`/`repasse_consultor_ref` de um encerrado ficam congelados
+(trigger `atendimento_terminal_absorvente`). A 0003 é aditiva: o código sem ela segue funcionando, e ela é inofensiva sem o código novo (desfazer = parar o app).
 
 **Se der errado:** erro no meio de um arquivo (ou no INSERT do ledger) → a transação única (`-1`) desfaz tudo, inclusive o ledger; reaplicar
 a 0001 é idempotente; a 0002 e a 0003 já aplicadas **não** se reaplicam (o ledger é a verdade; `ADD CONSTRAINT` não é idempotente). **Desfazer:** `DROP DATABASE … WITH (FORCE)` só com autorização nova do dono (estudo E «Desfazer tudo» 1).

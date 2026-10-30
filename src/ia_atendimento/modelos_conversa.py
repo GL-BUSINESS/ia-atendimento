@@ -15,7 +15,8 @@ Codigo = Codigo40  # nome de campo, intenção, objeção, flag
 
 
 class _Base(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    # `revalidate_instances`: um `EstadoConversa` forjado por `model_construct` não entra em `Mudancas` sem passar pelos validadores
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True, revalidate_instances="always")
 
 
 class Contadores(_Base):

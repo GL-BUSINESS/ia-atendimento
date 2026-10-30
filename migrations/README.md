@@ -38,7 +38,7 @@ pode não ler o home).
      printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0002_procrastinate', '%s');\nRESET ROLE;\n" "$SUM2"; } \
      | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
    ```
-3. **0003 + ledger**, igual; antes, conferir que `SELECT count(*) FROM ia.atendimento WHERE chat_id !~ '^[0-9a-f]{24}$'` e os `chats_teste` com mais de 20 ids dão 0 (o `ADD CONSTRAINT` valida a tabela inteira; o `psql -1` desfaz sem estrago, mas já avisa) (o arquivo já traz `SET ROLE ia_owner` e `RESET ROLE`); aplicar **antes** da imagem que usa `ultimo_cliente_em`:
+3. **0003 + ledger**, igual; antes, conferir que `SELECT count(*) FROM ia.atendimento WHERE chat_id !~ '^[0-9a-f]{24}$'`, os `chats_teste` com mais de 20 ids e `SELECT count(*) FROM ia.atendimento WHERE estado IN ('aberto','aguardando_cliente') AND (fase !~ '^E[1-9]$' OR estado_conversa ? 'pausa')` dão 0 (o `ADD CONSTRAINT` valida a tabela inteira; o `psql -1` desfaz sem estrago, mas já avisa) (o arquivo já traz `SET ROLE ia_owner` e `RESET ROLE`); aplicar **antes** da imagem que usa `ultimo_cliente_em`:
    ```bash
    SUM3=$(sha256sum migrations/0003_estado_aditivo.up.sql | cut -d' ' -f1)
    { cat migrations/0003_estado_aditivo.up.sql
