@@ -1,0 +1,250 @@
+"""Chave: configuração versionada (`ia.config_versao`, append-only) e as recusas de entrada.
+
+- Vigente = `max(versao)` por nome. Mudar = `INSERT versao+1`; perder a corrida (PK, ou `versao_esperada` velha) = `ConfigCorrida` (409).
+- Todo valor passa pelo registro (`chave_registro`) antes de ir ao banco; chave fora do registro = `ConfigInexistente`.
+- `LeitorConfig` guarda cada chave por até 5 s (relógio injetado); a escrita do próprio processo invalida o cache na hora.
+- `bloqueio_entrada()` devolve o código da primeira recusa de entrada nova (ou None). A chave `bloqueio_entrada=true` recusa entrada nova e
+  **não encerra ninguém**: abertos e pausados seguem as réguas deles (quem encerra por chave é só a parada leve manual `ia_ativa=false`).
+- Hora e mês/dia de negócio vêm do `Relogio` e do calendário (America/Sao_Paulo), nunca do `now()` nem do fuso do banco.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+
+import psycopg
+from psycopg import errors as pg_errors
+from psycopg.types.json import Jsonb
+
+from ia_atendimento.calendario import carregar_calendario, limites_do_dia, limites_do_mes
+from ia_atendimento.chave_registro import (
+    PADROES,
+    REGISTRO,
+    ConfigCorrida,
+    ConfigInexistente,
+    ErroConfig,
+    ModoTesteGlobal,
+    ValorInvalido,
+)
+from ia_atendimento.relogio import Relogio
+
+__all__ = [
+    "RECUSAS_DE_ENTRADA",
+    "ConfigCorrida",
+    "ConfigInexistente",
+    "ErroConfig",
+    "LeitorConfig",
+    "ModoTesteGlobal",
+    "ValorInvalido",
+    "VersaoConfig",
+    "bloqueio_entrada",
+    "config_vigente",
+    "garantir_defaults",
+    "gasto_dia",
+    "gasto_mes",
+    "registrar_config",
+]
+
+TTL_CACHE_S = 5.0
+RECUSAS_DE_ENTRADA = (
+    "ia_desligada",
+    "bloqueio_entrada",
+    "fora_de_janela",
+    "opt_out",
+    "teto_atingido",
+    "teto_diario",
+    "disparos_dia",
+    "abertos_max",
+)
+# pares (A, B) com A <= B: agenda_max_dia nunca passa de max_disparos_dia (R2-17)
+LIMITES_CRUZADOS = (("agenda_max_dia", "max_disparos_dia"),)
+
+
+@dataclass(frozen=True)
+class VersaoConfig:
+    nome: str
+    versao: int
+    valor: Any
+    publicado_em: datetime
+    publicado_por: str
+    motivo: str | None
+
+
+def config_vigente(conn: psycopg.Connection, nome: str) -> VersaoConfig | None:
+    """A versão de maior número da chave, ou None se ela nunca foi gravada."""
+    linha = conn.execute(
+        "SELECT nome, versao, valor, publicado_em, publicado_por, motivo FROM ia.config_versao WHERE nome = %s "
+        "ORDER BY versao DESC LIMIT 1",
+        (nome,),
+    ).fetchone()
+    return VersaoConfig(*linha) if linha else None
+
+
+def registrar_config(
+    conn: psycopg.Connection,
+    nome: str,
+    valor: Any,
+    por: str,
+    *,
+    relogio: Relogio,
+    motivo: str | None = None,
+    versao_esperada: int | None = None,
+) -> VersaoConfig:
+    """Valida e grava `versao+1`. `versao_esperada` (opcional) é a versão que o chamador leu: se mudou, `ConfigCorrida`."""
+    especificacao = REGISTRO.get(nome)
+    if especificacao is None:
+        raise ConfigInexistente(f"chave fora do registro: {nome}")
+    normalizado = especificacao.validar(valor)
+    with conn.transaction():
+        _conferir_limites_cruzados(conn, nome, normalizado)
+        atual = config_vigente(conn, nome)
+        versao_atual = atual.versao if atual else 0
+        if versao_esperada is not None and versao_esperada != versao_atual:
+            raise ConfigCorrida(f"{nome}: a versão vigente é {versao_atual}, não {versao_esperada}")
+        return _inserir_versao(conn, nome, versao_atual + 1, normalizado, por, motivo, relogio.agora())
+
+
+def _inserir_versao(
+    conn: psycopg.Connection, nome: str, versao: int, valor: Any, por: str, motivo: str | None, publicado_em: datetime
+) -> VersaoConfig:
+    try:
+        with conn.transaction():  # savepoint: a PK perdida não derruba a transação de quem chamou
+            conn.execute(
+                "INSERT INTO ia.config_versao (nome, versao, valor, publicado_em, publicado_por, motivo) VALUES (%s, %s, %s, %s, %s, %s)",
+                (nome, versao, Jsonb(valor), publicado_em, por, motivo),
+            )
+    except pg_errors.UniqueViolation:
+        raise ConfigCorrida(f"{nome}: outra versão {versao} foi gravada antes") from None
+    except pg_errors.CheckViolation:
+        raise ValorInvalido(nome, "o banco recusou o valor (CHECK de config_versao)") from None
+    return VersaoConfig(nome, versao, valor, publicado_em, por, motivo)
+
+
+def _conferir_limites_cruzados(conn: psycopg.Connection, nome: str, valor: Any) -> None:
+    for menor, maior in LIMITES_CRUZADOS:
+        if nome not in (menor, maior):
+            continue
+        outro = maior if nome == menor else menor
+        vigente = config_vigente(conn, outro)
+        valor_menor, valor_maior = (valor, vigente.valor) if nome == menor else (vigente.valor if vigente else None, valor)
+        if vigente is not None and valor_menor > valor_maior:
+            raise ValorInvalido(nome, f"{menor} não pode passar de {maior}")
+
+
+def garantir_defaults(conn: psycopg.Connection, relogio: Relogio, *, por: str = "boot:b1.3") -> tuple[str, ...]:
+    """No boot: grava `versao=1` (o padrão do registro) de cada chave que ainda não existe. Não toca no que já existe."""
+    criadas: list[str] = []
+    for nome, padrao in PADROES.items():
+        if config_vigente(conn, nome) is None:
+            registrar_config(conn, nome, padrao, por, relogio=relogio, motivo="padrão do registro, gravado no boot")
+            criadas.append(nome)
+    return tuple(criadas)
+
+
+class LeitorConfig:
+    """Leitura de config com cache de até `ttl_s` segundos pelo relógio injetado. Um por processo; a escrita daqui invalida a chave."""
+
+    def __init__(self, relogio: Relogio, ttl_s: float = TTL_CACHE_S) -> None:
+        self._relogio = relogio
+        self._ttl_s = ttl_s
+        self._cache: dict[str, tuple[datetime, VersaoConfig | None]] = {}
+
+    def vigente(self, conn: psycopg.Connection, nome: str) -> VersaoConfig | None:
+        agora = self._relogio.agora()
+        guardado = self._cache.get(nome)
+        if guardado is not None and 0 <= (agora - guardado[0]).total_seconds() < self._ttl_s:
+            return guardado[1]
+        lida = config_vigente(conn, nome)
+        self._cache = {**self._cache, nome: (agora, lida)}
+        return lida
+
+    def valor(self, conn: psycopg.Connection, nome: str) -> Any:
+        """Valor vigente; se a chave nunca foi gravada, o padrão do registro (None se nem isso)."""
+        lida = self.vigente(conn, nome)
+        return lida.valor if lida is not None else PADROES.get(nome)
+
+    def registrar(self, conn: psycopg.Connection, nome: str, valor: Any, por: str, **opcoes: Any) -> VersaoConfig:
+        nova = registrar_config(conn, nome, valor, por, relogio=self._relogio, **opcoes)
+        self._cache = {**self._cache, nome: (self._relogio.agora(), nova)}
+        return nova
+
+
+# --- gasto e recusas de entrada ----------------------------------------------------------------------------------------------------------
+
+
+def _gasto(conn: psycopg.Connection, inicio: datetime, fim: datetime) -> Decimal:
+    """Soma de modelo + mídia dos atendimentos iniciados no intervalo, de TODOS os modos (real, sombra, duble e teste)."""
+    linha = conn.execute(
+        "SELECT coalesce(sum(custo_modelo_brl + custo_midia_brl), 0) FROM ia.atendimento WHERE iniciado_em >= %s AND iniciado_em < %s",
+        (inicio, fim),
+    ).fetchone()
+    return Decimal(linha[0])
+
+
+def gasto_mes(conn: psycopg.Connection, agora: datetime) -> Decimal:
+    return _gasto(conn, *limites_do_mes(agora))
+
+
+def gasto_dia(conn: psycopg.Connection, agora: datetime) -> Decimal:
+    return _gasto(conn, *limites_do_dia(agora))
+
+
+def disparos_dia(conn: psycopg.Connection, agora: datetime) -> int:
+    """Atendimentos de disparo iniciados no dia local (o `agendamento` nasce de uma conversa do cliente, não de um disparo)."""
+    inicio, fim = limites_do_dia(agora)
+    linha = conn.execute(
+        "SELECT count(*) FROM ia.atendimento WHERE gatilho <> 'agendamento' AND iniciado_em >= %s AND iniciado_em < %s", (inicio, fim)
+    ).fetchone()
+    return int(linha[0])
+
+
+def _optou_por_sair(conn: psycopg.Connection, pessoa_id: uuid.UUID) -> bool:
+    linha = conn.execute(
+        "SELECT tipo FROM ia.opt_out WHERE pessoa_id = %s ORDER BY registrado_em DESC, opt_out_id DESC LIMIT 1", (pessoa_id,)
+    ).fetchone()
+    return linha is not None and linha[0] == "opt_out"
+
+
+def bloqueio_entrada(
+    conn: psycopg.Connection,
+    relogio: Relogio,
+    pessoa_id: uuid.UUID | None = None,
+    *,
+    leitor: LeitorConfig | None = None,
+) -> str | None:
+    """Código da primeira recusa de entrada nova, na ordem de `RECUSAS_DE_ENTRADA`, ou None se pode entrar.
+
+    Só recusa; nunca encerra, repassa nem toca em atendimento aberto ou pausado. Sem `pessoa_id` a regra de opt-out é pulada.
+    """
+    leitor = leitor or LeitorConfig(relogio, ttl_s=0)
+    agora = relogio.agora()
+
+    def cfg(nome: str) -> Any:
+        return leitor.valor(conn, nome)
+
+    if cfg("ia_ativa") is not True:
+        return "ia_desligada"
+    if cfg("bloqueio_entrada") is True:
+        return "bloqueio_entrada"
+    if not carregar_calendario(cfg("janela_mensagem"), cfg("calendario_bloqueio")).dentro_da_janela(agora):
+        return "fora_de_janela"
+    if pessoa_id is not None and _optou_por_sair(conn, pessoa_id):
+        return "opt_out"
+    if gasto_mes(conn, agora) >= Decimal(str(cfg("teto_mensal_brl"))):
+        return "teto_atingido"
+    if gasto_dia(conn, agora) >= Decimal(str(cfg("subteto_dia"))):
+        return "teto_diario"
+    if disparos_dia(conn, agora) >= cfg("max_disparos_dia"):
+        return "disparos_dia"
+    if _abertos(conn) >= cfg("max_abertos"):
+        return "abertos_max"
+    return None
+
+
+def _abertos(conn: psycopg.Connection) -> int:
+    """`v_prontidao.abertos`: o que a IA atende AGORA (pausados e agendados ficam fora)."""
+    return int(conn.execute("SELECT abertos FROM ia.v_prontidao").fetchone()[0])

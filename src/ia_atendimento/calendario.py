@@ -187,3 +187,21 @@ def cron_utc(hora_local: time, em: date) -> str:
     """
     local = datetime.combine(em, hora_local, tzinfo=FUSO).astimezone(UTC)
     return f"{local.minute} {local.hour} * * *"
+
+
+def limites_do_dia(agora: datetime) -> tuple[datetime, datetime]:
+    """[início, fim) do dia local de São Paulo que contém `agora`, em UTC. Gasto e disparos do dia contam por este intervalo."""
+    local = _local(agora)
+    inicio = datetime.combine(local.date(), time(0, 0), tzinfo=FUSO)
+    return inicio.astimezone(UTC), datetime.combine(local.date() + timedelta(days=1), time(0, 0), tzinfo=FUSO).astimezone(UTC)
+
+
+def limites_do_mes(agora: datetime) -> tuple[datetime, datetime]:
+    """[início, fim) do mês local de São Paulo que contém `agora`, em UTC."""
+    local = _local(agora)
+    primeiro = local.date().replace(day=1)
+    seguinte = (primeiro + timedelta(days=32)).replace(day=1)
+    return (
+        datetime.combine(primeiro, time(0, 0), tzinfo=FUSO).astimezone(UTC),
+        datetime.combine(seguinte, time(0, 0), tzinfo=FUSO).astimezone(UTC),
+    )

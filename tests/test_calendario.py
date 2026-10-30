@@ -13,6 +13,8 @@ from ia_atendimento.calendario import (
     CalendarioInvalido,
     carregar_calendario,
     cron_utc,
+    limites_do_dia,
+    limites_do_mes,
     validar_calendario_bloqueio,
     validar_janela_mensagem,
 )
@@ -140,3 +142,12 @@ def test_hora_do_bloqueio_diario_em_utc_vem_da_hora_local():
     assert time(20, 15) == HORA_BLOQUEIO_ENTRADA
     assert cron_utc(HORA_BLOQUEIO_ENTRADA, date(2026, 11, 12)) == "15 23 * * *"
     assert cron_utc(time(3, 30), date(2026, 11, 12)) == "30 6 * * *"
+
+
+def test_limites_do_dia_e_do_mes_sao_de_sao_paulo():
+    # 02:30 UTC de 17/11 ainda é 23:30 de 16/11 em SP: o dia local vai de 16/11 03:00 UTC a 17/11 03:00 UTC
+    assert limites_do_dia(utc(2026, 11, 17, 2, 30)) == (utc(2026, 11, 16, 3), utc(2026, 11, 17, 3))
+    assert limites_do_dia(utc(2026, 11, 17, 3, 0)) == (utc(2026, 11, 17, 3), utc(2026, 11, 18, 3))
+    # 01/11 02:30 UTC é 31/10 23:30 em SP: ainda é outubro
+    assert limites_do_mes(utc(2026, 11, 1, 2, 30)) == (utc(2026, 10, 1, 3), utc(2026, 11, 1, 3))
+    assert limites_do_mes(utc(2026, 12, 15, 12)) == (utc(2026, 12, 1, 3), utc(2027, 1, 1, 3))
