@@ -33,6 +33,8 @@ chmod 600 "$CHAVE_AES_ARQUIVO"
 - **Sem backup da chave** (P-R10): perder a chave = perder o texto cifrado (é a intenção: o texto vive 14 dias).
 - **Descarte mensal:** no dia 31 após o fim do mês, apague a entrada daquele `chave_id` do arquivo. Qualquer cópia antiga do texto
   (dump, WAL, pgBackRest) passa a ser ilegível; `decifrar` levanta `ChaveDesconhecida`.
+- **Rotação:** o chaveiro é lido uma vez no boot (`chaveiro_padrao` fica em cache). Trocar `CHAVE_AES_ID` ou o arquivo (mês novo, descarte do
+  mês velho) exige **reiniciar o orquestrador**. Quem cifra usa só a chave vigente; `decifrar` acha a chave pelo `chave_id` gravado na linha.
 - O arquivo mora em `/etc/ia-s4` (diretório montado `:ro` no compose da VPS; memória `coolify-dockercompose-storages`). Nunca no git
   (`.gitignore` bloqueia `*.key`, `chaves*.json`, `*.aes`, `.env*`).
 
