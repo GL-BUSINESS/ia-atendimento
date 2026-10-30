@@ -41,11 +41,13 @@ __all__ = [
     "ModoTesteGlobal",
     "ValorInvalido",
     "VersaoConfig",
+    "abertos_agora",
     "bloqueio_entrada",
     "config_vigente",
     "garantir_defaults",
     "gasto_dia",
     "gasto_mes",
+    "optou_por_sair",
     "registrar_config",
 ]
 
@@ -209,7 +211,7 @@ def disparos_dia(conn: psycopg.Connection, agora: datetime) -> int:
     return int(linha[0])
 
 
-def _optou_por_sair(conn: psycopg.Connection, pessoa_id: uuid.UUID) -> bool:
+def optou_por_sair(conn: psycopg.Connection, pessoa_id: uuid.UUID) -> bool:
     linha = conn.execute(
         "SELECT tipo FROM ia.opt_out WHERE pessoa_id = %s ORDER BY registrado_em DESC, opt_out_id DESC LIMIT 1", (pessoa_id,)
     ).fetchone()
@@ -222,10 +224,13 @@ def bloqueio_entrada(
     pessoa_id: uuid.UUID | None = None,
     *,
     leitor: LeitorConfig | None = None,
+    abertura_possivel: bool = True,
 ) -> str | None:
     """Código da primeira recusa de entrada nova, na ordem de `RECUSAS_DE_ENTRADA`, ou None se pode entrar.
 
     Só recusa; nunca encerra, repassa nem toca em atendimento aberto ou pausado. Sem `pessoa_id` a regra de opt-out é pulada.
+    `abertura_possivel=False` (janela de 24 h do WhatsApp fechada e sem template de abertura aprovado, contrato 08 §8) acrescenta a
+    recusa `janela_24h` ENTRE `opt_out` e `teto_atingido`, que é a ordem do catálogo de erros; a API calcula o predicado.
     """
     leitor = leitor or LeitorConfig(relogio, ttl_s=0)
     agora = relogio.agora()
@@ -239,19 +244,21 @@ def bloqueio_entrada(
         return "bloqueio_entrada"
     if not carregar_calendario(cfg("janela_mensagem"), cfg("calendario_bloqueio")).dentro_da_janela(agora):
         return "fora_de_janela"
-    if pessoa_id is not None and _optou_por_sair(conn, pessoa_id):
+    if pessoa_id is not None and optou_por_sair(conn, pessoa_id):
         return "opt_out"
+    if not abertura_possivel:
+        return "janela_24h"
     if gasto_mes(conn, agora) >= Decimal(str(cfg("teto_mensal_brl"))):
         return "teto_atingido"
     if gasto_dia(conn, agora) >= Decimal(str(cfg("subteto_dia"))):
         return "teto_diario"
     if disparos_dia(conn, agora) >= cfg("max_disparos_dia"):
         return "disparos_dia"
-    if _abertos(conn) >= cfg("max_abertos"):
+    if abertos_agora(conn) >= cfg("max_abertos"):
         return "abertos_max"
     return None
 
 
-def _abertos(conn: psycopg.Connection) -> int:
+def abertos_agora(conn: psycopg.Connection) -> int:
     """`v_prontidao.abertos`: o que a IA atende AGORA (pausados e agendados ficam fora)."""
     return int(conn.execute("SELECT abertos FROM ia.v_prontidao").fetchone()[0])

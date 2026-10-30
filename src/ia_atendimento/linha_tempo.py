@@ -258,6 +258,7 @@ def gravar_mensagem_recebida(
     chaves: ChavesDeMensagem,
     recebido_em: datetime | None = None,
     casar: Casador | None = None,
+    fora_de_ordem: bool = False,
 ) -> Gravada | Duplicada | Casada | Conflito:
     """Grava a mensagem como passo `mensagem_recebida` (só códigos e tamanho: o texto vai, mascarado e cifrado, a `conversa`).
 
@@ -274,6 +275,7 @@ def gravar_mensagem_recebida(
         origem_evento=evento.origem_evento,
         msg_enviada_em=evento.datetime_post,
         msg_chave_rpa=None,
+        fora_de_ordem=fora_de_ordem,
     )
     with conn.transaction():
         fase, rodada = travar_atendimento(conn, atendimento_id)

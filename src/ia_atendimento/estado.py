@@ -258,15 +258,23 @@ def entrada_fingerprint(entrada: EntradaAtendimento) -> str:
     `sessao_id`,
     `motivo_escolha*`, `criterio_versao`, `perfil*`, `responsavel_antes`, `banco`, `produto`.
     """
-    identidade = {
-        "chat_id": entrada.chat_id,
-        "chave_logica": entrada.chave_logica,
-        "clt_job_id": None if entrada.clt_job_id is None else str(entrada.clt_job_id),
-        "gatilho": entrada.gatilho,
-        "persona_id": entrada.persona_id,
-        "pessoa_id": str(entrada.pessoa_id),
-        "phone_id": entrada.phone_id,
-    }
+    return fingerprint_de_identidade(
+        {
+            "chat_id": entrada.chat_id,
+            "chave_logica": entrada.chave_logica,
+            "clt_job_id": None if entrada.clt_job_id is None else str(entrada.clt_job_id),
+            "gatilho": entrada.gatilho,
+            "persona_id": entrada.persona_id,
+            "pessoa_id": str(entrada.pessoa_id),
+            "phone_id": entrada.phone_id,
+        }
+    )
+
+
+def fingerprint_de_identidade(identidade: dict[str, str | None]) -> str:
+    """O hash do contrato 08 §4 sobre os campos da identidade (`None` e ausente são o mesmo; chaves ordenadas, sem espaço, UTF-8).
+
+    Separado para o atendimento nascido de `POST /agendamentos` (mesma identidade `chat/chave/job/gatilho/pessoa/phone`)."""
     presentes = {k: v for k, v in identidade.items() if v is not None}
     canonico = json.dumps(presentes, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(PREFIXO_FINGERPRINT + canonico).hexdigest()
@@ -406,6 +414,13 @@ def _replay(conn: psycopg.Connection, origem: str, idem: str, fp: str) -> Result
     if linha[4] != fp:
         raise ConflitoIdempotencia("mesma chave lógica com outra identidade de entrada")
     return Resultado(linha[0], linha[1], linha[2], linha[3], repetido=True)
+
+
+def procurar_replay(conn: psycopg.Connection, origem: str, entrada: EntradaAtendimento) -> Resultado | None:
+    """Só a busca de replay do `abrir`, sem criar nada: `Resultado(repetido=True)` com o GRAVADO, `None` se é entrada nova, ou
+    `ConflitoIdempotencia` (mesma chave lógica com outra identidade). A API a usa ANTES das recusas de config (contrato 08 §2: o replay
+    vale mesmo com o chat ocupado e a chave desligada)."""
+    return _replay(conn, origem, idempotency_key(entrada.chave_logica), entrada_fingerprint(entrada))
 
 
 def _parametros_de_insercao(
