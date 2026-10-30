@@ -8,8 +8,11 @@ Como casa (resistente a separadores): os padrões olham uma VISTA do texto em qu
 árabe-índico...) virou ASCII, com o mesmo comprimento; as trocas valem no texto original pelas posições. Uma "corrente de
 dígitos" é uma sequência de dígitos com até 6 não-alfanuméricos entre dois dígitos (espaço, ponto, vírgula, barra, hífen,
 sublinhado, parênteses, quebra de linha). Cada corrente é classificada pelos dígitos, sem olhar os separadores:
-CPF (11 dígitos com DV válido, ou a forma `000.000.000-00`), CEP, telefone, ou `[NUMERO]` se tiver 8+ dígitos. Corrente com
-menos de 8 dígitos fica (valor, prazo, número de proposta). Datas `dd/mm/aaaa` e valores `R$ 1.234,56` ficam.
+1º CPF (11 dígitos com DV válido, ou a forma `000.000.000-00`), CEP ou telefone BR: SEMPRE mascarado, nada o isenta;
+2º `[NUMERO]` se sobrar com 8+ dígitos, salvo isenção. Corrente com menos de 8 dígitos fica (valor, prazo, proposta).
+Isenções (só para o que sobraria como `[NUMERO]`): data `dd/mm/aaaa` e valor `R$ 1.234,56` (centavos obrigatórios, até 3 grupos
+de milhar e 11 dígitos). A isenção só vale se a corrente inteira está dentro do trecho isento; se a corrente entra ou sai dele
+(`R$ 11 91234-5678`, `29/10/2026 11912345678`), a isenção cai e a corrente inteira é mascarada.
 
 Ordem: e-mail, UUID, correntes de dígitos e, por último, nomes marcados pelo chamador.
 Limite conhecido (fora de escopo): dígitos por extenso ("cinco dois nove...") e dígitos misturados com letras não são mascarados.
@@ -26,11 +29,12 @@ CPF, TELEFONE, EMAIL, CEP, UUID, NUMERO, NOME = (f"[{r}]" for r in ("CPF", "TELE
 MIN_DIGITOS = 8
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 _UUID = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9A-Za-z])")
-# Nunca mascarados (senão data e dinheiro, que têm 8+ dígitos, virariam [NUMERO]): data com ano 19xx/20xx e valor em reais bem formado.
-_PROTEGIDO = re.compile(
+# Isenções do [NUMERO] (data e dinheiro têm 8+ dígitos): data com ano 19xx/20xx e valor em reais com centavos, até 3 grupos de milhar.
+_ISENTO = re.compile(
     r"(?<![0-9])(?:0?[1-9]|[12][0-9]|3[01])([/.\-])(?:0?[1-9]|1[0-2])\1(?:19|20)[0-9]{2}(?![0-9])"
-    r"|R\$\s*[0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?(?![0-9])"
+    r"|R\$\s*[0-9]{1,3}(?:\.[0-9]{3}){0,3},[0-9]{2}(?![0-9])"
 )
+MAX_DIGITOS_DINHEIRO = 11
 _CORRENTE = re.compile(r"[+(]?[0-9](?:[\W_]{0,6}[0-9])*")
 _CPF_FORMATADO = re.compile(r"[0-9]{3}\.[0-9]{3}\.[0-9]{3}-[0-9]{2}")
 _CEP_FORMATADO = re.compile(r"[0-9]{5}-[0-9]{3}")
@@ -74,7 +78,8 @@ def _mascarar_padrao(texto: str, padrao: re.Pattern[str], marcador: str) -> str:
     return _aplicar(texto, [(m.start(), m.end(), marcador) for m in padrao.finditer(_vista_ascii(texto))])
 
 
-def _rotular(trecho: str, antes: str) -> str:
+def _classe_forte(trecho: str, antes: str) -> str | None:
+    """CPF, CEP ou telefone pelos dígitos (não pelos separadores); `None` se for só um número."""
     digitos = re.sub(r"[^0-9]", "", trecho)
     limpo = trecho.strip("+() ")
     if _CPF_FORMATADO.fullmatch(limpo) or _cpf_valido(digitos):
@@ -83,20 +88,33 @@ def _rotular(trecho: str, antes: str) -> str:
         return CEP
     if _TELEFONE_DIGITOS.fullmatch(digitos) or _TELEFONE_CURTO.fullmatch(limpo):
         return TELEFONE
-    return NUMERO
+    return None
+
+
+def _trechos_isentos(vista: str) -> list[tuple[int, int]]:
+    isentos = []
+    for achado in _ISENTO.finditer(vista):
+        dinheiro = achado.group().startswith("R$")
+        if dinheiro and sum(c.isdigit() for c in achado.group()) > MAX_DIGITOS_DINHEIRO:
+            continue
+        isentos.append(achado.span())
+    return isentos
 
 
 def _trocas_de_digitos(vista: str) -> list[Troca]:
+    isentos = _trechos_isentos(vista)
     trocas: list[Troca] = []
-    ate = 0
-    segmentos = [(m.start(), m.end()) for m in _PROTEGIDO.finditer(vista)]
-    for inicio, fim in [*segmentos, (len(vista), len(vista))]:
-        for achado in _CORRENTE.finditer(vista, ate, inicio):
-            trecho = achado.group()
-            digitos = sum(c.isdigit() for c in trecho)
-            if digitos >= MIN_DIGITOS or _CPF_FORMATADO.fullmatch(trecho.strip("+() ")) or _CEP_FORMATADO.fullmatch(trecho.strip("+() ")):
-                trocas.append((achado.start(), achado.end(), _rotular(trecho, vista[: achado.start()])))
-        ate = fim
+    for achado in _CORRENTE.finditer(vista):
+        trecho, inicio, fim = achado.group(), achado.start(), achado.end()
+        if sum(c.isdigit() for c in trecho) < MIN_DIGITOS:
+            continue
+        rotulo = _classe_forte(trecho, vista[:inicio])
+        if rotulo is None:
+            primeiro_digito = inicio + next(i for i, c in enumerate(trecho) if c.isdigit())
+            if any(a <= primeiro_digito and fim <= b for a, b in isentos):
+                continue  # a corrente inteira é uma data ou um valor em reais
+            rotulo = NUMERO
+        trocas.append((inicio, fim, rotulo))
     return trocas
 
 

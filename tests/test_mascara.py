@@ -184,7 +184,8 @@ def test_separadores_estranhos_nao_furam_a_mascara(entrada, esperado):
     "texto",
     [
         "paguei R$ 1.234,56 ontem",
-        "o total é R$ 12.345.678,90 no contrato",  # 10 dígitos, mas é dinheiro bem formado
+        "o total é R$ 1.234.567,89 no contrato",  # 9 dígitos, mas é dinheiro bem formado (centavos, 2 grupos de milhar)
+        "entrada de R$ 150.000,00 e o resto depois",  # 8 dígitos
         "venceu em 29/10/2026 mesmo",
         "venceu em 29-10-2026 mesmo",
         "venceu em 29.10.2026 mesmo",
@@ -198,9 +199,16 @@ def test_valor_data_e_numero_curto_nao_sao_mascarados(texto):
     assert mascarar(texto) == texto
 
 
-def test_data_ao_lado_de_pii_nao_protege_a_pii():
+def test_data_com_texto_no_meio_nao_protege_a_pii():
     assert mascarar("vence 29/10/2026 e meu cpf 529.982.247-25") == "vence 29/10/2026 e meu cpf [CPF]"
-    assert mascarar("29/10/2026 11912345678") == "29/10/2026 [TELEFONE]"
+
+
+def test_corrente_que_entra_ou_sai_do_trecho_isento_perde_a_isencao():
+    """Sem letra no meio, data/dinheiro + outro número formam UMA corrente: a isenção cai e tudo é mascarado."""
+    assert mascarar("29/10/2026 11912345678") == "[NUMERO]"
+    assert mascarar("11912345678 29/10/2026") == "[NUMERO]"
+    assert mascarar("R$ 1.234,56 12345678") == "R$ [NUMERO]"
+    assert mascarar("R$ 1.234,56 e 12345678") == "R$ 1.234,56 e [NUMERO]"  # com letra no meio são duas correntes
 
 
 def test_numero_de_onze_digitos_colado_a_R_cifrao_nao_vira_dinheiro():
@@ -210,3 +218,30 @@ def test_numero_de_onze_digitos_colado_a_R_cifrao_nao_vira_dinheiro():
 def test_idempotente_com_separadores_estranhos():
     primeira = mascarar("cpf 1 2 3 4 5 6 7 8 9 0 9 tel (11) 9 1234_5678")
     assert mascarar(primeira) == primeira
+
+
+# --- a isenção de dinheiro/data não protege CPF, telefone nem número longo (segundo achado da revisão de segurança) ---------------
+
+
+@pytest.mark.parametrize(
+    ("entrada", "esperado"),
+    [
+        ("R$ 123.456.789-09", "R$ [CPF]"),  # CPF válido depois de «R$»
+        ("R$ 52998224725", "R$ [CPF]"),
+        ("R$ 11 91234-5678", "R$ [TELEFONE]"),
+        ("R$ 11912345678", "R$ [TELEFONE]"),
+        ("R$ 1.234.567.890,00", "R$ [NUMERO]"),  # 12 dígitos, 3 grupos de milhar: acima do limite de 11 dígitos
+        ("R$ 123.456.789", "R$ [NUMERO]"),  # sem centavos não é dinheiro com 8+ dígitos
+        ("R$ 12.345.678,90", "R$ [TELEFONE]"),  # 10 dígitos com cara de telefone: a classe forte vem antes da isenção
+        ("R$ 99999-999", "R$ [CEP]"),
+        ("valor R$ 450,00 e CPF 529.982.247-25", "valor R$ 450,00 e CPF [CPF]"),
+    ],
+)
+def test_isencao_monetaria_nao_protege_cpf_telefone_nem_numero_longo(entrada, esperado):
+    assert mascarar(entrada) == esperado
+
+
+def test_classe_forte_vem_antes_da_isencao_de_data():
+    # 11 dígitos de CPF válido escritos com cara de data não ganham isenção
+    assert mascarar("52/99/822472 5") != "52/99/822472 5"
+    assert mascarar("529-982-247-25") == "[CPF]"
