@@ -270,3 +270,63 @@ def test_host_local_aceita_socket_e_loopback(dsn):
     from ia_atendimento.migracoes import _host_local
 
     assert _host_local(dsn)
+
+
+# --- revisão 29/10 -------------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.banco
+def test_o_sql_executado_e_exatamente_os_bytes_do_checksum(vazio, tmp_path):
+    """`read_text` traduzia CR LF em LF: o ledger registrava o sha256 dos bytes, mas o banco recebia outro texto."""
+    copia = tmp_path / "copia"
+    shutil.copytree(MIGRACOES, copia)
+    bytes_0003 = b"CREATE TABLE ia.zz_crlf AS SELECT length('a\r\nb') AS n;\n"
+    (copia / "0003_crlf.up.sql").write_bytes(bytes_0003)
+    with vazio.conectar(autocommit=False) as conn:
+        aplicar(conn, copia)
+    with vazio.sessao() as conn:
+        assert conn.execute("SELECT n FROM ia.zz_crlf").fetchone() == (4,)  # a\r\nb: 4 caracteres, não 3
+        assert conn.execute("SELECT checksum FROM ia.migracao WHERE migracao_id = '0003_crlf'").fetchone() == (
+            hashlib.sha256(bytes_0003).hexdigest(),
+        )
+
+
+def test_migracao_com_bytes_que_nao_sao_utf8_e_recusada_com_nome_do_arquivo(tmp_path):
+    (tmp_path / "0001_ruim.up.sql").write_bytes(b"SELECT '\xff';")
+    achada = listar(tmp_path)[0]
+    with pytest.raises(MigracaoErro, match="0001_ruim"):
+        achada.ler()
+
+
+@pytest.mark.banco
+def test_quatro_aplicadores_ao_mesmo_tempo_aplicam_cada_migracao_uma_vez(vazio):
+    """Advisory lock + ledger na mesma transação: os outros três esperam e encontram tudo registrado."""
+    import threading
+
+    resultados: dict[int, object] = {}
+
+    def rodar(i: int) -> None:
+        try:
+            with vazio.conectar(autocommit=False) as conn:
+                resultados[i] = aplicar(conn, MIGRACOES)
+        except Exception as erro:  # o teste afirma sobre o resultado; a exceção entra como valor
+            resultados[i] = repr(erro)
+
+    fios = [threading.Thread(target=rodar, args=(i,)) for i in range(4)]
+    for fio in fios:
+        fio.start()
+    for fio in fios:
+        fio.join(timeout=120)
+    aplicadas = [r for r in resultados.values() if r == ["0001_esquema", "0002_procrastinate"]]
+    vazias = [r for r in resultados.values() if r == []]
+    assert len(aplicadas) == 1 and len(vazias) == 3, resultados
+    assert set(_ledger(vazio)) == {"0001_esquema", "0002_procrastinate"}
+
+
+def test_cli_recusa_pgservice_mesmo_com_host_no_dsn(monkeypatch):
+    """O serviço pode definir `hostaddr` (que vence o `host`): o DSN diz loopback e a conexão vai para outro lugar."""
+    from ia_atendimento.migracoes import _host_local
+
+    monkeypatch.setenv("PGSERVICE", "s4")
+    assert not _host_local("host=127.0.0.1 dbname=x")
+    assert not _host_local("host=/var/run/postgresql dbname=x")

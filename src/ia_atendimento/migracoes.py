@@ -45,10 +45,18 @@ class Migracao:
     id: str  # ex.: 0001_esquema (casa com o CHECK de ia.migracao.migracao_id)
     numero: int
     caminho: Path
-    checksum: str  # sha256 hex dos bytes do arquivo
+    conteudo: bytes  # lido UMA vez: o checksum e o SQL executado saem destes mesmos bytes
+
+    @property
+    def checksum(self) -> str:
+        """sha256 hex dos bytes do arquivo."""
+        return hashlib.sha256(self.conteudo).hexdigest()
 
     def ler(self) -> str:
-        return self.caminho.read_text(encoding="utf-8")
+        try:
+            return self.conteudo.decode("utf-8")
+        except UnicodeDecodeError:
+            raise MigracaoErro(f"{self.id}: o arquivo não é UTF-8") from None
 
 
 def listar(diretorio: Path | str) -> list[Migracao]:
@@ -62,7 +70,7 @@ def listar(diretorio: Path | str) -> list[Migracao]:
         if casou is None:
             raise MigracaoErro(f"nome de migração fora do padrão NNNN_nome.up.sql: {caminho.name}")
         numero = int(casou["numero"])
-        achadas.append(Migracao(f"{casou['numero']}_{casou['nome']}", numero, caminho, hashlib.sha256(caminho.read_bytes()).hexdigest()))
+        achadas.append(Migracao(f"{casou['numero']}_{casou['nome']}", numero, caminho, caminho.read_bytes()))
     if not achadas:
         raise MigracaoErro(f"nenhuma migração em {base}")
     numeros = [m.numero for m in achadas]
@@ -130,12 +138,12 @@ def _so_local(entradas: str, aceitos: frozenset[str]) -> bool:
 
 def _host_local(dsn: str) -> bool:
     """O DSN só pode chegar a loopback ou socket unix. Olha `host`, `hostaddr` (que vence o host na conexão) e as variáveis
-    PGHOST/PGHOSTADDR quando o DSN não diz; recusa `service` (o pg_service.conf pode apontar para qualquer host)."""
+    PGHOST/PGHOSTADDR quando o DSN não diz; recusa `service` e a variável PGSERVICE (o pg_service.conf pode apontar para qualquer host)."""
     try:
         partes = conninfo_to_dict(dsn)
     except psycopg.ProgrammingError:
         return False
-    if "service" in partes or (os.environ.get("PGSERVICE") and "host" not in partes and "hostaddr" not in partes):
+    if "service" in partes or os.environ.get("PGSERVICE"):  # o serviço pode trazer `hostaddr`, que vence o `host` do DSN
         return False
     host = partes.get("host") or os.environ.get("PGHOST") or ""
     hostaddr = partes.get("hostaddr") or os.environ.get("PGHOSTADDR") or ""
