@@ -23,10 +23,12 @@ def test_varredura_acusa_o_que_deve(tmp_path, monkeypatch):
     spec.loader.exec_module(modulo)
     monkeypatch.setattr(modulo, "RAIZ", tmp_path)
     ruim = tmp_path / "ruim.txt"
-    ruim.write_text(
-        "a = 'fw_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123'\ncpf 390.533.447-05\ncontato pessoa.real@empresa.com.br\ntoken = 'abcdefghijklmnop1234'\n",
-        encoding="utf-8",
-    )
+    # montado em pedaços: o próprio arquivo de teste não pode parecer segredo, CPF ou e-mail real para a varredura
+    segredo = "fw" + "_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123"
+    cpf = "390.533" + ".447-05"
+    email = "pessoa.real" + "@empresa" + ".com.br"
+    token = "tok" + "en = 'abcdefghijklmnop1234'"
+    ruim.write_text(f"a = '{segredo}'\ncpf {cpf}\ncontato {email}\n{token}\n", encoding="utf-8")
     achados = modulo.varrer(ruim)
     assert len(achados) == 4, achados
     bom = tmp_path / "bom.txt"

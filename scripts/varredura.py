@@ -47,7 +47,7 @@ def varrer(arquivo: Path) -> list[str]:
             if onze not in CPFS_SINTETICOS and _cpf_valido(onze):
                 achados.append(f"{arquivo.relative_to(RAIZ)}:{numero}: CPF com DV válido fora da lista sintética")
         for m in EMAIL.finditer(linha):
-            if m.group(1).lower() not in DOMINIOS_DE_TESTE:
+            if m.group(1).lower() not in DOMINIOS_DE_TESTE and not m.group(1).lower().endswith(".test"):
                 achados.append(f"{arquivo.relative_to(RAIZ)}:{numero}: e-mail de domínio real ({m.group(1)})")
     return achados
 
