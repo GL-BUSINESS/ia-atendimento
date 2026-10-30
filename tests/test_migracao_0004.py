@@ -7,8 +7,10 @@ A 0001 e a 0003 nunca são editadas; aqui se prova o checksum, a função (únic
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
@@ -265,3 +267,68 @@ def test_docs_documentam_a_0004_com_o_ledger_na_mesma_transacao(vazio, ate_0003,
         conn.execute(corpo + _epilogo_documentado(doc, ID_0004, soma))
     with vazio.sessao() as conn:
         assert conn.execute("SELECT checksum FROM ia.migracao WHERE migracao_id = %s", (ID_0004,)).fetchone() == (soma,)
+
+
+# --- revisão 1 (R1-12, R1-18): a outbox só leva códigos; a função não anexa id nulo ------------------------------------------------------------
+
+
+def _inserir_evento(conn: psycopg.Connection, atd: uuid.UUID, **colunas: object) -> None:
+    base = {"atendimento_id": atd, "seq": 1, "evento": "assumiu", "chave": "venda:abc", **colunas}
+    conn.execute(
+        f"INSERT INTO ia.espelho_evento ({', '.join(base)}) VALUES ({', '.join(['%s'] * len(base))})",
+        [json.dumps(v) if k == "detalhe" else v for k, v in base.items()],
+    )
+
+
+@pytest.mark.banco
+@pytest.mark.parametrize(
+    "colunas,restricao",
+    [
+        pytest.param({"chave": "chave com espaço e 12345678901"}, "espelho_evento_chave_check", id="chave-com-espaco-e-digitos"),
+        pytest.param({"chave": "outro:abc"}, "espelho_evento_chave_check", id="chave-de-outro-prefixo"),
+        pytest.param({"chave": "venda:" + "a" * 181}, "espelho_evento_chave_check", id="chave-longa"),
+        pytest.param({"detalhe": {"cpf": "00000001234"}}, "espelho_evento_detalhe_check", id="detalhe-com-chave-fora-do-contrato"),
+        pytest.param({"detalhe": {"desfecho": "texto livre com espaço"}}, "espelho_evento_detalhe_check", id="detalhe-com-texto-livre"),
+        pytest.param({"detalhe": {"desfecho": 7}}, "espelho_evento_detalhe_check", id="detalhe-com-numero"),
+        pytest.param({"detalhe": {"desfecho": "x" * 65}}, "espelho_evento_detalhe_check", id="detalhe-com-valor-longo"),
+        pytest.param({"detalhe": ["lista"]}, "espelho_evento_detalhe_check", id="detalhe-nao-e-objeto"),
+        pytest.param({"resultado": "lixo", "enviado_em": "now()"}, "espelho_evento_resultado_check", id="resultado-fora-do-enum"),
+        pytest.param({"tentativas": -5}, "espelho_evento_tentativas_check", id="tentativas-negativa"),
+        pytest.param({"resultado": "aplicado"}, "espelho_evento_enviado_check", id="resultado-sem-envio"),
+    ],
+)
+def test_espelho_evento_so_leva_codigos(banco, colunas, restricao):
+    colunas = {k: (datetime.now(UTC) if v == "now()" else v) for k, v in colunas.items()}
+    with banco.sessao("ia_app_a") as conn:
+        atd = novo_atendimento(conn)
+        with pytest.raises(psycopg.errors.CheckViolation) as erro:
+            _inserir_evento(conn, atd, **colunas)
+        assert erro.value.diag.constraint_name == restricao
+
+
+@pytest.mark.banco
+def test_espelho_evento_aceita_o_que_o_contrato_manda(banco):
+    with banco.sessao("ia_app_a") as conn:
+        atd = novo_atendimento(conn)
+        detalhe = {
+            "chatbot_antes": "ligado",
+            "retoma_em": "2026-11-24T13:15:30.123456+00:00",
+            "encerrado_em": "2026-11-24T14:00:00+00:00",
+            "desfecho": "repassado",
+        }
+        _inserir_evento(conn, atd, detalhe=detalhe)
+        _inserir_evento(conn, atd, seq=2, chave="agendar:0123456789abcdef01234567:025f6a9ea3e702e7", detalhe={})
+        for resultado in ("aplicado", "obsoleto", "desconhecido", "impedido"):
+            conn.execute(
+                "UPDATE ia.espelho_evento SET enviado_em = now(), resultado = %s, tentativas = tentativas + 1 WHERE seq = 2", (resultado,)
+            )
+        conn.execute("UPDATE ia.espelho_evento SET enviado_em = NULL, resultado = NULL WHERE seq = 2")  # a volta ao pendente também vale
+
+
+@pytest.mark.banco
+def test_funcao_nao_anexa_id_nulo(banco):
+    with banco.sessao("ia_app_a") as conn:
+        atd = novo_atendimento(conn)
+        passo = _passo_mensagem(conn, atd, 1, f"cg:{CHAT}:{HASH16}")
+        assert conn.execute("SELECT ia.fn_anexar_rpa(%s, NULL)", (passo,)).fetchone() == (False,)
+        assert conn.execute("SELECT msg_chave_rpa FROM ia.passo WHERE passo_id = %s", (passo,)).fetchone() == (None,)
