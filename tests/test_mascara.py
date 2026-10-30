@@ -287,3 +287,30 @@ def test_mascara_roda_em_tempo_linear_no_tamanho_do_texto(texto):
     inicio = time.perf_counter()
     mascarar(texto)
     assert time.perf_counter() - inicio < 2.0, "máscara não é linear: 100 mil caracteres não podem levar segundos"
+
+
+# --- revisão 29/10 (achado da revisão automática): e-mails colados e caixa alta ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("entrada", "esperado"),
+    [
+        ("a@b.test+joao@exemplo.test", "[EMAIL][EMAIL]"),  # o `+` é caractere de parte-local: o 2º e-mail não pode ficar em claro
+        ("a@exemplo.test,joao@exemplo.test", "[EMAIL],[EMAIL]"),
+        ("a@exemplo.test;JOAO@EXEMPLO.COM.BR", "[EMAIL];[EMAIL]"),
+        ("JOAO@EXEMPLO.COM.BR", "[EMAIL]"),
+        ("João@Exemplo.Test", "[EMAIL]"),
+        ("a@b.test.joao@exemplo.test", "[EMAIL][EMAIL]"),  # ambíguo: mascara os dois pedaços em vez de deixar `@exemplo.test`
+    ],
+)
+def test_emails_colados_ou_em_caixa_alta_ficam_todos_mascarados(entrada, esperado):
+    saida = mascarar(entrada)
+    assert saida == esperado
+    assert "@" not in saida
+
+
+def test_email_idempotente_e_sem_arroba_solta_no_texto_normal():
+    assert (
+        mascarar("escreva @ aqui, a@b ou @exemplo.test") == "escreva @ aqui, a@b ou @exemplo.test"
+    )  # sem parte-local ou sem domínio: não é e-mail
+    assert mascarar(mascarar("a@b.test+joao@exemplo.test")) == "[EMAIL][EMAIL]"

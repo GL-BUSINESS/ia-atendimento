@@ -27,9 +27,14 @@ from collections.abc import Callable, Iterable
 CPF, TELEFONE, EMAIL, CEP, UUID, NUMERO, NOME = (f"[{r}]" for r in ("CPF", "TELEFONE", "EMAIL", "CEP", "UUID", "NUMERO", "NOME"))
 
 MIN_DIGITOS = 8
-# Letras Unicode (`\w`) e acentos combinantes: «joão@...» e domínios IDN. O lookbehind faz a busca começar só no começo de cada corrida
-# de caracteres de usuário; sem ele cada posição varria a corrida inteira e 100 mil letras seguidas levavam ~9 s (quadrático).
-_EMAIL = re.compile(r"(?<![\w\u0300-\u036f.%+\-])[\w\u0300-\u036f.%+\-]+@[\w\u0300-\u036f\-]+(?:\.[\w\u0300-\u036f\-]+)+")
+# E-mail em dois passos, sem lookbehind: (1) corridas MAXIMAIS de caracteres de parte-local (letras Unicode via `\w`, acentos combinantes,
+# `.%+-`), achadas por varredura linear; (2) se a corrida termina em `@`, o domínio é casado ali. Cada caractere é lido uma vez, então
+# 100 mil letras seguidas não são quadráticas (um padrão único `local@dominio` varria a corrida inteira a cada posição: ~9 s), e um
+# segundo e-mail colado ao primeiro (`a@b.c+joao@gmail.com`) não fica em claro: o início da parte-local nunca recua para antes do fim
+# do e-mail anterior.
+_LOCAL = r"[\w\u0300-\u036f.%+\-]"
+_CORRIDA_LOCAL = re.compile(_LOCAL + "+")
+_DOMINIO = re.compile(r"[\w\u0300-\u036f\-]+(?:\.[\w\u0300-\u036f\-]+)+")
 _UUID = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9A-Za-z])")
 # Isenções do [NUMERO] (data e dinheiro têm 8+ dígitos): data com ano 19xx/20xx e valor em reais com centavos, até 3 grupos de milhar.
 _ISENTO = re.compile(
@@ -83,6 +88,20 @@ def _aplicar(texto: str, trocas: list[Troca]) -> str:
 
 def _mascarar_padrao(texto: str, padrao: re.Pattern[str], marcador: str) -> str:
     return _aplicar(texto, [(m.start(), m.end(), marcador) for m in padrao.finditer(_vista_ascii(texto))])
+
+
+def _trocas_de_email(vista: str) -> list[Troca]:
+    trocas: list[Troca] = []
+    fim_anterior = 0
+    for corrida in _CORRIDA_LOCAL.finditer(vista):
+        arroba = corrida.end()
+        dominio = _DOMINIO.match(vista, arroba + 1) if vista[arroba : arroba + 1] == "@" else None
+        if dominio is None:
+            continue
+        inicio = max(corrida.start(), fim_anterior)  # a parte-local não invade o e-mail anterior
+        trocas.append((inicio, dominio.end(), EMAIL))
+        fim_anterior = dominio.end()
+    return trocas
 
 
 def _classe_forte(trecho: str, antes: str) -> str | None:
@@ -171,7 +190,7 @@ def mascarar(texto: str, nomes: Iterable[str] = ()) -> str:
     if not isinstance(texto, str):
         raise TypeError("mascarar espera str")
     etapas: list[Callable[[str], str]] = [
-        lambda t: _mascarar_padrao(t, _EMAIL, EMAIL),
+        lambda t: _aplicar(t, _trocas_de_email(_vista_ascii(t))),
         lambda t: _mascarar_padrao(t, _UUID, UUID),
         _etapa_digitos,
     ]
