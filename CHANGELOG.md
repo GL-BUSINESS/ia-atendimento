@@ -30,7 +30,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
     - **R1-27:** `estado.py` dividido (`estado_erros.py`, `estado_entrada.py`; 825 → 620 linhas, API pública igual), `fila._montar_tarefas` e `linha_tempo.gravar_mensagem_recebida` < 50 linhas, docstrings repetidas removidas, `tests/test_api.py` dividido em 3 arquivos.
     - **Pendências declaradas (não corrigidas aqui):** **R1-14 gasto** (`chave._gasto` ainda soma o custo do atendimento, não Σ `passo.custo_brl` do §9: bloqueio da B1.6, **não ligar `ia_ativa` antes**; `tests/test_gasto_pendente.py` é um `xfail` estrito que vira vermelho quando a troca for feita);
       **R1-10 anotação:** o limite fica em **240**; o contrato 08 §3/§5.6 diz 1–300, mas o CHECK é sobre o texto do passo `Anotação (categoria): nota` ≤ 300, então o máximo real é **`287 − len(categoria)`** (277 com «observacao», 247 com categoria de 40): **o contrato 08 precisa de emenda** para «≤ 287 − len(categoria)» (ou o limite vira dinâmico).
-  - **Testes:** 1.891 → 2.136 (`test_api`, `test_contrato_api`, `test_migracao_0004`, `test_enfileirador`, `test_ambiente_api`, `test_segredos`, `test_esforco`, `test_mensagens`, mais os de `config`).
+  - **Testes:** 1.891 → 2.221 (+3 xfail estritos) (`test_api`, `test_contrato_api`, `test_migracao_0004`, `test_enfileirador`, `test_ambiente_api`, `test_segredos`, `test_esforco`, `test_mensagens`, mais os de `config`).
 
 - **B8.1a, corpus da F3** (`tests/corpus/`, pacote `src/ia_atendimento/corpus/`, `tests/test_corpus*.py`): 60 personas P01-P60 (40 da F3 curta,
   C5) + 24 P-M, 60 diálogos-gabarito (40 da F3 curta + as 20 P-M críticas; 739 turnos; o texto da IA não é fixado), semente determinística
