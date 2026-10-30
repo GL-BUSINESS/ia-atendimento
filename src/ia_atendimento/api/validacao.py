@@ -53,8 +53,7 @@ def validar[M: BaseModel](modelo: type[M], corpo: dict[str, Any], *, codigo_de_c
 
 
 def rejeitar_pii(campo: str, valor: str) -> None:
-    """`422 pii_no_texto_livre` (só o nome do campo) se a máscara mudaria o texto: CPF, telefone, e-mail, CEP, UUID, 8+ dígitos (08 §5.4).
-    `422 pii_no_texto_livre` (só o nome do campo) se a máscara mudaria o texto: CPF, telefone, e-mail, CEP, UUID, 8+ dígitos (08 §5.4)."""
+    """`422 pii_no_texto_livre` (só o nome do campo) se a máscara mudaria o texto: CPF, telefone, e-mail, CEP, UUID, 8+ dígitos (§5.4)."""
     if mascarar(valor) != valor:
         raise ErroApi("pii_no_texto_livre", campo=campo)
 

@@ -207,8 +207,7 @@ def _abrir(
 
 
 def atendimento_por_chave(ctx: ContextoApi, chave: str) -> tuple[int, dict[str, Any]]:
-    """`{"atendimento_id","estado","modo","encerrado"}` do atendimento mais recente com a chave lógica (`venda:…` ou `agendar:…`). Sem PII.
-    `{"atendimento_id","estado","modo","encerrado"}` do atendimento mais recente com a chave lógica (`venda:…` ou `agendar:…`). Sem PII."""
+    """`{"atendimento_id","estado","modo","encerrado"}` do atendimento mais recente com a chave lógica (`venda:…`/`agendar:…`). Sem PII."""
     if not _CHAVE_POR_CHAVE.fullmatch(chave):
         raise erro_de_validacao((("chave", "formato_invalido"),))
     with ctx.conexao() as conn:

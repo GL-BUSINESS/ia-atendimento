@@ -77,7 +77,14 @@ def _servicos(contexto: procrastinate.JobContext) -> jobs.Servicos:
 
 def _montar_tarefas(com_periodicas: bool) -> procrastinate.Blueprint:
     bp = procrastinate.Blueprint()
+    _tarefas_do_chat(bp)
+    periodicas = _tarefas_de_manutencao(bp)
+    if com_periodicas:
+        _registrar_periodicas(bp, periodicas)
+    return bp
 
+
+def _tarefas_do_chat(bp: procrastinate.Blueprint) -> None:
     @bp.task(name="turno", pass_context=True)
     async def turno(contexto: procrastinate.JobContext, atendimento_id: str) -> None:
         await jobs.executar_turno(_servicos(contexto), uuid.UUID(atendimento_id))
@@ -102,6 +109,10 @@ def _montar_tarefas(com_periodicas: bool) -> procrastinate.Blueprint:
     @bp.task(name="encerrar_por_chave", pass_context=True)
     async def encerrar_por_chave(contexto: procrastinate.JobContext, atendimento_id: str) -> None:
         await jobs.executar_encerrar_por_chave(_servicos(contexto), uuid.UUID(atendimento_id))
+
+
+def _tarefas_de_manutencao(bp: procrastinate.Blueprint) -> dict[str, Any]:
+    """Tarefas sem chat (reaper, expiração, auditoria, poda, bloqueios); devolve as periódicas, que `_registrar_periodicas` agenda."""
 
     @bp.task(name="expirar_parados", pass_context=True)
     async def expirar_parados(contexto: procrastinate.JobContext, timestamp: int) -> None:
@@ -131,19 +142,14 @@ def _montar_tarefas(com_periodicas: bool) -> procrastinate.Blueprint:
     async def reconciliar_bloqueio(contexto: procrastinate.JobContext, timestamp: int) -> None:
         await asyncio.to_thread(jobs.reconciliar_bloqueio_diario, _servicos(contexto))
 
-    if com_periodicas:
-        _registrar_periodicas(
-            bp,
-            {
-                "reaper_lease": reaper_lease,
-                "expirar_parados": expirar_parados,
-                "auditoria_pii": auditoria_pii,
-                "podar": podar,
-                "bloqueio_2015": bloqueio_2015,
-                "reconciliar_bloqueio": reconciliar_bloqueio,
-            },
-        )
-    return bp
+    return {
+        "reaper_lease": reaper_lease,
+        "expirar_parados": expirar_parados,
+        "auditoria_pii": auditoria_pii,
+        "podar": podar,
+        "bloqueio_2015": bloqueio_2015,
+        "reconciliar_bloqueio": reconciliar_bloqueio,
+    }
 
 
 def _registrar_periodicas(bp: procrastinate.Blueprint, tarefas: dict[str, Any]) -> None:

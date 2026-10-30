@@ -158,8 +158,7 @@ def horario_unico(texto: str, agora: datetime, ultima_msg_cliente_em: datetime, 
 
 
 def procurar_replay(conn: psycopg.Connection, chave_logica: str, hash_do_texto: str) -> Agendado | None:
-    """Agendamento já gravado para a chave: o MESMO texto ⇒ `Agendado(repetido=True)` com o gravado; outro texto ⇒ `ConflitoIdempotencia`.
-    Agendamento já gravado para a chave: o MESMO texto ⇒ `Agendado(repetido=True)` com o gravado; outro texto ⇒ `ConflitoIdempotencia`."""
+    """Agendamento já gravado para a chave: o MESMO texto ⇒ `Agendado(repetido=True)` com o gravado; outro ⇒ `ConflitoIdempotencia`."""
     linha = conn.execute(
         "SELECT atendimento_id, agendamento_id, estado, dispara_em, tipo_extracao, confianca, texto_hash"
         " FROM ia.agendamento WHERE idem_key = %s",
