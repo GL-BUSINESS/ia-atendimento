@@ -11,17 +11,18 @@ a `anotacao_operador`, cujo texto é do OPERADOR (não do cliente) e passa pela 
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from decimal import Decimal
 from typing import Annotated, Any, ClassVar, Final, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, ValidationInfo, model_validator
 
 from ia_atendimento.mascara import mascarar
 from ia_atendimento.scrubber import validar
 
 MOTIVO_PADRAO: Final = "(não informado)"  # decisão sem motivo: o turno segue (H §2.2)
+MOTIVO_REDIGIDO: Final = "(texto redigido)"  # há motivo, mas os nomes da conversa não foram informados: nada de texto livre
 LIMITE_MOTIVO: Final = 300
 LIMITE_NOTA: Final = 250  # com o prefixo «Anotação (x): » cabe nos 300 do CHECK
 LIMITE_VERIF_DET: Final = 10
@@ -51,11 +52,19 @@ def _config() -> ConfigDict:
     return ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
 
-def _mascarado(motivo: str | None) -> str:
-    """O motivo escrito pelo modelo vai para a coluna sem PII; vazio vira o padrão."""
+def _mascarado(motivo: str | None, nomes: Collection[str] | None) -> str:
+    """O motivo escrito pelo modelo vai para a coluna sem PII. `nomes` = nome do cliente e variantes (achado S1): o `mascarar` sozinho
+    não pega nome. `nomes=None` (não informados) redige o texto por completo; `()` = conferido, não há nome a esconder."""
     if motivo is None or not motivo.strip():
         return MOTIVO_PADRAO
-    return mascarar(motivo.strip())[:LIMITE_MOTIVO]
+    if nomes is None:
+        return MOTIVO_REDIGIDO
+    return mascarar(motivo.strip(), nomes)[:LIMITE_MOTIVO]
+
+
+def nomes_do_contexto(info: ValidationInfo) -> Collection[str] | None:
+    contexto = info.context
+    return contexto.get("nomes") if isinstance(contexto, dict) else None
 
 
 class DadosPasso(BaseModel):
@@ -64,7 +73,8 @@ class DadosPasso(BaseModel):
     model_config = _config()
     tipo: ClassVar[str]
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
+        """Colunas de `ia.passo`. `nomes` só importa onde há texto livre (motivo do modelo)."""
         raise NotImplementedError
 
 
@@ -79,7 +89,7 @@ class MensagemRecebida(DadosPasso):
     msg_chave_rpa: MsgChaveRpa | None = None
     fora_de_ordem: bool = False
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -101,8 +111,8 @@ class DecisaoModelo(DadosPasso):
     trace_id: Hex32 | None = None
     motivo: str | None = None
 
-    def colunas(self) -> dict[str, Any]:
-        return {**self.model_dump(), "motivo": _mascarado(self.motivo)}
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
+        return {**self.model_dump(), "motivo": _mascarado(self.motivo, nomes)}
 
 
 class DecisaoRegra(DadosPasso):
@@ -113,8 +123,8 @@ class DecisaoRegra(DadosPasso):
     trace_id: Hex32 | None = None
     motivo: str | None = None
 
-    def colunas(self) -> dict[str, Any]:
-        return {**self.model_dump(), "motivo": _mascarado(self.motivo)}
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
+        return {**self.model_dump(), "motivo": _mascarado(self.motivo, nomes)}
 
 
 class ChamadaFerramenta(DadosPasso):
@@ -134,7 +144,7 @@ class ChamadaFerramenta(DadosPasso):
             raise ValueError("t4 e t7 só com confirmacao_ref (efeito pago exige confirmação)")
         return self
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -151,7 +161,7 @@ class Confirmacao(DadosPasso):
             raise ValueError("invalidacao existe se e somente se o resultado é «invalidada»")
         return self
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -169,7 +179,7 @@ class _Envio(DadosPasso):
 class RespostaEnviada(_Envio):
     tipo: ClassVar[str] = "resposta_enviada"
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -186,7 +196,7 @@ class Lembrete(_Envio):
             raise ValueError("fora da janela de 24 h é template pago: custo_brl > 0")
         return self
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -195,7 +205,7 @@ class Encerramento(DadosPasso):
     desfecho: Desfecho
     motivo_desfecho: Codigo60 | None = None
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return {"resultado": self.desfecho, "motivo": self.motivo_desfecho}
 
 
@@ -204,7 +214,7 @@ class Repasse(DadosPasso):
     repasse_etapa: Literal["nota", "chatbot", "rota", "marca", "lease", "cerco"]
     tx_id: TxId | None = None
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -213,7 +223,7 @@ class Erro(DadosPasso):
     peca: Codigo40
     trace_id: Hex32 | None = None
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -229,7 +239,7 @@ class Verificacao(DadosPasso):
     custo_brl: Dinheiro | None = None
     trace_id: Hex32 | None = None
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -237,7 +247,7 @@ class OptOut(DadosPasso):
     tipo: ClassVar[str] = "opt_out"
     trace_id: Hex32 | None = None
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -250,12 +260,15 @@ class AnotacaoOperador(DadosPasso):
     nota: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=LIMITE_NOTA)]
 
     @model_validator(mode="after")
-    def _sem_pii_no_texto_livre(self) -> AnotacaoOperador:
-        if mascarar(self.nota) != self.nota:
+    def _sem_pii_no_texto_livre(self, info: ValidationInfo) -> AnotacaoOperador:
+        nomes = nomes_do_contexto(info)
+        if nomes is None:
+            raise ValueError("pii_no_texto_livre: nomes da conversa não informados; o texto livre não é aceito sem eles")
+        if mascarar(self.nota, nomes) != self.nota:
             raise ValueError("pii_no_texto_livre: a nota contém dado que a máscara trocaria")
         return self
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return {"operador": self.operador, "resultado": self.resultado}
 
 
@@ -265,7 +278,7 @@ class Agendamento(DadosPasso):
     resultado: Literal["proposto", "confirmado", "reagendado", "cancelado", "expirado", "disparado", "resolvido"]
     tx_id: TxId | None = None
 
-    def colunas(self) -> dict[str, Any]:
+    def colunas(self, nomes: Collection[str] | None = None) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -293,15 +306,18 @@ _CLASSES: Final[dict[str, type[DadosPasso]]] = {
 }  # fmt: skip
 
 
-def criar(tipo: str, **campos: Any) -> DadosPasso:
-    """Monta os dados de um passo pelo nome do tipo. `decisao` escolhe a classe pelo `motor` (modelo ou regra). Erro sem o valor."""
+def criar(tipo: str, *, nomes: Collection[str] | None = None, **campos: Any) -> DadosPasso:
+    """Monta os dados de um passo pelo nome do tipo. `decisao` escolhe a classe pelo `motor` (modelo ou regra). Erro sem o valor.
+
+    `nomes` = nome do cliente e variantes conhecidos da conversa; é exigido pelo único tipo com texto livre de pessoa
+    (`anotacao_operador`) e usado na máscara do motivo da decisão. `None` = indisponíveis: o texto livre é recusado/redigido."""
     if tipo == "decisao":
         classe: type[DadosPasso] = DecisaoModelo if campos.get("motor", "modelo") == "modelo" else DecisaoRegra
     elif tipo in _CLASSES:
         classe = _CLASSES[tipo]
     else:
         raise ValueError(f"tipo de passo desconhecido (esperado um de {len(TIPOS_DE_PASSO)})")
-    return validar(classe.__name__, lambda: classe(**campos))
+    return validar(classe.__name__, lambda: classe.model_validate(campos, context={"nomes": nomes}))
 
 
 # --- texto_passo -------------------------------------------------------------------------------------------------------------------

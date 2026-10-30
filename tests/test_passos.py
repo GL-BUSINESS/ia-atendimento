@@ -29,6 +29,7 @@ from tests.conftest import MIGRACOES
 
 DOURADO = json.loads((Path(__file__).parent / "golden" / "texto_passo.json").read_text(encoding="utf-8"))
 FP = "a" * 64
+NOMES = ("Maria Souza",)  # nome fictício do cliente da conversa
 CHAVE = "cg:0123456789abcdef01234567:0f1e2d3c4b5a6978"
 
 
@@ -49,7 +50,7 @@ def test_tipos_do_codigo_sao_os_13_do_ddl():
 
 @pytest.mark.parametrize("caso", DOURADO, ids=[f"{i:02d}-{c['tipo']}" for i, c in enumerate(DOURADO)])
 def test_texto_dos_13_tipos_bate_com_o_arquivo_dourado(caso):
-    texto = texto_passo(criar(caso["tipo"], **caso["dados"]))
+    texto = texto_passo(criar(caso["tipo"], nomes=NOMES, **caso["dados"]))
     assert texto == caso["texto"]
     assert 1 <= len(texto) <= 1000
     assert mascarar(texto) == texto, "o texto do passo não pode conter nada que a máscara trocaria"
@@ -65,19 +66,39 @@ def _preencher_livres(caso: dict) -> dict:
 
 @pytest.mark.parametrize("caso", DOURADO, ids=[f"{i:02d}-{c['tipo']}" for i, c in enumerate(DOURADO)])
 def test_13_tipos_de_passo_sem_citar_o_cliente(caso):
-    dados = criar(caso["tipo"], **_preencher_livres(caso))
+    dados = criar(caso["tipo"], nomes=NOMES, **_preencher_livres(caso))
     texto = texto_passo(dados)
     assert MARCADOR not in texto
     assert CPF_SINTETICO not in texto
-    colunas = {k: str(v) for k, v in dados.colunas().items()}
+    colunas = {k: str(v) for k, v in dados.colunas(NOMES).items()}
     assert CPF_SINTETICO not in " ".join(colunas.values()), "o motivo do modelo é mascarado antes de ir à coluna"
 
 
 def test_motivo_da_decisao_e_mascarado_e_tem_padrao():
-    dados = criar("decisao", motor="regra")
-    assert dados.colunas()["motivo"] == "(não informado)"
+    assert criar("decisao", motor="regra").colunas(NOMES)["motivo"] == "(não informado)"
     com_cpf = criar("decisao", motor="regra", motivo=f"cpf {CPF_SINTETICO}")
-    assert com_cpf.colunas()["motivo"] == "cpf [CPF]"
+    assert com_cpf.colunas(NOMES)["motivo"] == "cpf [CPF]"
+
+
+def test_motivo_da_decisao_nao_leva_o_nome_do_cliente_s1():
+    """Achado S1: `mascarar` sozinho não pega nome. Com os nomes da conversa o nome vira [NOME]; sem eles o texto é redigido."""
+    dados = criar("decisao", motor="regra", motivo="Maria Souza aceitou a oferta")
+    assert dados.colunas(NOMES)["motivo"] == "[NOME] aceitou a oferta"
+    assert dados.colunas(())["motivo"] == "Maria Souza aceitou a oferta"  # conferido: não há nome a esconder
+    assert "Maria" not in dados.colunas()["motivo"], "nomes indisponíveis: nada de texto livre"
+    assert dados.colunas()["motivo"] == "(texto redigido)"
+
+
+def test_anotacao_com_nome_do_cliente_e_recusada_s1():
+    nota = "cliente Maria Souza pediu para ligar"
+    with pytest.raises(EntradaInvalida):
+        criar("anotacao_operador", nomes=NOMES, operador="op@exemplo.invalid", resultado="observacao", nota=nota)
+    with pytest.raises(EntradaInvalida):  # variante: só o primeiro nome, sem acento e em caixa diferente
+        criar("anotacao_operador", nomes=("Maria Souza",), operador="op@exemplo.invalid", resultado="observacao", nota="MARIA ligou")
+    with pytest.raises(EntradaInvalida):  # nomes indisponíveis: recusa em vez de aceitar
+        criar("anotacao_operador", operador="op@exemplo.invalid", resultado="observacao", nota="retorno amanha")
+    ok = criar("anotacao_operador", nomes=NOMES, operador="op@exemplo.invalid", resultado="observacao", nota="retorno amanha")
+    assert texto_passo(ok) == "Anotação (observacao): retorno amanha"
 
 
 @pytest.mark.parametrize(
@@ -142,9 +163,9 @@ def test_confirmacao_invalidada_exige_invalidacao_e_so_ela():
 
 def test_anotacao_com_pii_e_recusada_como_texto_livre():
     with pytest.raises(EntradaInvalida):
-        criar("anotacao_operador", operador="op@exemplo.invalid", resultado="observacao", nota=f"ligar para {CPF_SINTETICO}")
+        criar("anotacao_operador", nomes=NOMES, operador="op@exemplo.invalid", resultado="observacao", nota=f"ligar para {CPF_SINTETICO}")
     with pytest.raises(EntradaInvalida):
-        criar("anotacao_operador", operador="op@exemplo.invalid", resultado="observacao", nota="x" * 251)
+        criar("anotacao_operador", nomes=NOMES, operador="op@exemplo.invalid", resultado="observacao", nota="x" * 251)
 
 
 # --- PII fora da trilha de erro --------------------------------------------------------------------------------------------------
