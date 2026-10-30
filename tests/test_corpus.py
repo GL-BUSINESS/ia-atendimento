@@ -64,9 +64,10 @@ def test_contagens_do_roteiro(bruto_original):
     assert len(corpus.personas) == 60
     assert sum(p.f3_curta for p in corpus.personas) == 40
     assert len(corpus.personas_m) == 24
-    assert len(corpus.dialogos) == 40
-    assert sum(len(d.turnos) for d in corpus.dialogos.values()) >= 300
-    assert {p.id for p in corpus.personas if p.f3_curta} == set(corpus.dialogos)
+    assert len(corpus.dialogos) == 60  # 40 da F3 curta + 20 P-M críticas
+    assert sum(len(d.turnos) for d in corpus.dialogos.values()) >= 600
+    assert {p.id for p in corpus.todas() if p.f3_curta or p.critica} == set(corpus.dialogos)
+    assert sum(p.critica for p in corpus.personas_m) == 20
     assert frozenset(p.id for p in corpus.personas if p.f3_curta) == c.F3_CURTA_IDS
 
 
@@ -88,7 +89,7 @@ def test_varredura_do_repositorio_limpa_nos_arquivos_do_corpus():
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
     arquivos = sorted((RAIZ / "tests" / "corpus").rglob("*.json*"))
-    assert len(arquivos) >= 44
+    assert len(arquivos) >= 64
     assert [a for arq in arquivos for a in modulo.varrer(arq)] == []
 
 

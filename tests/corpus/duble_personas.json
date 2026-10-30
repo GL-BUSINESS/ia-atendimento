@@ -1,15 +1,13 @@
 {
- "fonte": "bancos-duble origin/main @94f61e3 personas/personas.yaml (versao 1): so id, n, CPF sintetico, cenario e as P-ids do f3; nada mais",
+ "fonte": "bancos-duble origin/main @94f61e3 personas/personas.yaml (versao 1): so id, n, CPF sintetico, cenario e as P-ids do f3. AJUSTE PROPOSTO (revisao 1, A3): P14, P34, P44, P48, P52, P56, P57 e P58 digitam na FACTA e ganham persona aprovado-NN; o personas.yaml do bancos-duble precisa do mesmo f3 e sair de f3_sem_facta",
  "f3_globais": {
   "P30": "virada",
   "P31": "reabertura"
  },
  "f3_sem_facta": [
   "P13",
-  "P14",
   "P32",
   "P33",
-  "P34",
   "P35",
   "P36",
   "P37",
@@ -19,21 +17,15 @@
   "P41",
   "P42",
   "P43",
-  "P44",
   "P45",
   "P46",
   "P47",
-  "P48",
   "P49",
   "P50",
   "P51",
-  "P52",
   "P53",
   "P54",
   "P55",
-  "P56",
-  "P57",
-  "P58",
   "P60"
  ],
  "personas": [
@@ -43,7 +35,9 @@
    "cpf": "000.000.001-91",
    "cenario": "aprovado",
    "f3": [
-    "P01"
+    "P01",
+    "P34",
+    "P57"
    ]
   },
   {
@@ -55,7 +49,10 @@
     "P02",
     "P05",
     "P09",
-    "P12"
+    "P12",
+    "P44",
+    "P52",
+    "P58"
    ]
   },
   {
@@ -65,7 +62,8 @@
    "cenario": "aprovado",
    "f3": [
     "P03",
-    "P06"
+    "P06",
+    "P14"
    ]
   },
   {
@@ -76,7 +74,9 @@
    "f3": [
     "P04",
     "P07",
-    "P08"
+    "P08",
+    "P48",
+    "P56"
    ]
   },
   {

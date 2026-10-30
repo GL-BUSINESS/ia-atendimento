@@ -4,10 +4,15 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## 0.2.0 (não publicada)
 
-- **B8.1a, corpus da F3** (`tests/corpus/`, `src/ia_atendimento/corpus.py`, `tests/test_corpus.py`): 60 personas P01-P60 (40 da F3 curta, C5) +
-  24 P-M, 40 diálogos-gabarito (397 turnos; o texto da IA não é fixado), semente determinística (ordem, hold-out de 20%, 3 execuções por persona,
-  escolha da variação do cliente) e carregador/validador Pydantic (`extra='forbid'`). Tudo inventado: nenhuma conversa real, CPF só `000.000.0nn`
-  alinhado ao `bancos-duble`. `scripts/varredura.py` passa a aceitar a faixa `000.000.0nn` (CPF de DV válido que nenhuma pessoa tem).
+- **B8.1a, corpus da F3** (`tests/corpus/`, pacote `src/ia_atendimento/corpus/`, `tests/test_corpus*.py`): 60 personas P01-P60 (40 da F3 curta,
+  C5) + 24 P-M, 60 diálogos-gabarito (40 da F3 curta + as 20 P-M críticas; 739 turnos; o texto da IA não é fixado), semente determinística
+  (ordem, hold-out de 20%, 3 execuções por persona, escolha da variação do cliente) e carregador/validador Pydantic estrito (`extra='forbid'`,
+  40 regras, cada uma com teste de mutação). Tudo inventado: nenhuma conversa real, CPF só `000.000.0nn` alinhado ao `bancos-duble`.
+  `scripts/varredura.py` passa a aceitar a faixa `000.000.0nn` (CPF de DV válido que nenhuma pessoa tem).
+- **B8.1a, correções da revisão 1** (`docs/REVISAO-B8.1a-3010.md`): E5 colhe os 4 campos; janela de 24 h do WhatsApp (P45/P46 encerram em
+  silêncio); T7 só com persona do dublê (8 personas ganham `aprovado-NN`, ajuste proposto ao bancos-duble); SIM validado pelo texto; recusa firme
+  repassa com nota (Q5); hold-out sem esqueleto repetido; intenções, objeções e fases com turno de diálogo; I2/I5/I9 viram ações proibidas
+  verificáveis; evento em vocabulário fechado; PII varrida em todo campo; `corpus.py` virou pacote (< 350 linhas por arquivo).
 
 ## [Unreleased]
 
