@@ -46,7 +46,7 @@ Codigo40 = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]
 Codigo60 = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,60}$")]
 Hex24 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{24}$")]
 
-_NAO_TERMINAIS: Final = frozenset({"reservado", "aberto", "aguardando_cliente", "pausado", "repassando"})
+ESTADOS_NAO_TERMINAIS: Final = frozenset({"reservado", "aberto", "aguardando_cliente", "pausado", "repassando"})
 _REPASSAVEIS: Final = frozenset({"aberto", "aguardando_cliente", "pausado"})
 _FAIXAS_COM_COMISSAO: Final = frozenset({"alta", "muito_alta"})
 _MODOS_GLOBAIS: Final = frozenset({"real", "sombra", "duble"})
@@ -107,7 +107,7 @@ class EntradaInvalida(EstadoErro, ValueError):
 # --- utilidades ------------------------------------------------------------------------------------------------------------------
 
 
-def _agora(relogio: Relogio) -> datetime:
+def agora_de(relogio: Relogio) -> datetime:
     agora = relogio()
     if agora.tzinfo is None:
         raise ValueError("o relógio deve devolver datetime com fuso")
@@ -183,20 +183,30 @@ class EntradaAtendimento(BaseModel):
         return self
 
 
-def _campos_invalidos(erro: ValidationError) -> tuple[tuple[str, str], ...]:
-    # `.errors()` e `.json()` carregam o valor de entrada mesmo com `hide_input_in_errors`: aqui só loc e tipo da regra saem
+def campos_invalidos(erro: ValidationError) -> tuple[tuple[str, str], ...]:
+    """`(campo, regra)` de cada recusa. `.errors()` e `.json()` carregam o valor recusado mesmo com `hide_input_in_errors`: aqui não."""
     achados = erro.errors(include_input=False, include_context=False, include_url=False)
-    return tuple((".".join(str(p) for p in e["loc"]) or "(corpo)", e["type"]) for e in achados)
+    return tuple(
+        (
+            ".".join(str(p) for p in e["loc"]) or "(corpo)",
+            e["msg"].removeprefix("Value error, ") if e["type"] == "value_error" else e["type"],
+        )
+        for e in achados
+    )
+
+
+def validar_corpo[M: BaseModel](modelo: type[M], corpo: object) -> M:
+    """Valida o corpo; se recusar, levanta `EntradaInvalida` só com nomes de campo e regra (422), sem valor e sem a causa encadeada."""
+    try:
+        return modelo.model_validate(corpo)
+    except ValidationError as erro:
+        campos = campos_invalidos(erro)
+    # fora do `except`: o erro novo não leva `__context__` com a ValidationError (que guarda o valor recusado)
+    raise EntradaInvalida("corpo inválido: " + ", ".join(f"{c} ({r})" for c, r in campos), campos=campos)
 
 
 def entrada_de_corpo(corpo: object) -> EntradaAtendimento:
-    """Valida o corpo; se recusar, levanta `EntradaInvalida` só com nomes de campo e regra (422), sem valor e sem a causa encadeada."""
-    try:
-        return EntradaAtendimento.model_validate(corpo)
-    except ValidationError as erro:
-        campos = _campos_invalidos(erro)
-    # fora do `except`: o erro novo não leva `__context__` com a ValidationError (que guarda o valor recusado)
-    raise EntradaInvalida("corpo inválido: " + ", ".join(f"{c} ({r})" for c, r in campos), campos=campos)
+    return validar_corpo(EntradaAtendimento, corpo)
 
 
 def entrada_fingerprint(entrada: EntradaAtendimento) -> str:
@@ -379,7 +389,7 @@ def abrir(
     então vale mesmo com o chat ocupado (pelo próprio atendimento). Chat com outro atendimento não encerrado ⇒ `ChatOcupado` (409).
     O replay vem antes da validação de modo/esforço: ele devolve o que foi gravado, sem reavaliar a configuração de hoje.
     """
-    agora = _agora(relogio)
+    agora = agora_de(relogio)
     fp, idem = entrada_fingerprint(entrada), idempotency_key(entrada.chave_logica)
     with conn.transaction():
         achado = _replay(conn, origem, idem, fp)
@@ -570,7 +580,7 @@ def iniciar(
     relogio: Relogio,
 ) -> int:
     """`assumir_canal` concluído: `reservado → aberto`, fase E1, grava `assumido_em`, lease +5 min."""
-    agora = _agora(relogio)
+    agora = agora_de(relogio)
     if chatbot_estado != "intocado" and chatbot_antes is None:
         raise EntradaInvalida("chatbot mexido sem o estado anterior")
     campos: dict[str, Any] = {
@@ -586,13 +596,13 @@ def iniciar(
 
 
 def aguardar_cliente(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, relogio: Relogio) -> int:
-    agora = _agora(relogio)
+    agora = agora_de(relogio)
     m = Mudancas(estado="aguardando_cliente", lease_ate=_lease(agora))
     return aplicar(conn, atendimento_id, versao, m, agora=agora, de={"aberto"})
 
 
 def retomar(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, relogio: Relogio) -> int:
-    agora = _agora(relogio)
+    agora = agora_de(relogio)
     m = Mudancas(estado="aberto", lease_ate=_lease(agora))
     return aplicar(conn, atendimento_id, versao, m, agora=agora, de={"aguardando_cliente"})
 
@@ -611,7 +621,7 @@ def repassar(
 
     A fase 2 é `encerrar(desfecho="repassado")`, quando o n8n confirma (e devolve o `consultor_ref` do modo `indicado`).
     """
-    agora = _agora(relogio)
+    agora = agora_de(relogio)
     campos: dict[str, Any] = {
         "estado": "repassando", "repasse_modo": modo, "motivo_desfecho": motivo, "lease_ate": _lease(agora), "retoma_em": None,
     }  # fmt: skip
@@ -645,7 +655,7 @@ def encerrar(
     Só `repassado` mantém `repasse_*`; qualquer outro desfecho os zera (o CHECK os proíbe fora de `repassando`/`repassado`), o que inclui
     o repasse simulado da sombra (`sem_venda` + `repasse_simulado`). Em sombra o CHECK recusa `vendeu` e `repassado`.
     """
-    agora = _agora(relogio)
+    agora = agora_de(relogio)
     _exigir_timestamps(desfecho, motivo, opt_out_em, humano_assumiu_em)
     campos: dict[str, Any] = {
         "estado": "encerrado", "desfecho": desfecho, "motivo_desfecho": motivo, "contexto_codigos": tuple(contexto_codigos),
@@ -660,11 +670,11 @@ def encerrar(
     elif consultor_ref is not None:
         campos["repasse_consultor_ref"] = consultor_ref
     m = Mudancas(**campos)
-    return aplicar(conn, atendimento_id, versao, m, agora=agora, de=_NAO_TERMINAIS, sem_assumido_em=desfecho == "abortado")
+    return aplicar(conn, atendimento_id, versao, m, agora=agora, de=ESTADOS_NAO_TERMINAIS, sem_assumido_em=desfecho == "abortado")
 
 
 def abortar(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, motivo: str, relogio: Relogio) -> int:
     """`reservado → encerrado(abortado)`: só enquanto `assumido_em IS NULL` (o canal nunca foi tocado)."""
-    agora = _agora(relogio)
+    agora = agora_de(relogio)
     m = Mudancas(estado="encerrado", desfecho="abortado", motivo_desfecho=motivo, lease_ate=None, retoma_em=None, encerrado_em=agora)
     return aplicar(conn, atendimento_id, versao, m, agora=agora, de={"reservado"}, sem_assumido_em=True)
