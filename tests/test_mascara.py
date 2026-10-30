@@ -34,7 +34,7 @@ def test_gerador_de_cpf_sintetico_bate_com_o_exemplo():
         (f"meu CPF é {CPF_FORMATADO} ok", "meu CPF é [CPF] ok"),
         (f"meu CPF é {CPF_VALIDO} ok", "meu CPF é [CPF] ok"),
         (f"cpf {CPF_INVALIDO_FORMATADO}", "cpf [CPF]"),
-        ("CPF 529.982.247 25", "CPF [NUMERO]"),  # forma estranha: cai na regra geral de 8+ dígitos
+        ("CPF 529.982.247 25", "CPF [CPF]"),  # separadores estranhos: a corrente de dígitos é classificada pelos 11 dígitos (DV válido)
     ],
 )
 def test_cpf(entrada, esperado):
@@ -152,3 +152,61 @@ def test_mascara_nao_deixa_digitos_de_cpf_com_separadores_estranhos():
 def test_tipo_nao_string_recusado():
     with pytest.raises(TypeError):
         mascarar(None)  # type: ignore[arg-type]
+
+
+# --- resistência a separadores (achado da revisão de segurança: pii_masking_bypass) ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("entrada", "esperado"),
+    [
+        ("cpf 123 . 456 / 789 -- 00 fim", "cpf [NUMERO] fim"),  # DV inválido: cai em [NUMERO], mas some inteiro
+        ("cpf 1 2 3 4 5 6 7 8 9 0 9 fim", "cpf [CPF] fim"),  # 123.456.789-09 tem DV válido
+        ("tel (11) 9 1234_5678 fim", "tel [TELEFONE] fim"),
+        ("tel 1 1 9 1 2 3 4 5 6 7 8 fim", "tel [TELEFONE] fim"),
+        ("tel +55 (11) 9.1234.5678 fim", "tel [TELEFONE] fim"),
+        ("cpf 529,982,247,25 fim", "cpf [CPF] fim"),
+        ("cpf 529\n982\n247\n25 fim", "cpf [CPF] fim"),  # quebra de linha entre os grupos
+        ("cpf 529 / 982 / 247 / 25 fim", "cpf [CPF] fim"),
+        ("cpf ５２９９８２２４７２５ fim", "cpf [CPF] fim"),  # dígitos de largura total
+        ("tel ١١٩١٢٣٤٥٦٧٨ fim", "tel [TELEFONE] fim"),  # dígitos árabe-índicos (\d do Python casa com eles)
+        ("cartão 1234  5678   9012    3456", "cartão [NUMERO]"),
+        ("conta 1-2-3-4-5-6-7-8", "conta [NUMERO]"),
+    ],
+)
+def test_separadores_estranhos_nao_furam_a_mascara(entrada, esperado):
+    saida = mascarar(entrada)
+    assert saida == esperado
+    assert not re.search(r"[0-9\u0660-\u0669\uff10-\uff19]{2,}", saida)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "paguei R$ 1.234,56 ontem",
+        "o total é R$ 12.345.678,90 no contrato",  # 10 dígitos, mas é dinheiro bem formado
+        "venceu em 29/10/2026 mesmo",
+        "venceu em 29-10-2026 mesmo",
+        "venceu em 29.10.2026 mesmo",
+        "proposta 48213 aprovada",
+        "proposta 4821 e contrato 77",
+        "prazo de 84 meses a 1,85% ao mês, parcela 450,00",
+        "das 08:00 às 20:00, de 2 a 6",
+    ],
+)
+def test_valor_data_e_numero_curto_nao_sao_mascarados(texto):
+    assert mascarar(texto) == texto
+
+
+def test_data_ao_lado_de_pii_nao_protege_a_pii():
+    assert mascarar("vence 29/10/2026 e meu cpf 529.982.247-25") == "vence 29/10/2026 e meu cpf [CPF]"
+    assert mascarar("29/10/2026 11912345678") == "29/10/2026 [TELEFONE]"
+
+
+def test_numero_de_onze_digitos_colado_a_R_cifrao_nao_vira_dinheiro():
+    assert mascarar("R$ 52998224725") == "R$ [CPF]"
+
+
+def test_idempotente_com_separadores_estranhos():
+    primeira = mascarar("cpf 1 2 3 4 5 6 7 8 9 0 9 tel (11) 9 1234_5678")
+    assert mascarar(primeira) == primeira

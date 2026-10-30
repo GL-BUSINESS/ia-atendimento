@@ -4,41 +4,48 @@ Entra texto do cliente; sai texto com marcadores fixos (`[CPF]`, `[TELEFONE]`, `
 `[NOME]`). Só regex e aritmética, sem modelo: mesma entrada, mesma saída, e `mascarar(mascarar(x)) == mascarar(x)`.
 Excesso de máscara é aceito (melhor mascarar demais que vazar); falta de máscara não.
 
-Ordem: e-mail, UUID, CPF, CEP, telefone, número longo (8+ dígitos) e, por último, nomes marcados pelo chamador.
+Como casa (resistente a separadores): os padrões olham uma VISTA do texto em que todo dígito Unicode (largura total,
+árabe-índico...) virou ASCII, com o mesmo comprimento; as trocas valem no texto original pelas posições. Uma "corrente de
+dígitos" é uma sequência de dígitos com até 6 não-alfanuméricos entre dois dígitos (espaço, ponto, vírgula, barra, hífen,
+sublinhado, parênteses, quebra de linha). Cada corrente é classificada pelos dígitos, sem olhar os separadores:
+CPF (11 dígitos com DV válido, ou a forma `000.000.000-00`), CEP, telefone, ou `[NUMERO]` se tiver 8+ dígitos. Corrente com
+menos de 8 dígitos fica (valor, prazo, número de proposta). Datas `dd/mm/aaaa` e valores `R$ 1.234,56` ficam.
+
+Ordem: e-mail, UUID, correntes de dígitos e, por último, nomes marcados pelo chamador.
+Limite conhecido (fora de escopo): dígitos por extenso ("cinco dois nove...") e dígitos misturados com letras não são mascarados.
 """
 
 from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 CPF, TELEFONE, EMAIL, CEP, UUID, NUMERO, NOME = (f"[{r}]" for r in ("CPF", "TELEFONE", "EMAIL", "CEP", "UUID", "NUMERO", "NOME"))
 
-_SEP = r"[  .\-]"
+MIN_DIGITOS = 8
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 _UUID = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9A-Za-z])")
-_CPF_FORMATADO = re.compile(r"(?<!\d)\d{3}\.\d{3}\.\d{3}-\d{2}(?!\d)")
-_ONZE_DIGITOS = re.compile(r"(?<!\d)\d{11}(?!\d)")
-_CEP_COM_ROTULO = re.compile(r"(\bcep\b[\s:.\-]*)(\d{5}[ .\-]?\d{3})(?!\d)", re.IGNORECASE)
-_CEP_FORMATADO = re.compile(r"(?<!\d)\d{5}-\d{3}(?!\d)")
-# Telefone: celular com DDD (9 dígitos), fixo com DDD, ou 8/9 dígitos COM hífen. Não pode continuar em mais dígitos
-# (senão "1234 5678 9012 3456" viraria telefone + sobra); 8 dígitos soltos caem em [NUMERO].
-_TELEFONE = re.compile(
-    rf"(?<!\d)(?:"
-    rf"(?:\+?55{_SEP}?)?\(?\d{{2}}\)?{_SEP}?9\d{{4}}{_SEP}?\d{{4}}"
-    rf"|(?:\+?55{_SEP}?)?\(?\d{{2}}\)?{_SEP}?[2-5]\d{{3}}{_SEP}?\d{{4}}"
-    rf"|9\d{{4}}-\d{{4}}|[2-5]\d{{3}}-\d{{4}}"
-    rf")(?!{_SEP}?\d)"
+# Nunca mascarados (senão data e dinheiro, que têm 8+ dígitos, virariam [NUMERO]): data com ano 19xx/20xx e valor em reais bem formado.
+_PROTEGIDO = re.compile(
+    r"(?<![0-9])(?:0?[1-9]|[12][0-9]|3[01])([/.\-])(?:0?[1-9]|1[0-2])\1(?:19|20)[0-9]{2}(?![0-9])"
+    r"|R\$\s*[0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?(?![0-9])"
 )
-_NUMERO_LONGO = re.compile(rf"(?<!\d)\d(?:{_SEP}?\d){{7,}}(?!\d)")
+_CORRENTE = re.compile(r"[+(]?[0-9](?:[\W_]{0,6}[0-9])*")
+_CPF_FORMATADO = re.compile(r"[0-9]{3}\.[0-9]{3}\.[0-9]{3}-[0-9]{2}")
+_CEP_FORMATADO = re.compile(r"[0-9]{5}-[0-9]{3}")
+_CEP_ROTULO = re.compile(r"\bcep\b[\s:.\-]*$", re.IGNORECASE)
+_TELEFONE_CURTO = re.compile(r"9[0-9]{4}-[0-9]{4}|[2-5][0-9]{3}-[0-9]{4}")  # sem DDD só com o hífen no lugar
+_TELEFONE_DIGITOS = re.compile(r"(?:55)?[0-9]{2}(?:9[0-9]{8}|[2-5][0-9]{7})")
 _MARCADORES = re.compile(r"\[(?:CPF|TELEFONE|EMAIL|CEP|UUID|NUMERO|NOME)\]")
 _PARTICULAS = frozenset({"da", "de", "do", "das", "dos", "di", "du", "del", "van", "von", "der", "las", "los"})
 _TAMANHO_MIN_PARTE = 3
 
+Troca = tuple[int, int, str]
+
 
 def _cpf_valido(onze: str) -> bool:
-    if len(set(onze)) == 1:
+    if len(onze) != 11 or len(set(onze)) == 1:
         return False
     for tamanho in (9, 10):
         soma = sum(int(d) * p for d, p in zip(onze[:tamanho], range(tamanho + 1, 1, -1), strict=True))
@@ -47,8 +54,50 @@ def _cpf_valido(onze: str) -> bool:
     return True
 
 
-def _trocar_cpf(achado: re.Match[str]) -> str:
-    return CPF if _cpf_valido(achado.group()) else achado.group()
+def _vista_ascii(texto: str) -> str:
+    """Todo dígito Unicode vira ASCII; os demais caracteres ficam. SEMPRE o mesmo comprimento do original."""
+    return "".join(str(unicodedata.decimal(c)) if c.isdecimal() else c for c in texto)
+
+
+def _aplicar(texto: str, trocas: list[Troca]) -> str:
+    saida: list[str] = []
+    cursor = 0
+    for inicio, fim, novo in sorted(trocas):
+        saida.append(texto[cursor:inicio])
+        saida.append(novo)
+        cursor = fim
+    saida.append(texto[cursor:])
+    return "".join(saida)
+
+
+def _mascarar_padrao(texto: str, padrao: re.Pattern[str], marcador: str) -> str:
+    return _aplicar(texto, [(m.start(), m.end(), marcador) for m in padrao.finditer(_vista_ascii(texto))])
+
+
+def _rotular(trecho: str, antes: str) -> str:
+    digitos = re.sub(r"[^0-9]", "", trecho)
+    limpo = trecho.strip("+() ")
+    if _CPF_FORMATADO.fullmatch(limpo) or _cpf_valido(digitos):
+        return CPF
+    if _CEP_FORMATADO.fullmatch(limpo) or (len(digitos) == 8 and _CEP_ROTULO.search(antes)):
+        return CEP
+    if _TELEFONE_DIGITOS.fullmatch(digitos) or _TELEFONE_CURTO.fullmatch(limpo):
+        return TELEFONE
+    return NUMERO
+
+
+def _trocas_de_digitos(vista: str) -> list[Troca]:
+    trocas: list[Troca] = []
+    ate = 0
+    segmentos = [(m.start(), m.end()) for m in _PROTEGIDO.finditer(vista)]
+    for inicio, fim in [*segmentos, (len(vista), len(vista))]:
+        for achado in _CORRENTE.finditer(vista, ate, inicio):
+            trecho = achado.group()
+            digitos = sum(c.isdigit() for c in trecho)
+            if digitos >= MIN_DIGITOS or _CPF_FORMATADO.fullmatch(trecho.strip("+() ")) or _CEP_FORMATADO.fullmatch(trecho.strip("+() ")):
+                trocas.append((achado.start(), achado.end(), _rotular(trecho, vista[: achado.start()])))
+        ate = fim
+    return trocas
 
 
 def _base(caractere: str) -> str:
@@ -80,29 +129,27 @@ def _mascarar_nomes(texto: str, nomes: Iterable[str]) -> str:
     dobrado = _dobrar(texto)
     padrao = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(p).replace(r"\ ", r"\s+") for p in partes) + r")(?!\w)")
     protegidos = [m.span() for m in _MARCADORES.finditer(texto)]
-    saida: list[str] = []
-    cursor = 0
-    for achado in padrao.finditer(dobrado):
-        inicio, fim = achado.span()
-        if any(inicio < pf and fim > pi for pi, pf in protegidos):
-            continue  # não mexe dentro de [CPF], [EMAIL]...
-        saida.append(texto[cursor:inicio])
-        saida.append(NOME)
-        cursor = fim
-    saida.append(texto[cursor:])
-    return "".join(saida)
+    trocas: list[Troca] = [
+        (inicio, fim, NOME)
+        for inicio, fim in (m.span() for m in padrao.finditer(dobrado))
+        if not any(inicio < pf and fim > pi for pi, pf in protegidos)  # não mexe dentro de [CPF], [EMAIL]...
+    ]
+    return _aplicar(texto, trocas)
+
+
+def _etapa_digitos(texto: str) -> str:
+    return _aplicar(texto, _trocas_de_digitos(_vista_ascii(texto)))
 
 
 def mascarar(texto: str, nomes: Iterable[str] = ()) -> str:
     """Troca PII por marcadores. `nomes` = nomes já conhecidos da conversa (marcados pelo chamador); acento e caixa não importam."""
     if not isinstance(texto, str):
         raise TypeError("mascarar espera str")
-    texto = _EMAIL.sub(EMAIL, texto)
-    texto = _UUID.sub(UUID, texto)
-    texto = _CPF_FORMATADO.sub(CPF, texto)
-    texto = _ONZE_DIGITOS.sub(_trocar_cpf, texto)
-    texto = _CEP_COM_ROTULO.sub(lambda m: m.group(1) + CEP, texto)
-    texto = _CEP_FORMATADO.sub(CEP, texto)
-    texto = _TELEFONE.sub(TELEFONE, texto)
-    texto = _NUMERO_LONGO.sub(NUMERO, texto)
+    etapas: list[Callable[[str], str]] = [
+        lambda t: _mascarar_padrao(t, _EMAIL, EMAIL),
+        lambda t: _mascarar_padrao(t, _UUID, UUID),
+        _etapa_digitos,
+    ]
+    for etapa in etapas:
+        texto = etapa(texto)
     return _mascarar_nomes(texto, nomes)
