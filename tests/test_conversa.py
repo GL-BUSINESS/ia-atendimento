@@ -185,7 +185,7 @@ def test_resumo_nao_leva_nome_nem_pii_e_o_vigente_e_o_de_maior_seq(conn_app, atd
 
 
 def test_substituto_dado_pix_nao_grava_o_valor(conn_app, atd, chaveiro):
-    _troca(conn_app, atd, chaveiro, "minha chave pix e 98765432100", substituto="[dado:pix]")
+    _troca(conn_app, atd, chaveiro, "minha chave pix e 00000001234", substituto="[dado:pix]")
     assert ler_trocas(conn_app, atd, chaveiro=chaveiro).mensagens[0].texto == "[dado:pix]"
     with pytest.raises(ValueError, match="substituto"):
         _troca(conn_app, atd, chaveiro, "x", substituto="qualquer coisa")

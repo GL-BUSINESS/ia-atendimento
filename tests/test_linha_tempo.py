@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import threading
 import time
 import uuid
@@ -10,7 +12,7 @@ from dataclasses import replace
 import psycopg
 import pytest
 
-from ia_atendimento.evento_mensagem import EventoMensagem, identidade
+from ia_atendimento.evento_mensagem import ChavesDeMensagem, EventoMensagem, identidade
 from ia_atendimento.linha_tempo import (
     AtendimentoInexistente,
     Conflito,
@@ -33,6 +35,9 @@ from tests.apoio_b12 import AGORA, CHAT, CPF_SINTETICO, MARCADOR, OUTRO_CHAT, PH
 pytest_plugins = ["tests.apoio_b12"]
 
 CHAVE_H16 = b"chave-h16-de-teste-descartavel-01"  # a do vetor dourado do contrato 08 §5.1
+CHAVE_FP = b"chave-fingerprint-de-teste-descartavel-01"
+CHAVES = ChavesDeMensagem(h16=CHAVE_H16, fingerprint=CHAVE_FP)
+OUTRAS = ChavesDeMensagem(h16=b"outra-chave-h16-descartavel-de-teste", fingerprint=b"outra-chave-fp-descartavel-de-teste-02")
 CTX = CtxPasso(turno=1, fase="E1")
 
 
@@ -57,42 +62,80 @@ def _evento(texto: str | None = "oi, quero saber da proposta", **mudar) -> Event
 
 
 def test_msg_chave_vetor_dourado_do_contrato():
-    ident = identidade(_evento(), CHAVE_H16)
-    assert ident.msg_chave == "cg:0123456789abcdef01234567:be0f44572b7488ed"
-    assert ident.msg_fingerprint == "924ee977cbf01faa02f5f872067aa86f99fce5ce05838fac80933182090ab57d"
+    ident = identidade(_evento(), CHAVES)
+    assert ident.msg_chave == "cg:0123456789abcdef01234567:be0f44572b7488ed"  # h16 do contrato 08 §5.1
     assert ident.msg_tamanho == len("oi, quero saber da proposta")
 
 
+def test_fingerprint_e_hmac_e_nao_sha256_puro_s2():
+    """S2: texto curto é enumerável; o sha256 puro do contrato (`924ee977…`) seria reversível por dicionário. O fingerprint agora é
+    HMAC-SHA256 do mesmo corpo canônico, com chave dedicada (vetor recalculado independentemente)."""
+    canonico = (
+        '{"chat_id":"0123456789abcdef01234567","datetime_post":"2026-11-24T13:15:30Z","phone_id":"89abcdef0123456789abcdef",'
+        '"texto":"oi, quero saber da proposta","tipo":"texto"}'
+    )
+    ident = identidade(_evento(), CHAVES)
+    assert ident.msg_fingerprint == "d91e6bf4176d42e4a6af732ecda90217a3bbcdea5aadf9de756a8ac087a06dd4"
+    assert ident.msg_fingerprint == hmac.new(CHAVE_FP, b"ia-evento/v1\n" + canonico.encode(), hashlib.sha256).hexdigest()
+    assert ident.msg_fingerprint != hashlib.sha256(b"ia-evento/v1\n" + canonico.encode()).hexdigest()
+
+
+def test_mesma_mensagem_com_chaves_diferentes_da_fingerprints_diferentes_s2():
+    a = identidade(_evento(), CHAVES)
+    b = identidade(_evento(), ChavesDeMensagem(h16=CHAVE_H16, fingerprint=OUTRAS.fingerprint))
+    assert a.msg_chave == b.msg_chave
+    assert a.msg_fingerprint != b.msg_fingerprint
+
+
+def test_nome_do_cliente_nao_entra_no_fingerprint_s2():
+    """Os nomes da conversa passam pelo `mascarar` antes do HMAC (como no S1): o fingerprint não depende do nome."""
+    a = identidade(_evento(texto="Maria Souza quer a proposta"), CHAVES, nomes=("Maria Souza",))
+    b = identidade(_evento(texto="Joana Lima quer a proposta"), CHAVES, nomes=("Joana Lima",))
+    c = identidade(_evento(texto="[NOME] quer a proposta"), CHAVES)
+    assert a.msg_fingerprint == b.msg_fingerprint == c.msg_fingerprint
+    assert a.msg_chave != b.msg_chave  # a chave h16 cobre o texto bruto (HMAC), então textos diferentes seguem sendo mensagens diferentes
+
+
+def test_chaves_de_mensagem_recusam_curta_repetida_e_nao_vazam_no_repr():
+    with pytest.raises(ValueError, match="h16"):
+        ChavesDeMensagem(h16=b"curta", fingerprint=CHAVE_FP)
+    with pytest.raises(ValueError, match="fingerprint"):
+        ChavesDeMensagem(h16=CHAVE_H16, fingerprint=b"curta")
+    with pytest.raises(ValueError, match="diferentes"):
+        ChavesDeMensagem(h16=CHAVE_H16, fingerprint=CHAVE_H16)
+    assert CHAVE_FP.decode() not in repr(CHAVES) + str(CHAVES)
+
+
 def test_chave_e_fingerprint_nao_trazem_o_texto_em_claro():
-    ident = identidade(_evento(texto=f"{MARCADOR} {CPF_SINTETICO}"), CHAVE_H16)
+    ident = identidade(_evento(texto=f"{MARCADOR} {CPF_SINTETICO}"), CHAVES)
     assert MARCADOR not in ident.msg_chave + ident.msg_fingerprint
     assert ident.msg_chave.startswith("cg:") and len(ident.msg_chave.split(":")[-1]) == 16
 
 
 def test_mesmo_conteudo_por_webhook_e_por_replay_da_a_mesma_chave_e_o_mesmo_fingerprint():
-    a = identidade(_evento(origem_evento="webhook"), CHAVE_H16)
-    b = identidade(_evento(origem_evento="replay"), CHAVE_H16)
+    a = identidade(_evento(origem_evento="webhook"), CHAVES)
+    b = identidade(_evento(origem_evento="replay"), CHAVES)
     assert (a.msg_chave, a.msg_fingerprint) == (b.msg_chave, b.msg_fingerprint)
 
 
 def test_reconciliacao_rpa_tem_chave_rpa_e_o_mesmo_fingerprint_do_webhook():
-    webhook = identidade(_evento(), CHAVE_H16)
-    rpa = identidade(_evento(origem_evento="reconciliacao", rpa_id="65f1c2a9b8d7e6f5a4b3c2d1"), CHAVE_H16)
+    webhook = identidade(_evento(), CHAVES)
+    rpa = identidade(_evento(origem_evento="reconciliacao", rpa_id="65f1c2a9b8d7e6f5a4b3c2d1"), CHAVES)
     assert rpa.msg_chave == "rpa:65f1c2a9b8d7e6f5a4b3c2d1"
     assert rpa.msg_fingerprint == webhook.msg_fingerprint  # o fingerprint não inclui a origem: serve ao casamento webhook × RPA
 
 
 def test_chave_muda_com_texto_hora_tipo_e_chave_secreta():
-    base = identidade(_evento(), CHAVE_H16).msg_chave
-    assert identidade(_evento(texto="oi, quero saber da proposta!"), CHAVE_H16).msg_chave != base
-    assert identidade(_evento(datetime_post="2026-11-24T10:15:31-03:00"), CHAVE_H16).msg_chave != base
-    assert identidade(_evento(), b"outra-chave-descartavel-de-teste-02").msg_chave != base
-    assert identidade(_evento(texto=None, tipo="audio"), CHAVE_H16).msg_chave != base
+    base = identidade(_evento(), CHAVES).msg_chave
+    assert identidade(_evento(texto="oi, quero saber da proposta!"), CHAVES).msg_chave != base
+    assert identidade(_evento(datetime_post="2026-11-24T10:15:31-03:00"), CHAVES).msg_chave != base
+    assert identidade(_evento(), OUTRAS).msg_chave != base
+    assert identidade(_evento(texto=None, tipo="audio"), CHAVES).msg_chave != base
 
 
 def test_hora_com_fusos_diferentes_do_mesmo_instante_da_a_mesma_chave():
-    a = identidade(_evento(datetime_post="2026-11-24T10:15:30-03:00"), CHAVE_H16)
-    b = identidade(_evento(datetime_post="2026-11-24T13:15:30+00:00"), CHAVE_H16)
+    a = identidade(_evento(datetime_post="2026-11-24T10:15:30-03:00"), CHAVES)
+    b = identidade(_evento(datetime_post="2026-11-24T13:15:30+00:00"), CHAVES)
     assert a == b
 
 
@@ -233,8 +276,8 @@ def test_os_13_tipos_gravam_no_banco_sem_violar_check(conn_app, atd):
 
 
 def test_dedupe_permanente_mesma_chave_mesmo_fingerprint_e_noop(conn_app, atd):
-    primeira = gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chave_h16=CHAVE_H16, agora=AGORA)
-    segunda = gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chave_h16=CHAVE_H16, agora=AGORA)
+    primeira = gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES, agora=AGORA)
+    segunda = gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES, agora=AGORA)
     assert isinstance(primeira, Gravada) and isinstance(segunda, Duplicada)
     assert segunda.ordem == primeira.ordem
     assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE tipo = 'mensagem_recebida'").fetchone() == (1,)
@@ -242,9 +285,9 @@ def test_dedupe_permanente_mesma_chave_mesmo_fingerprint_e_noop(conn_app, atd):
 
 def test_dedupe_permanente_vale_mesmo_depois_de_o_atendimento_encerrar_e_outro_abrir(conn_app, atd):
     """«Permanente»: o índice é global (não por atendimento); o reenvio do ChatGuru depois de 3 dias continua sendo duplicata."""
-    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chave_h16=CHAVE_H16, agora=AGORA)
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES, agora=AGORA)
     outro = novo_atendimento(conn_app, chat=OUTRO_CHAT)
-    de_novo = gravar_mensagem_recebida(conn_app, outro, evento=_evento(), chave_h16=CHAVE_H16, agora=AGORA)
+    de_novo = gravar_mensagem_recebida(conn_app, outro, evento=_evento(), chaves=CHAVES, agora=AGORA)
     assert isinstance(de_novo, Duplicada) and de_novo.atendimento_id == atd
     assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE atendimento_id = %s", (outro,)).fetchone() == (0,)
 
@@ -253,26 +296,26 @@ def test_dedupe_permanente_webhook_e_rpa_mesma_chave(conn_app, atd):
     """Webhook e reconciliador RPA: o MESMO evento repetido por qualquer um dos dois caminhos é uma só linha. Webhook × replay
     têm a mesma `msg_chave`; o RPA tem `rpa:{_id}` (contrato 08 §5.1) e o mesmo `msg_fingerprint` do webhook."""
     rpa = _evento(origem_evento="reconciliacao", rpa_id="65f1c2a9b8d7e6f5a4b3c2d1")
-    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chave_h16=CHAVE_H16), Gravada)
-    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=_evento(origem_evento="replay"), chave_h16=CHAVE_H16), Duplicada)
-    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=rpa, chave_h16=CHAVE_H16), Gravada)  # outra fonte: casamento é da B1.5
-    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=rpa, chave_h16=CHAVE_H16), Duplicada)
+    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES), Gravada)
+    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=_evento(origem_evento="replay"), chaves=CHAVES), Duplicada)
+    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=rpa, chaves=CHAVES), Gravada)  # outra fonte: casamento é da B1.5
+    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=rpa, chaves=CHAVES), Duplicada)
     fingerprints = conn_app.execute("SELECT DISTINCT msg_fingerprint FROM ia.passo WHERE tipo = 'mensagem_recebida'").fetchall()
     assert len(fingerprints) == 1
 
 
 def test_mesma_chave_outro_fingerprint_e_conflito(conn_app, atd, monkeypatch):
     """Colisão de chave com conteúdo diferente (os 16 hex do HMAC colidiram): nada é gravado e o chamador é avisado."""
-    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chave_h16=CHAVE_H16)
-    real = identidade(_evento(), CHAVE_H16)
-    monkeypatch.setattr("ia_atendimento.linha_tempo.identidade", lambda ev, ch: replace(real, msg_fingerprint="f" * 64))
-    resultado = gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto="outro texto"), chave_h16=CHAVE_H16)
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
+    real = identidade(_evento(), CHAVES)
+    monkeypatch.setattr("ia_atendimento.linha_tempo.identidade", lambda ev, ch, nomes=(): replace(real, msg_fingerprint="f" * 64))
+    resultado = gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto="outro texto"), chaves=CHAVES)
     assert isinstance(resultado, Conflito)
     assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE tipo = 'mensagem_recebida'").fetchone() == (1,)
 
 
 def test_mensagem_recebida_grava_turno_mais_um_fase_atual_e_so_codigos(conn_app, atd):
-    gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto=f"{MARCADOR} {CPF_SINTETICO}"), chave_h16=CHAVE_H16, agora=AGORA)
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto=f"{MARCADOR} {CPF_SINTETICO}"), chaves=CHAVES, agora=AGORA)
     linha = conn_app.execute(
         "SELECT turno, fase, texto, msg_tipo, msg_tamanho, origem_evento, msg_enviada_em, passo::text FROM ia.passo WHERE tipo = 'mensagem_recebida'"
     ).fetchone()
@@ -296,7 +339,7 @@ def test_campos_msg_so_em_mensagem_recebida(conn_app, atd):
 
 def test_tres_pendentes_sao_consumidas_juntas_e_turnos_sobe_uma_vez(conn_app, atd):
     for i in range(3):
-        gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto=f"mensagem numero {i}"), chave_h16=CHAVE_H16)
+        gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto=f"mensagem numero {i}"), chaves=CHAVES)
     pendentes = mensagens_pendentes(conn_app, atd)
     assert [p.ordem for p in pendentes] == [1, 2, 3]
     assert {p.msg_tipo for p in pendentes} == {"texto"}
@@ -310,20 +353,20 @@ def test_tres_pendentes_sao_consumidas_juntas_e_turnos_sobe_uma_vez(conn_app, at
     ).fetchone()
     assert atendimento == (3, 1, "1", versao + 1)
     # a próxima mensagem já cai no turno seguinte (rodada 1 + 1)
-    gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto="outra"), chave_h16=CHAVE_H16)
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto="outra"), chaves=CHAVES)
     assert conn_app.execute("SELECT turno FROM ia.passo WHERE ordem = 4").fetchone() == (2,)
     assert [p.ordem for p in mensagens_pendentes(conn_app, atd)] == [4]
 
 
 def test_consumir_com_versao_velha_e_conflito_e_nao_consome(conn_app, atd):
-    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chave_h16=CHAVE_H16)
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
     with pytest.raises(ConflitoDeVersao):
         consumir(conn_app, atd, versao=99, ate_ordem=1)
     assert len(mensagens_pendentes(conn_app, atd)) == 1
 
 
 def test_consumir_recusa_ordem_que_nao_e_mensagem_ou_que_nao_avanca(conn_app, atd):
-    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chave_h16=CHAVE_H16)
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
     gravar_passo(conn_app, atd, ctx=CTX, dados=criar("erro", peca="fila"))  # ordem 2 não é mensagem
     versao = conn_app.execute("SELECT versao FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone()[0]
     for ate in (0, 2, 7):

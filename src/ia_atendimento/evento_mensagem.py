@@ -4,11 +4,14 @@
   `h16` = 16 hex iniciais de `HMAC-SHA256(chave_h16, b"h16/v1\\n" + "\\n".join([chat_id, hora_utc, tipo, texto, url_sem_query]))`.
   HMAC porque o sha256 puro de um texto curto é reversível por dicionário e a chave de dedupe é permanente; o texto bruto só entra
   no HMAC e nunca é gravado. (O `(chat_id, datetime_post)` sozinho colide em 0,55 % no corpus, 0,26 % com tipo e tamanho; o texto resolve.)
-- `msg_fingerprint`: `sha256(b"ia-evento/v1\\n" + JSON canônico {chat_id, datetime_post, phone_id, texto MASCARADO, tipo, url_sem_query})`,
-  nulos omitidos. Não inclui a origem: o mesmo conteúdo visto pelo webhook e pelo RPA tem o mesmo fingerprint (serve ao casamento, §5.3).
+- `msg_fingerprint`: `HMAC-SHA256(chave_fingerprint, b"ia-evento/v1\\n" + JSON canônico {chat_id, datetime_post, phone_id, texto
+  MASCARADO (inclusive os nomes da conversa), tipo, url_sem_query})`, nulos omitidos. **Achado S2:** o contrato 08 §5.1 previa `sha256`
+  puro; como o texto do cliente é curto (p50 11 caracteres) e enumerável, o hash seria reversível por dicionário, então a chave é
+  dedicada (config `CHAVE_FINGERPRINT`, a mesma no webhook e no RPA para o dedupe casar). O vetor do contrato precisa ser atualizado.
+  Não inclui a origem: o mesmo conteúdo visto pelo webhook e pelo RPA tem o mesmo fingerprint (serve ao casamento, §5.3).
 - Normalização antes de tudo: texto em NFC e sem espaços nas pontas; hora em UTC `AAAA-MM-DDTHH:MM:SSZ`; URL sem query nem fragmento.
 
-Vetor dourado do contrato (chave `chave-h16-de-teste-descartavel-01`) conferido em `tests/test_linha_tempo.py`.
+Vetor dourado do `h16` do contrato e vetor HMAC do fingerprint: conferidos em `tests/test_linha_tempo.py`.
 """
 
 from __future__ import annotations
@@ -17,9 +20,10 @@ import hashlib
 import hmac
 import json
 import unicodedata
-from dataclasses import dataclass
+from collections.abc import Collection
+from dataclasses import dataclass, field
 from datetime import UTC
-from typing import Annotated, Any, Final, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -27,9 +31,12 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 from ia_atendimento.mascara import mascarar
 from ia_atendimento.scrubber import validar
 
+if TYPE_CHECKING:
+    from ia_atendimento.config import Settings
+
 PREFIXO_H16: Final = b"h16/v1\n"
 PREFIXO_FINGERPRINT: Final = b"ia-evento/v1\n"
-TAMANHO_MIN_CHAVE_H16: Final = 16
+TAMANHO_MIN_CHAVE: Final = 32
 LIMITE_TEXTO: Final = 4000
 
 Hex24 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{24}$")]
@@ -66,6 +73,25 @@ class EventoMensagem(BaseModel):
 
 
 @dataclass(frozen=True)
+class ChavesDeMensagem:
+    """Chaves HMAC permanentes da identidade da mensagem: `h16` (msg_chave) e `fingerprint`. Diferentes, ≥ 32 bytes, fora do `repr`."""
+
+    h16: bytes = field(repr=False)
+    fingerprint: bytes = field(repr=False)
+
+    def __post_init__(self) -> None:
+        for nome, chave in (("h16", self.h16), ("fingerprint", self.fingerprint)):
+            if len(chave) < TAMANHO_MIN_CHAVE:
+                raise ValueError(f"chave {nome} deve ter ao menos {TAMANHO_MIN_CHAVE} bytes")
+        if hmac.compare_digest(self.h16, self.fingerprint):
+            raise ValueError("as chaves h16 e fingerprint devem ser diferentes")
+
+    @classmethod
+    def de_settings(cls, settings: Settings) -> ChavesDeMensagem:
+        return cls(settings.chave_h16.get_secret_value().encode(), settings.chave_fingerprint.get_secret_value().encode())
+
+
+@dataclass(frozen=True)
 class Identidade:
     msg_chave: str
     msg_fingerprint: str
@@ -97,23 +123,23 @@ def _h16(evento: EventoMensagem, chave_h16: bytes) -> str:
     return hmac.new(chave_h16, corpo, hashlib.sha256).hexdigest()[:16]
 
 
-def _fingerprint(evento: EventoMensagem) -> str:
+def _fingerprint(evento: EventoMensagem, chave: bytes, nomes: Collection[str]) -> str:
     texto = _texto_normalizado(evento)
     canonico = {
         "chat_id": evento.chat_id,
         "datetime_post": _hora_utc(evento),
         "phone_id": evento.phone_id,
-        "texto": mascarar(texto) if texto is not None else None,
+        "texto": mascarar(texto, nomes) if texto is not None else None,
         "tipo": evento.tipo,
         "url_sem_query": _url_sem_query(evento),
     }
     corpo = json.dumps({k: v for k, v in canonico.items() if v is not None}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(PREFIXO_FINGERPRINT + corpo.encode("utf-8")).hexdigest()
+    return hmac.new(chave, PREFIXO_FINGERPRINT + corpo.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def identidade(evento: EventoMensagem, chave_h16: bytes) -> Identidade:
-    """`msg_chave`, `msg_fingerprint` e `msg_tamanho` (caracteres do texto normalizado; 0 para mídia)."""
-    if len(chave_h16) < TAMANHO_MIN_CHAVE_H16:
-        raise ValueError(f"chave_h16 deve ter ao menos {TAMANHO_MIN_CHAVE_H16} bytes")
-    chave = f"rpa:{evento.rpa_id}" if evento.origem_evento == "reconciliacao" else f"cg:{evento.chat_id}:{_h16(evento, chave_h16)}"
-    return Identidade(chave, _fingerprint(evento), len(_texto_normalizado(evento) or ""))
+def identidade(evento: EventoMensagem, chaves: ChavesDeMensagem, nomes: Collection[str] = ()) -> Identidade:
+    """`msg_chave`, `msg_fingerprint` e `msg_tamanho` (caracteres do texto normalizado; 0 para mídia).
+
+    `nomes` = nome do cliente e variantes: mascarados antes do HMAC do fingerprint. Webhook e RPA devem passar os mesmos nomes."""
+    chave = f"rpa:{evento.rpa_id}" if evento.origem_evento == "reconciliacao" else f"cg:{evento.chat_id}:{_h16(evento, chaves.h16)}"
+    return Identidade(chave, _fingerprint(evento, chaves.fingerprint, nomes), len(_texto_normalizado(evento) or ""))

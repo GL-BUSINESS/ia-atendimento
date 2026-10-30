@@ -20,7 +20,7 @@ from typing import Annotated, Any, Final, Self
 import psycopg
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from ia_atendimento.evento_mensagem import EventoMensagem, Identidade, identidade
+from ia_atendimento.evento_mensagem import ChavesDeMensagem, EventoMensagem, Identidade, identidade
 from ia_atendimento.mascara import mascarar
 from ia_atendimento.passos import DadosPasso, MensagemRecebida, texto_passo
 from ia_atendimento.scrubber import validar
@@ -211,13 +211,14 @@ def gravar_mensagem_recebida(
     atendimento_id: uuid.UUID,
     *,
     evento: EventoMensagem,
-    chave_h16: bytes,
+    chaves: ChavesDeMensagem,
+    nomes: Collection[str] = (),
     agora: datetime | None = None,
 ) -> Gravada | Duplicada | Conflito:
     """Grava a mensagem como passo `mensagem_recebida` (só códigos e tamanho: o texto vai, mascarado e cifrado, a `conversa`).
 
     `turno` = rodada + 1 (a mensagem pertence ao próximo turno) e `fase` = a atual. Dedupe permanente por `msg_chave`."""
-    ident = identidade(evento, chave_h16)
+    ident = identidade(evento, chaves, nomes)
     dados = MensagemRecebida(
         msg_chave=ident.msg_chave,
         msg_fingerprint=ident.msg_fingerprint,
