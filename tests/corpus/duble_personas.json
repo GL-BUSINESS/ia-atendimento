@@ -1,0 +1,418 @@
+{
+ "fonte": "bancos-duble origin/main @94f61e3 personas/personas.yaml (versao 1): so id, n, CPF sintetico, cenario e as P-ids do f3; nada mais",
+ "f3_globais": {
+  "P30": "virada",
+  "P31": "reabertura"
+ },
+ "f3_sem_facta": [
+  "P13",
+  "P14",
+  "P32",
+  "P33",
+  "P34",
+  "P35",
+  "P36",
+  "P37",
+  "P38",
+  "P39",
+  "P40",
+  "P41",
+  "P42",
+  "P43",
+  "P44",
+  "P45",
+  "P46",
+  "P47",
+  "P48",
+  "P49",
+  "P50",
+  "P51",
+  "P52",
+  "P53",
+  "P54",
+  "P55",
+  "P56",
+  "P57",
+  "P58",
+  "P60"
+ ],
+ "personas": [
+  {
+   "id": "aprovado-24",
+   "n": 1,
+   "cpf": "000.000.001-91",
+   "cenario": "aprovado",
+   "f3": [
+    "P01"
+   ]
+  },
+  {
+   "id": "aprovado-36",
+   "n": 2,
+   "cpf": "000.000.002-72",
+   "cenario": "aprovado",
+   "f3": [
+    "P02",
+    "P05",
+    "P09",
+    "P12"
+   ]
+  },
+  {
+   "id": "aprovado-48",
+   "n": 3,
+   "cpf": "000.000.003-53",
+   "cenario": "aprovado",
+   "f3": [
+    "P03",
+    "P06"
+   ]
+  },
+  {
+   "id": "aprovado-60",
+   "n": 4,
+   "cpf": "000.000.004-34",
+   "cenario": "aprovado",
+   "f3": [
+    "P04",
+    "P07",
+    "P08"
+   ]
+  },
+  {
+   "id": "recusa-fora-politica-politica",
+   "n": 5,
+   "cpf": "000.000.005-15",
+   "cenario": "recusa",
+   "f3": []
+  },
+  {
+   "id": "recusa-contrato-inferior",
+   "n": 6,
+   "cpf": "000.000.006-04",
+   "cenario": "recusa",
+   "f3": []
+  },
+  {
+   "id": "recusa-parcela-atraso",
+   "n": 7,
+   "cpf": "000.000.007-87",
+   "cenario": "recusa",
+   "f3": []
+  },
+  {
+   "id": "recusa-qtde-contratos",
+   "n": 8,
+   "cpf": "000.000.008-68",
+   "cenario": "recusa",
+   "f3": []
+  },
+  {
+   "id": "recusa-idade",
+   "n": 9,
+   "cpf": "000.000.009-49",
+   "cenario": "recusa",
+   "f3": []
+  },
+  {
+   "id": "recusa-sem-elegibilidade",
+   "n": 10,
+   "cpf": "000.000.010-82",
+   "cenario": "recusa",
+   "f3": []
+  },
+  {
+   "id": "recusa-contrato-andamento",
+   "n": 11,
+   "cpf": "000.000.011-63",
+   "cenario": "recusa",
+   "f3": [
+    "P22"
+   ]
+  },
+  {
+   "id": "recusa-nao-perturbe",
+   "n": 12,
+   "cpf": "000.000.012-44",
+   "cenario": "recusa",
+   "f3": [
+    "P21"
+   ]
+  },
+  {
+   "id": "recusa-cpf-fora-da-base",
+   "n": 13,
+   "cpf": "000.000.013-25",
+   "cenario": "recusa",
+   "f3": []
+  },
+  {
+   "id": "recusa-sem-margem",
+   "n": 14,
+   "cpf": "000.000.014-06",
+   "cenario": "recusa",
+   "f3": [
+    "P23"
+   ]
+  },
+  {
+   "id": "recusa-bloqueado-segurado",
+   "n": 15,
+   "cpf": "000.000.015-97",
+   "cenario": "recusa",
+   "f3": []
+  },
+  {
+   "id": "recusa-fora-politica-etapa1",
+   "n": 16,
+   "cpf": "000.000.016-78",
+   "cenario": "recusa",
+   "f3": [
+    "P19"
+   ]
+  },
+  {
+   "id": "teto-politica",
+   "n": 17,
+   "cpf": "000.000.017-59",
+   "cenario": "teto",
+   "f3": [
+    "P10",
+    "P11"
+   ]
+  },
+  {
+   "id": "corrige-celular-outro-cpf",
+   "n": 18,
+   "cpf": "000.000.018-30",
+   "cenario": "corrigivel",
+   "f3": [
+    "P15"
+   ]
+  },
+  {
+   "id": "corrige-bairro-30-bytes",
+   "n": 19,
+   "cpf": "000.000.019-10",
+   "cenario": "corrigivel",
+   "f3": [
+    "P17"
+   ]
+  },
+  {
+   "id": "corrige-chave-pix",
+   "n": 20,
+   "cpf": "000.000.020-54",
+   "cenario": "corrigivel",
+   "f3": [
+    "P16"
+   ]
+  },
+  {
+   "id": "corrige-celular-invalido",
+   "n": 21,
+   "cpf": "000.000.021-35",
+   "cenario": "corrigivel",
+   "f3": []
+  },
+  {
+   "id": "corrige-taxa-minima",
+   "n": 22,
+   "cpf": "000.000.022-16",
+   "cenario": "corrigivel",
+   "f3": []
+  },
+  {
+   "id": "corrige-prestacao-maxima",
+   "n": 23,
+   "cpf": "000.000.023-05",
+   "cenario": "corrigivel",
+   "f3": []
+  },
+  {
+   "id": "corrige-nunca-bairro",
+   "n": 24,
+   "cpf": "000.000.024-88",
+   "cenario": "corrigivel",
+   "f3": [
+    "P18"
+   ]
+  },
+  {
+   "id": "corrige-token-expirado",
+   "n": 25,
+   "cpf": "000.000.025-69",
+   "cenario": "corrigivel",
+   "f3": []
+  },
+  {
+   "id": "corrige-sem-dataprev",
+   "n": 26,
+   "cpf": "000.000.026-40",
+   "cenario": "corrigivel",
+   "f3": []
+  },
+  {
+   "id": "corrige-valor-abaixo",
+   "n": 27,
+   "cpf": "000.000.027-20",
+   "cenario": "corrigivel",
+   "f3": []
+  },
+  {
+   "id": "corrige-prazo-faixa",
+   "n": 28,
+   "cpf": "000.000.028-01",
+   "cenario": "corrigivel",
+   "f3": []
+  },
+  {
+   "id": "transitorio-html-522",
+   "n": 29,
+   "cpf": "000.000.029-92",
+   "cenario": "transitorio",
+   "f3": [
+    "P29"
+   ]
+  },
+  {
+   "id": "transitorio-html-403",
+   "n": 30,
+   "cpf": "000.000.030-26",
+   "cenario": "transitorio",
+   "f3": []
+  },
+  {
+   "id": "transitorio-token-invalido",
+   "n": 31,
+   "cpf": "000.000.031-07",
+   "cenario": "transitorio",
+   "f3": []
+  },
+  {
+   "id": "transitorio-erro-banco",
+   "n": 32,
+   "cpf": "000.000.032-98",
+   "cenario": "transitorio",
+   "f3": []
+  },
+  {
+   "id": "transitorio-fila-autorizacao",
+   "n": 33,
+   "cpf": "000.000.033-79",
+   "cenario": "transitorio",
+   "f3": []
+  },
+  {
+   "id": "transitorio-limite-consulta",
+   "n": 34,
+   "cpf": "000.000.034-50",
+   "cenario": "transitorio",
+   "f3": []
+  },
+  {
+   "id": "indet-criada-5min",
+   "n": 35,
+   "cpf": "000.000.035-30",
+   "cenario": "indeterminado",
+   "f3": [
+    "P24",
+    "P28"
+   ]
+  },
+  {
+   "id": "indet-criada-17min",
+   "n": 36,
+   "cpf": "000.000.036-11",
+   "cenario": "indeterminado",
+   "f3": [
+    "P25"
+   ]
+  },
+  {
+   "id": "indet-nunca-criada",
+   "n": 37,
+   "cpf": "000.000.037-00",
+   "cenario": "indeterminado",
+   "f3": [
+    "P26"
+   ]
+  },
+  {
+   "id": "indet-erro-banco-sem-codigo",
+   "n": 38,
+   "cpf": "000.000.038-83",
+   "cenario": "indeterminado",
+   "f3": [
+    "P27"
+   ]
+  },
+  {
+   "id": "indet-reset",
+   "n": 39,
+   "cpf": "000.000.039-64",
+   "cenario": "indeterminado",
+   "f3": []
+  },
+  {
+   "id": "indet-atraso-longo",
+   "n": 40,
+   "cpf": "000.000.040-06",
+   "cenario": "indeterminado",
+   "f3": []
+  },
+  {
+   "id": "af-cancelada-nnn",
+   "n": 41,
+   "cpf": "000.000.041-89",
+   "cenario": "af_cancelada",
+   "f3": [
+    "P20"
+   ]
+  },
+  {
+   "id": "af-cancelada-comprometimento",
+   "n": 42,
+   "cpf": "000.000.042-60",
+   "cenario": "af_cancelada",
+   "f3": []
+  },
+  {
+   "id": "af-cancelada-valor-maximo",
+   "n": 43,
+   "cpf": "000.000.043-40",
+   "cenario": "af_cancelada",
+   "f3": []
+  },
+  {
+   "id": "proposta-viva",
+   "n": 44,
+   "cpf": "000.000.044-21",
+   "cenario": "viva",
+   "f3": [
+    "P59"
+   ]
+  },
+  {
+   "id": "desconhecido-dados",
+   "n": 45,
+   "cpf": "000.000.045-02",
+   "cenario": "desconhecido",
+   "f3": []
+  },
+  {
+   "id": "desconhecido-etapa3",
+   "n": 46,
+   "cpf": "000.000.046-93",
+   "cenario": "desconhecido",
+   "f3": []
+  },
+  {
+   "id": "cpf-dv-invalido",
+   "n": 99,
+   "cpf": "000.000.099-00",
+   "cenario": "cpf_invalido",
+   "f3": []
+  }
+ ]
+}

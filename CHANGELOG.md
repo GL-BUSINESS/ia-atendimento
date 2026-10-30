@@ -2,6 +2,13 @@
 
 Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamento semântico. Tags só depois da revisão.
 
+## 0.2.0 (não publicada)
+
+- **B8.1a, corpus da F3** (`tests/corpus/`, `src/ia_atendimento/corpus.py`, `tests/test_corpus.py`): 60 personas P01-P60 (40 da F3 curta, C5) +
+  24 P-M, 40 diálogos-gabarito (397 turnos; o texto da IA não é fixado), semente determinística (ordem, hold-out de 20%, 3 execuções por persona,
+  escolha da variação do cliente) e carregador/validador Pydantic (`extra='forbid'`). Tudo inventado: nenhuma conversa real, CPF só `000.000.0nn`
+  alinhado ao `bancos-duble`. `scripts/varredura.py` passa a aceitar a faixa `000.000.0nn` (CPF de DV válido que nenhuma pessoa tem).
+
 ## [Unreleased]
 
 ### Revisão de contexto limpo (29/10) · `docs/REVISAO-FUNDACAO-2910.md`
