@@ -35,6 +35,9 @@ chmod 600 "$CHAVE_AES_ARQUIVO"
   (dump, WAL, pgBackRest) passa a ser ilegível; `decifrar` levanta `ChaveDesconhecida`.
 - **Rotação:** o chaveiro é lido uma vez no boot (`chaveiro_padrao` fica em cache). Trocar `CHAVE_AES_ID` ou o arquivo (mês novo, descarte do
   mês velho) exige **reiniciar o orquestrador**. Quem cifra usa só a chave vigente; `decifrar` acha a chave pelo `chave_id` gravado na linha.
+- **Virada do mês (uma só regra, UTC):** o mês da chave é o de **UTC**; a virada é **00:00 UTC = 21:00 BRT**. Nessa hora, juntar a entrada do
+  mês novo ao arquivo, trocar `CHAVE_AES_ID` e reiniciar. O orquestrador tolera a chave do mês ANTERIOR por **1 h** depois da meia-noite UTC; depois
+  disso (ou com a chave nova antes da hora) conversa e cofre **recusam gravar** (`ChaveForaDoMes`) em vez de cifrar com a chave errada.
 - O arquivo mora em `/etc/ia-s4` (diretório montado `:ro` no compose da VPS; memória `coolify-dockercompose-storages`). Nunca no git
   (`.gitignore` bloqueia `*.key`, `chaves*.json`, `*.aes`, `.env*`).
 

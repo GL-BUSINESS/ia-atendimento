@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -294,3 +294,30 @@ def test_retencao_da_linha_e_contada_pelo_relogio_do_banco_m1(conn_app, atd, cha
     assert dentro == (True,)
     with pytest.raises(TypeError):  # o relógio do chamador não escolhe mais a data da linha
         gravar_troca(conn_app, atd, remetente="cliente", texto="oi", chaveiro=chaveiro_do_mes_atual, nomes=(), criada_em=AGORA)  # type: ignore[call-arg]
+
+
+BRT = timezone(timedelta(hours=-3))
+
+
+def test_chave_id_do_mes_normaliza_para_utc_r2_3():
+    """Uma só regra: o mês é o de UTC. 31/10 23:00 BRT já é 01/11 02:00 UTC (chave 2); naive é recusado."""
+    assert chave_id_do_mes(datetime(2026, 10, 31, 23, 0, tzinfo=BRT)) == 2
+    assert chave_id_do_mes(datetime(2026, 10, 31, 20, 59, tzinfo=BRT)) == 1
+    assert chave_id_do_mes(datetime(2026, 11, 1, 0, 0, tzinfo=UTC)) == 2
+    with pytest.raises(ValueError, match="fuso"):
+        chave_id_do_mes(datetime(2026, 11, 1))
+
+
+def test_virada_do_mes_tolera_a_chave_anterior_por_1h_r2_3(conn_app, atd, tmp_path):
+    k1, k2 = chave_aleatoria(), chave_aleatoria()
+    velho = chaveiro_com(tmp_path, {1: k1, 2: k2}, vigente=1, nome="v1.json")  # ainda não virou CHAVE_AES_ID
+    depois_da_meia_noite = datetime(2026, 11, 1, 0, 30, tzinfo=UTC)
+    assert gravar_troca(conn_app, atd, remetente="cliente", texto="oi", chaveiro=velho, nomes=(), agora=depois_da_meia_noite) == 1
+    com_atraso = datetime(2026, 11, 1, 1, 0, 1, tzinfo=UTC)
+    with pytest.raises(ChaveForaDoMes):  # passou a tolerância: parar é melhor que cifrar o mês novo com a chave do mês velho
+        gravar_troca(conn_app, atd, remetente="cliente", texto="oi", chaveiro=velho, nomes=(), agora=com_atraso)
+    adiantado = chaveiro_com(tmp_path, {1: k1, 2: k2}, vigente=2, nome="v2.json")  # virou ANTES da hora
+    with pytest.raises(ChaveForaDoMes):
+        gravar_troca(
+            conn_app, atd, remetente="cliente", texto="oi", chaveiro=adiantado, nomes=(), agora=datetime(2026, 10, 31, 23, tzinfo=UTC)
+        )

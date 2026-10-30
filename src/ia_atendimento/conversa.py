@@ -33,6 +33,7 @@ LIMITE_LEITURA: Final = 280
 TROCAS_PADRAO: Final = 3
 RETENCAO_LINHA: Final = timedelta(days=30)  # teto absoluto da linha (CHECK `apagar_em <= criada_em + 30 d`); contado pelo `now()` do banco
 JANELA_SERVICO: Final = timedelta(hours=24)
+TOLERANCIA_VIRADA: Final = timedelta(hours=1)  # depois da meia-noite UTC do dia 1º a chave do mês anterior ainda vale (reinício)
 TOLERANCIA_FUTURO: Final = timedelta(minutes=5)  # relógio do cliente/ChatGuru adiantado; além disso o dado é suspeito e a janela fecha
 MAX_PALAVRAS_RESUMO: Final = 60
 PRIMEIRO_MES: Final = (2026, 10)  # chave_id 1
@@ -75,8 +76,11 @@ class Conversa:
 
 
 def chave_id_do_mes(agora: datetime) -> int:
-    """`chave_id` sequencial do mês de `agora` (1 = out/2026). Não estoura o smallint: 12 por ano."""
-    meses = (agora.year - PRIMEIRO_MES[0]) * 12 + agora.month - PRIMEIRO_MES[1] + 1
+    """`chave_id` sequencial do mês de `agora` NORMALIZADO PARA UTC (1 = out/2026). Uma só regra: a virada é 00:00 UTC = 21:00 BRT."""
+    if agora.tzinfo is None:
+        raise ValueError("agora precisa de fuso")
+    utc = agora.astimezone(UTC)
+    meses = (utc.year - PRIMEIRO_MES[0]) * 12 + utc.month - PRIMEIRO_MES[1] + 1
     if meses < 1:
         raise ValueError("data anterior a out/2026: não há chave mensal")
     return meses
@@ -96,9 +100,18 @@ def texto_livre_permitido(agora: datetime, ultimo_cliente_em: datetime | None) -
 
 
 def exigir_chave_do_mes(chaveiro: Chaveiro, agora: datetime | None) -> None:
-    esperado = chave_id_do_mes(agora or datetime.now(UTC))
-    if chaveiro.vigente != esperado:
-        raise ChaveForaDoMes(f"a chave vigente é a {chaveiro.vigente} e o mês de hoje pede a {esperado}: vire CHAVE_AES_ID e reinicie")
+    """A chave vigente tem de ser a do mês (UTC). Tolera a chave do mês ANTERIOR por 1 h depois da virada (reinício do orquestrador);
+    depois disso, ou com a chave do mês seguinte antes da hora, recusa gravar (parar é melhor que perder o texto com a chave errada)."""
+    if agora is not None and agora.tzinfo is None:
+        raise ValueError("agora precisa de fuso")
+    instante = (agora or datetime.now(UTC)).astimezone(UTC)
+    esperado = chave_id_do_mes(instante)
+    if chaveiro.vigente == esperado:
+        return
+    desde_a_virada = instante - instante.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if chaveiro.vigente == esperado - 1 and desde_a_virada < TOLERANCIA_VIRADA:
+        return
+    raise ChaveForaDoMes(f"a chave vigente é a {chaveiro.vigente} e o mês (UTC) pede a {esperado}: vire CHAVE_AES_ID e reinicie")
 
 
 def _exigir_nomes(nomes: Collection[str] | None) -> Collection[str]:

@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Final, Self
 
 import psycopg
@@ -27,6 +27,7 @@ from ia_atendimento.scrubber import validar
 
 TIPOS_DE_ENVIO: Final = frozenset({"resposta_enviada", "lembrete"})
 TURNO_MAX: Final = 32767  # smallint
+JANELA_REPLAY_SEM_HORA: Final = timedelta(seconds=5)  # as 3 tentativas do ChatGuru chegam em 1,2–3,1 s (estudo B)
 FASE_INICIAL: Final = "E0"
 
 
@@ -85,6 +86,7 @@ class Passo:
 class Gravada:
     ordem: int
     msg_chave: str
+    sem_hora: bool = False  # sem `datetime_post` nem `mensagem_id`: `msg_enviada_em` fica NULL e o dedupe é o secundário (janela curta)
 
 
 @dataclass(frozen=True)
@@ -231,6 +233,23 @@ def _comparar(existente: tuple[uuid.UUID, int, str], ident: Identidade, atendime
     return Duplicada(ident.msg_chave, mesmo, ordem if mesmo else None)
 
 
+def _sem_hora(evento: EventoMensagem) -> bool:
+    return evento.datetime_post is None and evento.mensagem_id is None and evento.origem_evento != "reconciliacao"
+
+
+def _replay_sem_hora(conn: psycopg.Connection, atendimento_id: uuid.UUID, evento: EventoMensagem, ident: Identidade) -> int | None:
+    """Sem hora nem id cada recebimento ganha uma chave nova (`recebido_em`) e o replay furaria o dedupe. Busca secundária: mesmo
+    fingerprint, mesmo atendimento, gravado nos últimos 5 s (relógio do banco). Fora da janela é mensagem nova (o 2º «sim» legítimo)."""
+    if not _sem_hora(evento):
+        return None
+    linha = conn.execute(
+        "SELECT ordem FROM ia.passo WHERE atendimento_id = %s AND tipo = 'mensagem_recebida' AND msg_fingerprint = %s"
+        " AND ocorrido_em > now() - %s ORDER BY ordem LIMIT 1",
+        (atendimento_id, ident.msg_fingerprint, JANELA_REPLAY_SEM_HORA),
+    ).fetchone()
+    return linha[0] if linha else None
+
+
 def gravar_mensagem_recebida(
     conn: psycopg.Connection,
     atendimento_id: uuid.UUID,
@@ -261,6 +280,9 @@ def gravar_mensagem_recebida(
         anterior = _existente(conn, ident, evento.rpa_id)
         if anterior is not None:
             return _comparar(anterior, ident, atendimento_id)
+        repetida = _replay_sem_hora(conn, atendimento_id, evento, ident)
+        if repetida is not None:
+            return Duplicada(ident.msg_chave, True, repetida)
         casada = casar(conn, atendimento_id, evento, ident) if casar is not None else None
         if casada is not None:
             return Casada(casada, ident.msg_chave)
@@ -279,7 +301,7 @@ def gravar_mensagem_recebida(
             if concorrente is None:
                 raise LinhaDoTempoErro("INSERT não gravou e a chave não existe: estado impossível")
             return _comparar(concorrente, ident, atendimento_id)
-        return Gravada(ordem, ident.msg_chave)
+        return Gravada(ordem, ident.msg_chave, sem_hora=_sem_hora(evento))
 
 
 def mensagens_pendentes(conn: psycopg.Connection, atendimento_id: uuid.UUID) -> list[Pendente]:

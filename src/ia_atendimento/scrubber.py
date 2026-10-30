@@ -18,13 +18,18 @@ from collections.abc import Callable
 from types import TracebackType
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, GetCoreSchemaHandler, ValidationError
+from pydantic_core import CoreSchema, core_schema
 
 from ia_atendimento.mascara import mascarar
 
 
-class EntradaInvalida(ValueError):
-    """Entrada recusada pela validação. Só diz QUAIS campos e POR QUÊ (`detalhes`), nunca o valor recebido."""
+class EntradaInvalida(Exception):
+    """Entrada recusada pela validação. Só diz QUAIS campos e POR QUÊ (`detalhes`), nunca o valor recebido.
+
+    NÃO herda de `ValueError` de propósito: levantada dentro de um validador do Pydantic, um `ValueError` seria embrulhado de novo num
+    `ValidationError` com o dict de entrada; uma `Exception` comum atravessa o Pydantic intacta. Quem expõe corpo HTTP (B1.5) trata
+    `EntradaInvalida` como 422 sem `input`."""
 
     def __init__(self, modelo: str, detalhes: tuple[str, ...]) -> None:
         self.modelo = modelo
@@ -49,19 +54,27 @@ def validar[T](nome_do_modelo: str, construir: Callable[[], T]) -> T:
 
 
 class ModeloSemEco(BaseModel):
-    """Base dos modelos que tocam texto: `hide_input_in_errors` e construtor que NÃO deixa o `ValidationError` (cujo `.errors()`/`.json()`
-    guardam o dict de entrada) escapar: levanta `EntradaInvalida` sem o valor e sem causa encadeada (achado A2)."""
+    """Base dos modelos que tocam texto. `hide_input_in_errors` protege só o `str(erro)`; `ValidationError.errors()`/`.json()` guardam o
+    dict de entrada. Um validador `wrap` captura o erro em QUALQUER caminho (construtor, `model_validate`, `model_validate_json`,
+    `TypeAdapter`, o corpo tipado do FastAPI) e relança `EntradaInvalida` sem o valor e sem causa encadeada (achados A2, R2-1)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
-    def __init__(self, /, **dados: Any) -> None:
-        detalhes: tuple[str, ...] | None = None
-        try:
-            super().__init__(**dados)
-        except ValidationError as erro:
-            detalhes = erros_sem_input(erro)
-        if detalhes is not None:
-            raise EntradaInvalida(type(self).__name__, detalhes)
+    @classmethod
+    def __get_pydantic_core_schema__(cls, fonte: Any, manipulador: GetCoreSchemaHandler) -> CoreSchema:
+        """Embrulha o esquema do modelo num validador `wrap` EXTERNO: pega também o erro dos validadores `after` das subclasses
+        (um `model_validator(mode="wrap")` na base ficaria por dentro deles)."""
+        nome = cls.__name__
+
+        def sem_eco(dados: Any, interno: Any) -> Any:
+            detalhes: tuple[str, ...] | None = None
+            try:
+                return interno(dados)
+            except ValidationError as erro:
+                detalhes = erros_sem_input(erro)
+            raise EntradaInvalida(nome, detalhes)  # fora do `except`: sem `__context__`
+
+        return core_schema.no_info_wrap_validator_function(sem_eco, manipulador(fonte))
 
 
 def formatar_sem_pii(erro: BaseException) -> str:

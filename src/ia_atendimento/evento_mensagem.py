@@ -1,6 +1,6 @@
 """Identidade de uma mensagem recebida: `msg_chave` e `msg_fingerprint` (contrato 08 §5.1; uma função para os dois caminhos).
 
-- `msg_chave`: reconciliação do RPA ⇒ `rpa:{rpa_id}`; com id do ChatGuru ⇒ `cgid:{id}`; senão `cg:{chat_id}:{h16}`.
+- `msg_chave`: reconciliação do RPA ⇒ `rpa:{rpa_id}`; com id do ChatGuru ⇒ `cgid:{HMAC(chat_id, id)[:32]}`; senão `cg:{chat_id}:{h16}`.
   `h16` = 16 hex iniciais de `HMAC-SHA256(chave_h16, b"h16/v1\\n" + "\\n".join([chat_id, hora_utc, tipo, texto, url_sem_query]))`.
   HMAC porque o sha256 puro de um texto curto é reversível por dicionário e a chave de dedupe é permanente; o texto bruto só entra
   no HMAC e nunca é gravado. (O `(chat_id, datetime_post)` sozinho colide em 0,55 % no corpus, 0,26 % com tipo e tamanho; o texto resolve.)
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 PREFIXO_H16: Final = b"h16/v1\n"
 PREFIXO_FINGERPRINT: Final = b"ia-evento/v1\n"
+PREFIXO_CGID: Final = b"cgid/v1\n"
 TAMANHO_MIN_CHAVE: Final = 32
 LIMITE_TEXTO: Final = 4000
 
@@ -150,11 +151,19 @@ def _fingerprint(evento: EventoMensagem, chave: bytes) -> str:
     return hmac.new(chave, PREFIXO_FINGERPRINT + corpo.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def _hmac_do_id(evento: EventoMensagem, chave_h16: bytes) -> str:
+    """`cgid:` amarrado ao CHAT (S3): o índice de dedupe é global, então um `mensagem_id` repetido (ou forjado) em outro chat não pode
+    silenciar a mensagem legítima de outro cliente. HMAC com a chave do `h16`; 32 hex cabem no CHECK da 0001
+    (`cgid:[A-Za-z0-9_.=-]{1,120}`)."""
+    corpo = PREFIXO_CGID + f"{evento.chat_id}\n{evento.mensagem_id}".encode()
+    return hmac.new(chave_h16, corpo, hashlib.sha256).hexdigest()[:32]
+
+
 def _chave_da_mensagem(evento: EventoMensagem, chave_h16: bytes, recebido_em: datetime | None) -> str:
     if evento.origem_evento == "reconciliacao":
         return f"rpa:{evento.rpa_id}"
     if evento.mensagem_id is not None:
-        return f"cgid:{evento.mensagem_id}"  # id do próprio ChatGuru: distingue até duas mensagens idênticas no mesmo segundo
+        return f"cgid:{_hmac_do_id(evento, chave_h16)}"  # id do ChatGuru: distingue até duas mensagens idênticas no mesmo segundo
     instante = evento.datetime_post or recebido_em
     if instante is None:
         raise ValueError("sem datetime_post nem mensagem_id a chave exige recebido_em (senão mensagens iguais colapsariam para sempre)")
@@ -166,7 +175,8 @@ def _chave_da_mensagem(evento: EventoMensagem, chave_h16: bytes, recebido_em: da
 def identidade(evento: EventoMensagem, chaves: ChavesDeMensagem, *, recebido_em: datetime | None = None) -> Identidade:
     """`msg_chave`, `msg_fingerprint` e `msg_tamanho` (caracteres do texto normalizado; 0 para mídia).
 
-    `msg_chave`: `rpa:{id}` na reconciliação; `cgid:{mensagem_id}` se o ChatGuru mandou id; senão `cg:{chat}:{h16}` com a hora do evento
+    `msg_chave`: `rpa:{id}` na reconciliação; `cgid:{HMAC(chat_id, mensagem_id)}` se o ChatGuru mandou id;
+    senão `cg:{chat}:{h16}` com a hora do evento
     (com fração de segundo) ou, sem `datetime_post`, com `recebido_em` (a mensagem nunca colapsa; em troca o replay SEM hora não dedupa).
     O fingerprint segue o contrato 08 §5.1 (HMAC, texto mascarado sem nomes, URL sem query)."""
     chave = _chave_da_mensagem(evento, chaves.h16, recebido_em)

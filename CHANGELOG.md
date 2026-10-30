@@ -37,6 +37,13 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
   **M6** `consumir` confere a `versao` antes de validar (`ConflitoDeVersao` ao perdedor); **M7** `LIMITE_NOTA = 240` (40 + 240 cabe nos 300 do CHECK).
 - **B1/B2/B3/B7** testes dos 3 mutantes sobreviventes (`ON CONFLICT`, `.strip()`, vencimento do cofre); `Duplicada` não devolve `ordem` de outro
   atendimento; `expirar` e `ler` usam só o relógio do banco; `agora` dos passos saiu.
+### Correções da revisão 2 (`docs/REVISAO-B1.2-3010-r2.md`)
+- **R2-1** `ModeloSemEco` embrulha o esquema num validador `wrap` externo: `model_validate`, `model_validate_json`, `TypeAdapter` e o construtor levantam
+  `EntradaInvalida` (agora `Exception`, não `ValueError`, para o Pydantic não embrulhá-la de novo) sem o valor. **R2-2** `motivo` é `Literal` de
+  catálogo fechado (`MOTIVOS_DE_DECISAO`); os demais códigos recusam corrida de 4+ dígitos, CPF/telefone e nome da conversa. **R2-3** `chave_id_do_mes`
+  normaliza para UTC (naive é recusado), tolera a chave do mês anterior por 1 h após a virada; regra em `docs/OPERACAO.md` §2.
+- **R2-4 (S3)** `cgid:` = HMAC(`CHAVE_H16`, chat_id + mensagem_id)[:32] (cabe no CHECK da 0001). **R2-5 (S4)** sem hora nem id: dedupe secundário por
+  fingerprint no mesmo atendimento em 5 s, `Gravada.sem_hora`; nada é rejeitado. **R2-6** removido o `xfail(strict)` inócuo do casamento (o gancho `casar` tem teste verde).
 ### Notas
 - `ultimo_cliente_em` chega na migração 0003 da B1.1; até lá `texto_livre_permitido` recebe o valor por parâmetro e um teste `xfail` nomeado
   (`test_coluna_ultimo_cliente_em_existe_no_atendimento`) guarda a coluna. `registrar()` (passo + contadores no mesmo CAS) depende do `aplicar` da B1.1.

@@ -11,13 +11,14 @@ a `anotacao_operador`, cujo texto é do OPERADOR (não do cliente) e passa pela 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Collection
 from contextvars import ContextVar
 from decimal import Decimal
 from typing import Annotated, Any, ClassVar, Final, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field, StringConstraints, model_validator
+from pydantic import AfterValidator, AwareDatetime, Field, StringConstraints, model_validator
 
 from ia_atendimento.mascara import mascarar
 from ia_atendimento.scrubber import ModeloSemEco
@@ -27,8 +28,38 @@ MOTIVO_PADRAO: Final = "nao_informado"  # decisão sem motivo: o turno segue (H 
 LIMITE_NOTA: Final = 240  # «Anotação (» 10 + resultado 40 + «): » 3 + nota 240 = 293 ≤ 300 do CHECK (achado M7)
 LIMITE_VERIF_DET: Final = 10
 
-Codigo40 = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]
-Codigo60 = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,60}$")]
+# Nomes da conversa durante a construção de um passo. Não é `context=` do Pydantic porque o construtor sobrescrito de `ModeloSemEco`
+# (A2) faz o Pydantic chamar `__init__` sem contexto; a variável de contexto vale só dentro de `criar` e é por tarefa/thread.
+_NOMES: ContextVar[Collection[str] | None] = ContextVar("nomes_da_conversa", default=None)
+
+
+MAX_DIGITOS_EM_CODIGO: Final = 3  # «fila_v2», «t7»; uma corrida de 4+ dígitos pode ser CPF, conta ou telefone
+
+
+def _codigo_sem_pii(valor: str) -> str:
+    """Código de passo (`^[a-z0-9_]+$`) que o regex deixaria carregar PII: corrida de 4+ dígitos, CPF/telefone/e-mail ou nome da conversa.
+    Enquanto o catálogo fechado não existe (B1.4/B5), é a cerca de `intencao`, `objecao`, `transversal`, `peca`… (R2-2)."""
+    if re.search(rf"[0-9]{{{MAX_DIGITOS_EM_CODIGO + 1},}}", valor):
+        raise ValueError("código com 4 ou mais dígitos seguidos")
+    legivel = valor.replace("_", " ")
+    if mascarar(legivel, _NOMES.get() or ()) != legivel:
+        raise ValueError("código com dado pessoal")
+    return valor
+
+
+Codigo40 = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$"), AfterValidator(_codigo_sem_pii)]
+Codigo60 = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,60}$"), AfterValidator(_codigo_sem_pii)]
+# Motivo da decisão: LISTA FECHADA (A1/R2-2). `passo` vive 365 d e é lido por `ia_leitura`: nenhuma palavra do cliente cabe aqui.
+MOTIVOS_DE_DECISAO: Final = (
+    "nao_informado", "oferta_aceita", "oferta_recusada", "cliente_concordou", "cliente_desistiu", "pede_humano", "pede_parar",
+    "duvida_respondida", "objecao_tratada", "sem_avanco", "fora_de_escopo", "confirmacao_valida", "confirmacao_ambigua",
+    "dado_faltante", "janela_encerrada",
+)  # fmt: skip
+MotivoDecisao = Literal[
+    "nao_informado", "oferta_aceita", "oferta_recusada", "cliente_concordou", "cliente_desistiu", "pede_humano", "pede_parar",
+    "duvida_respondida", "objecao_tratada", "sem_avanco", "fora_de_escopo", "confirmacao_valida", "confirmacao_ambigua",
+    "dado_faltante", "janela_encerrada",
+]  # fmt: skip
 Hex16 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")]
 Hex32 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
 Hex64 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
@@ -46,11 +77,6 @@ Desfecho = Literal[
     "sem_venda", "repassado", "sem_resposta", "expirado", "opt_out", "abortado", "vendeu", "destravou", "motivo_identificado"
 ]
 Dinheiro = Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=6)]
-
-
-# Nomes da conversa durante a construção de um passo. Não é `context=` do Pydantic porque o construtor sobrescrito de `ModeloSemEco`
-# (A2) faz o Pydantic chamar `__init__` sem contexto; a variável de contexto vale só dentro de `criar` e é por tarefa/thread.
-_NOMES: ContextVar[Collection[str] | None] = ContextVar("nomes_da_conversa", default=None)
 
 
 class DadosPasso(ModeloSemEco):
@@ -94,7 +120,7 @@ class DecisaoModelo(DadosPasso):
     custo_brl: Dinheiro | None = None
     latencia_ms: Annotated[int, Field(ge=0)] | None = None
     trace_id: Hex32 | None = None
-    motivo: Codigo40 | None = None
+    motivo: MotivoDecisao | None = None
 
     def colunas(self) -> dict[str, Any]:
         return {**self.model_dump(), "motivo": self.motivo or MOTIVO_PADRAO}
@@ -106,7 +132,7 @@ class DecisaoRegra(DadosPasso):
     transversal: Codigo40 | None = None
     faixa_esforco: Faixa | None = None
     trace_id: Hex32 | None = None
-    motivo: Codigo40 | None = None
+    motivo: MotivoDecisao | None = None
 
     def colunas(self) -> dict[str, Any]:
         return {**self.model_dump(), "motivo": self.motivo or MOTIVO_PADRAO}

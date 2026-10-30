@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import threading
 import time
 import uuid
@@ -392,6 +393,8 @@ def test_consumir_recusa_ordem_que_nao_e_mensagem_ou_que_nao_avanca(conn_app, at
 def test_motivo_de_texto_livre_nunca_chega_ao_banco_a1(banco, conn_app, atd):
     with pytest.raises(EntradaInvalida):
         criar("decisao", motor="regra", motivo=f"cliente disse {MARCADOR} sobre juros")
+    with pytest.raises(EntradaInvalida):  # R2-2: passa no regex de código, mas não é do catálogo (o marcador com hífen nunca testou isso)
+        criar("decisao", motor="regra", motivo="cliente_disse_zebraquantica")
     gravar_passo(conn_app, atd, ctx=CTX, dados=criar("decisao", motor="regra", motivo="oferta_aceita"))
     with banco.sessao() as admin:
         dump = " ".join(r[0] for r in admin.execute("SELECT t::text FROM ia.passo t").fetchall())
@@ -418,26 +421,64 @@ def test_repr_e_errors_do_evento_nao_vazam_o_texto_a2():
     assert erro.value.__context__ is None
 
 
-def test_sem_datetime_post_nunca_colapsa_mensagens_iguais_a3(conn_app, atd):
-    """«sim» é a confirmação de T4/T7: dois «sim» legítimos não podem virar um só, nem em outro atendimento do mesmo chat."""
+def _envelhecer_passos(banco, segundos):
+    with banco.sessao() as admin:  # superusuário: o `ia_app` não tem UPDATE em `passo`
+        admin.execute("UPDATE ia.passo SET ocorrido_em = ocorrido_em - make_interval(secs => %s)", (segundos,))
+
+
+def test_sem_datetime_post_nunca_colapsa_mensagens_iguais_a3(banco, conn_app, atd):
+    """«sim» é a confirmação de T4/T7: dois «sim» legítimos (fora da janela de replay) não podem virar um só, nem em outro atendimento."""
     outro = novo_atendimento(conn_app, chat=OUTRO_CHAT)
     sim = _evento(texto="sim", datetime_post=None)
     t0 = datetime(2026, 11, 24, 13, 0, tzinfo=UTC)
     with pytest.raises(ValueError, match="recebido_em"):
         identidade(sim, CHAVES)
-    r = [
-        gravar_mensagem_recebida(conn_app, a, evento=sim, chaves=CHAVES, recebido_em=t0 + timedelta(seconds=s))
-        for a, s in ((atd, 0), (atd, 5), (outro, 90))
-    ]
+    r = [gravar_mensagem_recebida(conn_app, atd, evento=sim, chaves=CHAVES, recebido_em=t0)]
+    _envelhecer_passos(banco, 60)
+    r.append(gravar_mensagem_recebida(conn_app, atd, evento=sim, chaves=CHAVES, recebido_em=t0 + timedelta(seconds=60)))
+    r.append(gravar_mensagem_recebida(conn_app, outro, evento=sim, chaves=CHAVES, recebido_em=t0 + timedelta(seconds=90)))
     assert all(isinstance(x, Gravada) for x in r)
     assert len({x.msg_chave for x in r}) == 3
+
+
+def test_replay_sem_hora_e_sem_id_dentro_de_5s_e_duplicata_r2_5(banco, conn_app, atd):
+    """R2-5: sem hora nem id as chaves diferem (cada recebimento tem o seu `recebido_em`), então o replay do ChatGuru (1–3 s depois) furava o
+    dedupe. Busca secundária pelo fingerprint no MESMO atendimento nos últimos 5 s; fora da janela é mensagem nova. Sem rejeitar nada."""
+    sim = _evento(texto="sim", datetime_post=None)
+    t0 = datetime(2026, 11, 24, 13, 0, tzinfo=UTC)
+    primeira = gravar_mensagem_recebida(conn_app, atd, evento=sim, chaves=CHAVES, recebido_em=t0)
+    assert isinstance(primeira, Gravada) and primeira.sem_hora is True
+    replay = gravar_mensagem_recebida(conn_app, atd, evento=sim, chaves=CHAVES, recebido_em=t0 + timedelta(seconds=2))
+    assert isinstance(replay, Duplicada) and replay.mesmo_atendimento and replay.ordem == primeira.ordem
+    _envelhecer_passos(banco, 60)
+    de_novo = gravar_mensagem_recebida(conn_app, atd, evento=sim, chaves=CHAVES, recebido_em=t0 + timedelta(seconds=62))
+    assert isinstance(de_novo, Gravada)
+    assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE msg_enviada_em IS NULL").fetchone() == (2,)  # NULL = sem hora
+    com_hora = gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto="sim"), chaves=CHAVES, recebido_em=t0)
+    assert isinstance(com_hora, Gravada) and com_hora.sem_hora is False  # evento COM hora não passa pela busca secundária
+
+
+def test_mesmo_mensagem_id_em_chats_diferentes_nao_se_silenciam_r2_4(conn_app, atd):
+    """R2-4 (S3): `cgid:` é HMAC(chat_id, mensagem_id): o mesmo id em outro chat é outra chave (antes o 2º virava `Conflito` e a mensagem
+    legítima do outro cliente se perdia). O valor cabe no CHECK `cgid:[A-Za-z0-9_.=-]{1,120}` da 0001."""
+    outro = novo_atendimento(conn_app, chat=OUTRO_CHAT)
+    a = _evento(texto="sim", mensagem_id="MSG-1")
+    b = _evento(texto="sim", mensagem_id="MSG-1", chat_id=OUTRO_CHAT)
+    assert identidade(a, CHAVES).msg_chave != identidade(b, CHAVES).msg_chave
+    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=a, chaves=CHAVES), Gravada)
+    assert isinstance(gravar_mensagem_recebida(conn_app, outro, evento=b, chaves=CHAVES), Gravada)
+    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=a, chaves=CHAVES), Duplicada)
+    chave = identidade(a, CHAVES).msg_chave
+    assert re.fullmatch(r"cgid:[0-9a-f]{32}", chave)
+    assert identidade(a, OUTRAS).msg_chave != chave  # amarrado à CHAVE_H16
 
 
 def test_mensagem_id_e_fracao_de_segundo_e_query_da_url_distinguem_mensagens_a3():
     base = identidade(_evento(texto="sim"), CHAVES).msg_chave
     com_id = identidade(_evento(texto="sim", mensagem_id="wamid.HBgN-1="), CHAVES)
     outro_id = identidade(_evento(texto="sim", mensagem_id="wamid.HBgN-2="), CHAVES)
-    assert com_id.msg_chave == "cgid:wamid.HBgN-1=" and com_id.msg_chave != outro_id.msg_chave != base
+    assert com_id.msg_chave.startswith("cgid:") and com_id.msg_chave != outro_id.msg_chave != base
+    assert "wamid" not in com_id.msg_chave
     meio = identidade(_evento(texto="sim", datetime_post="2026-11-24T10:15:30.500000-03:00"), CHAVES).msg_chave
     assert meio != base
     img1 = identidade(_evento(texto=None, tipo="imagem", url_arquivo="https://exemplo.invalid/f?id=1"), CHAVES).msg_chave
@@ -485,15 +526,6 @@ def test_gancho_de_casamento_webhook_x_rpa_roda_sob_o_lock_m4(conn_app, atd):
     assert isinstance(resultado, Casada) and resultado.ordem == 1
     assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE tipo = 'mensagem_recebida'").fetchone() == (1,)
     assert visto["travado"][0] >= 1
-
-
-@pytest.mark.xfail(
-    reason="casamento webhook × RPA (contrato 08 §5.3 passo 7) é da B1.5: sem `casar` o mesmo evento vira 2 passos", strict=True
-)
-def test_webhook_e_rpa_colapsam(conn_app, atd):
-    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
-    rpa = _evento(origem_evento="reconciliacao", rpa_id="65f1c2a9b8d7e6f5a4b3c2d1")
-    assert not isinstance(gravar_mensagem_recebida(conn_app, atd, evento=rpa, chaves=CHAVES), Gravada)
 
 
 def test_consumir_perdedor_da_corrida_recebe_conflito_de_versao_m6(conn_app, atd):

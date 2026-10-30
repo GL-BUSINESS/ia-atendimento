@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from ia_atendimento.mascara import mascarar
 from ia_atendimento.passos import (
+    MOTIVOS_DE_DECISAO,
     TIPOS_DE_PASSO,
     AnotacaoOperador,
     DecisaoModelo,
@@ -60,7 +61,7 @@ def _preencher_livres(caso: dict) -> dict:
     """Nenhum tipo aceita mais texto livre do modelo (A1): o `motivo` da decisão é CÓDIGO de catálogo."""
     dados = dict(caso["dados"])
     if caso["tipo"] == "decisao":
-        dados["motivo"] = "motivo_de_catalogo"
+        dados["motivo"] = "oferta_aceita"
     return dados
 
 
@@ -268,3 +269,47 @@ def test_construtor_direto_tambem_nao_vaza_o_input_em_errors_a2():
         Erro(peca=f"{MARCADOR} {CPF_SINTETICO}")
     saida = json.dumps([str(erro.value), repr(erro.value), list(erro.value.detalhes), list(map(str, erro.value.args))])
     assert MARCADOR not in saida and CPF_SINTETICO not in saida
+
+
+def test_motivo_so_aceita_codigo_do_catalogo_fechado_r2_2():
+    assert set(MOTIVOS_DE_DECISAO) >= {"nao_informado", "oferta_aceita", "pede_humano", "cliente_concordou"}
+    for codigo in MOTIVOS_DE_DECISAO:
+        assert criar("decisao", motor="regra", motivo=codigo).colunas()["motivo"] == codigo
+    with pytest.raises(EntradaInvalida):
+        criar("decisao", motor="regra", motivo="qualquer_outra_coisa")
+
+
+def test_codigos_livres_recusam_cpf_digitos_e_nome_da_conversa_r2_2():
+    """`intencao`, `objecao`, `transversal`, `peca`… ainda são regex até o catálogo existir: o regex não deixa passar PII."""
+    with pytest.raises(EntradaInvalida):
+        criar("erro", peca="cpf_52998224725")
+    with pytest.raises(EntradaInvalida):
+        criar("erro", peca="conta_12345")  # corrida de 4+ dígitos
+    with pytest.raises(EntradaInvalida):
+        criar("decisao", nomes=("João Carlos",), motor="regra", transversal="joao_carlos")
+    assert criar("decisao", nomes=("João Carlos",), motor="regra", transversal="opt_out")
+    assert criar("erro", peca="fila_v2")  # dígito curto de versão continua valendo
+
+
+@pytest.mark.parametrize("caminho", ["model_validate", "model_validate_json", "type_adapter", "type_adapter_json"])
+def test_model_validate_e_type_adapter_tambem_nao_vazam_o_input_r2_1(caminho):
+    """R2-1: é o caminho do FastAPI (B1.5). `ValidationError.errors()/.json()` guardam o input; aqui sai `EntradaInvalida` sem valor."""
+    from pydantic import TypeAdapter
+
+    from ia_atendimento.evento_mensagem import EventoMensagem
+
+    corpo = {"chat_id": "0123456789abcdef01234567", "phone_id": "89abcdef0123456789abcdef", "tipo": "texto", "texto": f"  {MARCADOR} {CPF_SINTETICO}",
+             "origem_evento": "reconciliacao"}  # fmt: skip
+    chamadas = {
+        "model_validate": lambda: EventoMensagem.model_validate(corpo),
+        "model_validate_json": lambda: EventoMensagem.model_validate_json(json.dumps(corpo)),
+        "type_adapter": lambda: TypeAdapter(EventoMensagem).validate_python(corpo),
+        "type_adapter_json": lambda: TypeAdapter(EventoMensagem).validate_json(json.dumps(corpo)),
+    }
+    with pytest.raises(EntradaInvalida) as erro:
+        chamadas[caminho]()
+    saida = json.dumps([str(erro.value), repr(erro.value), list(erro.value.detalhes), list(map(str, erro.value.args))])
+    assert MARCADOR not in saida and CPF_SINTETICO not in saida
+    assert erro.value.__context__ is None and erro.value.__cause__ is None
+    with pytest.raises(EntradaInvalida):  # também nas classes de passo
+        DecisaoModelo.model_validate({"motor": "modelo", "intencao": f"{MARCADOR} x", "confianca": "alta", "modelo": "m", "provedor": "p"})
