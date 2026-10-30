@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Literal, get_args
-
-CORPUS_DIR = Path(__file__).resolve().parents[3] / "tests" / "corpus"
 
 Fase = Literal["E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10"]
 Invariante = Literal["I1", "I2", "I3", "I4", "I5", "I6", "I7", "I8", "I9"]
@@ -85,6 +82,8 @@ Evento = Literal[
     "resultado_t7_recusa_politica",
     "resultado_t7_nao_perturbe",
     "resultado_t7_indeterminado",
+    "resultado_t7_erro_com_codigo",
+    "precondicao_falhou_valores_mudaram",
     "resultado_t7_erro_de_banco_sem_codigo",
     "resultado_t7_transitorio_503_retry_after",
     "retry_apos_retry_after",
@@ -159,16 +158,16 @@ ACOES: frozenset[str] = frozenset(
 # ferramentas que o gabarito pode permitir em cada fase (H §2.3b + M); T4 (consulta paga) nunca: fora do MVP (P-R23)
 FERRAMENTAS_POR_FASE: dict[str, frozenset[str]] = {
     "E0": frozenset({"T1", "T3", "T13", "T14"}),
-    "E1": frozenset(),
-    "E2": frozenset({"T2", "T3"}),
-    "E3": frozenset({"T2", "T3"}),
+    "E1": frozenset({"T1", "T3", "T13", "T14"}),
+    "E2": frozenset({"T1", "T2", "T3"}),
+    "E3": frozenset({"T3", "T13"}),
     "E4": frozenset({"T3", "T5", "T13"}),
     "E5": frozenset({"T6"}),
-    "E6": frozenset(),
-    "E7": frozenset({"T7", "T7_mesma_chave", "T8", "T9", "T13"}),
+    "E6": frozenset({"T13", "T15"}),  # T15 determinístico; T13 (banco fechado) vale ANTES do T7
+    "E7": frozenset({"T7", "T7_mesma_chave", "T8", "T9"}),
     "E8": frozenset({"T9", "T10"}),
-    "E9": frozenset({"T11"}),
-    "E10": frozenset({"T8", "T10", "T12", "T13", "T14"}),
+    "E9": frozenset({"T11", "T12", "T14"}),
+    "E10": frozenset({"T11", "T12", "T14"}),
 }
 # transições possíveis entre a fase em que o atendimento está e a fase em que o turno da IA termina (H §2.1; M para a volta da pausa)
 TRANSICOES: dict[str, frozenset[str]] = {
@@ -183,6 +182,45 @@ TRANSICOES: dict[str, frozenset[str]] = {
     "E8": frozenset({"E8", "E9", "E10"}),
     "E9": frozenset(FASES) - {"E0"},
     "E10": frozenset({"E10"}),
+}
+
+# resultado do T7/T8 que cada cenário do dublê pode produzir (R2-4) e o TX que o evento obriga; o evento «sucesso» só no cenário aprovado
+EVENTOS_DE_RESULTADO_TX: dict[str, str] = {
+    "resultado_t7_sucesso": "TX-16",
+    "t8_proposta_criada": "TX-16",
+    "t8_proposta_criada_em_5_min": "TX-16",
+    "t8_proposta_criada_em_17_min": "TX-16",
+    "resultado_t7_recusa_politica": "TX-18",
+    "t8_af_cancelada_status_28": "TX-18",
+    "resultado_t7_nao_perturbe": "TX-29",
+    "resultado_t7_indeterminado": "TX-15",
+    "resultado_t7_erro_de_banco_sem_codigo": "TX-15",
+    "resultado_t7_erro_com_codigo": "",
+    "resultado_t7_transitorio_503_retry_after": "TX-19",
+    "t13_banco_fechado_antes_do_t7": "TX-20",
+    "por_cpf_proposta_viva_antes_do_t7": "TX-26",
+    "t8_nao_criada_apos_20_min": "TX-26",
+    "segunda_falha_da_ferramenta": "TX-26",
+}
+_SUCESSO = {"resultado_t7_sucesso"}
+EVENTOS_POR_PERSONA_DO_DUBLE: dict[str, frozenset[str]] = {
+    "recusa-nao-perturbe": frozenset({"resultado_t7_nao_perturbe"}),
+    "af-cancelada-nnn": frozenset({"resultado_t7_erro_com_codigo", "t8_af_cancelada_status_28"}),
+    "indet-criada-5min": frozenset({"resultado_t7_indeterminado", "t8_proposta_criada_em_5_min"}),
+    "indet-criada-17min": frozenset({"resultado_t7_indeterminado", "t8_proposta_criada_em_17_min"}),
+    "indet-nunca-criada": frozenset({"resultado_t7_indeterminado", "t8_nao_criada_apos_20_min"}),
+    "indet-erro-banco-sem-codigo": frozenset({"resultado_t7_erro_de_banco_sem_codigo", "t8_proposta_criada"}),
+    "transitorio-html-522": frozenset(
+        {"resultado_t7_transitorio_503_retry_after", "retry_apos_retry_after", "segunda_falha_da_ferramenta"}
+    ),
+    "proposta-viva": frozenset({"por_cpf_proposta_viva_antes_do_t7"}),
+}
+EVENTOS_POR_CENARIO_DO_DUBLE: dict[str, frozenset[str]] = {
+    "aprovado": frozenset(_SUCESSO),
+    "teto": frozenset(_SUCESSO),
+    "recusa": frozenset({"resultado_t7_recusa_politica"}),
+    "global_virada": frozenset({"t13_banco_fechado_antes_do_t7"}),
+    "global_reabertura": frozenset({"resultado_t7_transitorio_503_retry_after", "retry_apos_retry_after", "resultado_t7_sucesso"}),
 }
 
 # --- TX ---------------------------------------------------------------------------------------------------------------------------------
@@ -255,22 +293,12 @@ COMPOSTOS: frozenset[tuple[str, ...]] = frozenset(
     }
     | {("TX-M09", "TX-13", "TX-11")}
 )
-# SIM da E6 (H §2.3: lista fechada, depois do TX-11). «bora», «pode ser», «acho que sim», «sim mas...» NÃO valem: viram TX-36
-SIMS: frozenset[str] = frozenset(
-    {
-        "sim",
-        "ss",
-        "confirmo",
-        "pode",
-        "pode enviar",
-        "pode mandar",
-        "isso",
-        "quero",
-        "aceito",
-        "sim pode enviar",
-        "sim confirmo",
-        "confirmo sim",
-    }
+# SIM da E6 (H §2.3 + TX-36): explícito e ISOLADO. Só entra aqui o que a regra fechada de `e_texto_sim` aceita: o texto inteiro, sem acento
+# nem maiúsculas e sem «!»/«.» no fim, é UMA destas. «sim?», «sim 👍», «sim, mas...», «claro», «ok», «bora», «pode ser» NÃO são SIM (TX-36)
+SIMS: frozenset[str] = frozenset({"sim", "ss", "confirmo", "pode enviar", "pode", "isso", "aceito", "quero sim", "pode sim", "sim pode"})
+# na E6 quem NÃO diz SIM e não muda o pedido recebe TX-36 (H §2.4: «?», condicional ou desconhecida); as outras intenções têm caminho
+INTENCOES_DE_RESPOSTA_AMBIGUA = frozenset(
+    {"aceita", "duvida_oferta", "duvida_processo", "quer_pensar", "ininteligivel", "saudacao", "fornece_dado"}
 )
 # turno do cliente na E6 que muda o pedido e portanto derruba a confirmação pendente (TX-36 NÃO derruba: o pedido de SIM continua de pé)
 INTENCOES_QUE_INVALIDAM_O_PEDIDO = frozenset(
@@ -299,6 +327,11 @@ MAX_CARACTERES_FORA_DA_MANIPULACAO = 300
 MAX_FRACAO_MIDIA = 0.10  # no real 2,5% (áudio 1% + imagem 1,5%); aqui sobe porque o gabarito precisa exercitar a resposta padrão
 MIN_FRACAO_FALAS_DISTINTAS = 0.75  # revisão 1: 59 textos em 160 deixavam a meta de 95% de intenção «de graça»
 MAX_VARIACOES = 2
+MIN_TURNOS_POR_INTENCAO = 2  # 1 turno = granularidade de 33% com 3 execuções
+MIN_TURNOS_DE_TEXTO_LIVRE = 8  # onde I2 e I9 quebram
+MAX_FRACAO_DE_FALAS_REPETIDAS_NO_HOLDOUT = 0.25
+MAX_CARACTERES_DE_FALA_GENERICA = 6  # «oi», «sim», «ss», «pode»: genéricas demais para contar como repetição
+FAIXA_SEM_STUB = (75, 98)  # n de `000.000.0nn` reservado às personas sem stub no dublê (o dublê cresce de baixo para cima; 99 é dele)
 EXECUCOES_POR_PERSONA = 3
 FRACAO_HOLDOUT = 0.20
 JANELA_WHATSAPP_HORAS = 24  # P-R21: texto livre só com < 24 h do último cliente

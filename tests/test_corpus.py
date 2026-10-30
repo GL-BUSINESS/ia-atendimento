@@ -18,12 +18,13 @@ from pydantic import ValidationError
 from ia_atendimento import corpus as c
 
 RAIZ = Path(__file__).resolve().parent.parent
+CORPUS_DIR = RAIZ / "tests" / "corpus"
 CPF_REAL_DE_EXEMPLO = "529.982.247-25"  # DV válido e FORA da faixa sintética: tem de reprovar onde aparecer
 
 
 @pytest.fixture(scope="module")
 def bruto_original() -> dict:
-    return c.carregar_bruto()
+    return c.carregar_bruto(CORPUS_DIR)
 
 
 @pytest.fixture
@@ -680,7 +681,7 @@ def test_texto_do_turno_aplica_a_variacao_escolhida(bruto_original):
 
 
 def test_carregar_le_do_disco_e_devolve_o_corpus_tipado():
-    corpus = c.carregar()
+    corpus = c.carregar(CORPUS_DIR)
     assert isinstance(corpus, c.Corpus)
     assert corpus.personas[0].id == "P01"
     with pytest.raises(ValidationError, match="frozen"):

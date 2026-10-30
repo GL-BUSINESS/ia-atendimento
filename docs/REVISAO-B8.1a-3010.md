@@ -63,7 +63,7 @@ Recalculada dos arquivos. As regras `cobertura_*` contam personas (84), inclusiv
 | IA muda em horário (TX-03 removido) | passa: vira «silêncio» sem `evento` |
 | P58 t10: SIM sem novo TX-11 depois da recusa | passa: `pedido` nunca zera em «não» (`_regra_gabarito_i1`, l.824) |
 | IA→IA com `evento: "qualquer_coisa"` | passa: `evento` é `str` livre e isenta I6/I7 (l.326, 909, 918) |
-| `evento` com CPF 529.982.247-25 e e-mail real; o mesmo em `duble_personas.json` e `semente.regras` | **passa** (só `texto_cliente`, variações e campos de persona são varridos para PII) |
+| `evento` com um CPF de DV válido e e-mail real; o mesmo em `duble_personas.json` e `semente.regras` | **passa** (só `texto_cliente`, variações e campos de persona são varridos para PII) |
 | `texto_cliente` com «Joao da Silva do Banco Itau, Rua Augusta 100» | passa (nome/empresa/endereço fora do alcance, como a varredura admite) |
 | conta real `000123456789` | passa: `_pii_nao_sintetica` aceita qualquer `numero` que comece por 000 (l.494) |
 

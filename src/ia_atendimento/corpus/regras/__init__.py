@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from ia_atendimento.corpus.carga import montar
-from ia_atendimento.corpus.regras import agenda, cobertura, forma, gabarito, invariantes, personas, pii
+from ia_atendimento.corpus.regras import agenda, cobertura, duble, forma, gabarito, invariantes, personas, pii
 from ia_atendimento.corpus.regras import semente as regras_semente
 from ia_atendimento.corpus.regras._comum import Regra
 
@@ -38,7 +38,9 @@ REGRAS: dict[str, Regra] = {
     "gabarito_seguranca": gabarito.gabarito_seguranca,
     "e5_completa": gabarito.e5_completa,
     "gabarito_sim_literal": gabarito.gabarito_sim_literal,
+    "gabarito_tx36": gabarito.gabarito_tx36,
     "gabarito_janela24h": gabarito.gabarito_janela24h,
+    "gabarito_cenario_duble": duble.gabarito_cenario_duble,
     "t7_so_com_oferta_facta": gabarito.gabarito_t7_so_com_oferta_facta,
     "gabarito_i1": invariantes.gabarito_i1,
     "gabarito_i3": invariantes.gabarito_i3,

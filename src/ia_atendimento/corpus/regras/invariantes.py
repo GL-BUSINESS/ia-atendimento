@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from ia_atendimento.corpus.calendario import dentro_do_horario
 from ia_atendimento.corpus.modelos import Corpus, Dialogo
-from ia_atendimento.corpus.regras._comum import dialogos_com_persona, instantes, mensagem_da_ia
-from ia_atendimento.corpus.regras.gabarito import PEDIDO_DE_CONFIRMACAO, e_sim_literal
+from ia_atendimento.corpus.regras._comum import PEDIDO_DE_CONFIRMACAO, dialogos_com_persona, e_sim_literal, instantes, mensagem_da_ia
 from ia_atendimento.corpus.vocabulario import INTENCOES_QUE_INVALIDAM_O_PEDIDO, MAX_TURNOS_DO_MODELO
 
 _MOTIVOS_SEM_NOTA = frozenset({"opt_out", "identidade", "humano_assumiu"})

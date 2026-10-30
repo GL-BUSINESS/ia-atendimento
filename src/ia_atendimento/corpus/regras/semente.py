@@ -6,7 +6,11 @@ from collections import Counter
 
 from ia_atendimento.corpus.modelos import Corpus, Dialogo
 from ia_atendimento.corpus.semente import derivar_semente
-from ia_atendimento.corpus.vocabulario import EXECUCOES_POR_PERSONA
+from ia_atendimento.corpus.vocabulario import (
+    EXECUCOES_POR_PERSONA,
+    MAX_CARACTERES_DE_FALA_GENERICA,
+    MAX_FRACAO_DE_FALAS_REPETIDAS_NO_HOLDOUT,
+)
 
 
 def semente_reprodutivel(corpus: Corpus) -> list[str]:
@@ -38,15 +42,51 @@ def esqueleto(d: Dialogo) -> tuple:
     return tuple((t.quem, t.fase_esperada, t.tx_esperado, t.intencao_esperada) for t in d.turnos)
 
 
+def roteiro_do_cliente(d: Dialogo) -> tuple:
+    """O que o cliente faz (fase e intenção por turno), sem o que a IA responde."""
+    return tuple((t.fase_esperada, t.intencao_esperada) for t in d.turnos if t.quem == "cliente")
+
+
+def _fala_especifica(t) -> bool:
+    return (
+        t.texto_cliente is not None
+        and not t.pii_digitada
+        and not t.campo_alvo
+        and len(normalizar_curto(t.texto_cliente)) > MAX_CARACTERES_DE_FALA_GENERICA
+    )
+
+
+def normalizar_curto(texto: str) -> str:
+    return " ".join(texto.lower().split())
+
+
 def holdout_independente(corpus: Corpus) -> list[str]:
-    """O hold-out não é clone do desenvolvimento: esqueleto de diálogo único e, fora do caminho feliz, persona do dublê própria."""
+    """O hold-out não é clone do desenvolvimento: esqueleto E roteiro do cliente (fase, intenção) únicos, falas específicas repetidas em
+    menos de 25% e, fora do caminho feliz, persona do dublê própria."""
     erros: list[str] = []
     holdout = set(corpus.semente.holdout)
     esqueletos = Counter(esqueleto(d) for d in corpus.dialogos.values())
+    roteiros = Counter(roteiro_do_cliente(d) for d in corpus.dialogos.values())
     por_id = {p.id: p for p in corpus.todas()}
+    do_desenvolvimento = {
+        normalizar_curto(t.texto_cliente)
+        for pid, d in corpus.dialogos.items()
+        if pid not in holdout
+        for t in d.turnos
+        if _fala_especifica(t)
+    }
     for pid in sorted(holdout & set(corpus.dialogos)):
-        if esqueletos[esqueleto(corpus.dialogos[pid])] > 1:
+        d = corpus.dialogos[pid]
+        if esqueletos[esqueleto(d)] > 1:
             erros.append(f"holdout_independente: {pid} (hold-out) tem o mesmo esqueleto de diálogo de outra persona")
+        if roteiros[roteiro_do_cliente(d)] > 1:
+            erros.append(
+                f"holdout_independente: {pid} (hold-out) tem o mesmo roteiro do cliente (fase e intenção por turno) de outra persona"
+            )
+        falas = [normalizar_curto(t.texto_cliente) for t in d.turnos if _fala_especifica(t)]
+        repetidas = sum(f in do_desenvolvimento for f in falas)
+        if falas and repetidas / len(falas) >= MAX_FRACAO_DE_FALAS_REPETIDAS_NO_HOLDOUT:
+            erros.append(f"holdout_independente: {pid} (hold-out) repete {repetidas}/{len(falas)} falas do desenvolvimento (máximo < 25%)")
     for pid in sorted(holdout):
         duble = por_id[pid].cenario_facta.persona_duble
         cenario = por_id[pid].cenario_facta.cenario

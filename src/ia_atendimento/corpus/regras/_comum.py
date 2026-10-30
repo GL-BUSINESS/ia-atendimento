@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
 
 from ia_atendimento.corpus.modelos import Corpus, Persona, Turno
+from ia_atendimento.corpus.vocabulario import SIMS
 
 Regra = Callable[[Corpus], list[str]]
 
@@ -44,3 +47,23 @@ def dialogos_com_persona(corpus: Corpus):
 def precisa_de_dialogo(p: Persona) -> bool:
     """F3 curta (H) ou P-M crítica: as que o harness roda."""
     return p.f3_curta or p.critica
+
+
+PEDIDO_DE_CONFIRMACAO = frozenset({"TX-11", "TX-12", "TX-13"})
+
+
+def e_texto_sim(texto: str) -> bool:
+    """SIM explícito e ISOLADO (H §2.3 + TX-36): o texto inteiro, sem acento nem maiúsculas, com «!»/«.» no fim e vírgula tolerados,
+    é UM dos SIMS. Outro caractere (`?`, emoji, palavra a mais) tira o SIM: «sim?», «sim 👍», «sim, mas...», «claro», «ok», «bora»."""
+    t = "".join(ch for ch in unicodedata.normalize("NFD", texto.lower()) if unicodedata.category(ch) != "Mn").strip()
+    t = re.sub(r"[!.]+$", "", t).replace(",", " ")
+    return re.sub(r"\s+", " ", t).strip() in SIMS
+
+
+def redacoes(t: Turno) -> list[str]:
+    return [t.texto_cliente or "", *t.variacoes]
+
+
+def e_sim_literal(t: Turno) -> bool:
+    """O TEXTO (e toda variação) do cliente é um SIM isolado."""
+    return t.texto_cliente is not None and all(e_texto_sim(x) for x in redacoes(t))

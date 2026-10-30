@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from datetime import timedelta
 
 from ia_atendimento.corpus.calendario import dentro_do_horario
 from ia_atendimento.corpus.modelos import Corpus, Turno
-from ia_atendimento.corpus.regras._comum import dialogos_com_persona, instantes, mensagem_da_ia
+from ia_atendimento.corpus.regras._comum import dialogos_com_persona, e_sim_literal, instantes, mensagem_da_ia
 from ia_atendimento.corpus.vocabulario import (
     ACOES,
     ACOES_DE_SEGURANCA,
@@ -16,29 +14,12 @@ from ia_atendimento.corpus.vocabulario import (
     COMPOSTOS,
     FERRAMENTAS,
     FERRAMENTAS_POR_FASE,
+    INTENCOES_DE_RESPOSTA_AMBIGUA,
     JANELA_WHATSAPP_HORAS,
     MAX_VARIACOES,
-    SIMS,
     TRANSICOES,
     TX_FASES,
 )
-
-PEDIDO_DE_CONFIRMACAO = frozenset({"TX-11", "TX-12", "TX-13"})
-
-
-def normalizar(texto: str) -> str:
-    """minúsculas, sem acento, sem pontuação, espaços colapsados: «Sim!» → «sim»."""
-    sem_acento = "".join(c for c in unicodedata.normalize("NFD", texto.lower()) if unicodedata.category(c) != "Mn")
-    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", sem_acento)).strip()
-
-
-def redacoes(t: Turno) -> list[str]:
-    return [t.texto_cliente or "", *t.variacoes]
-
-
-def e_sim_literal(t: Turno) -> bool:
-    """O TEXTO (e toda variação) do cliente está na lista fechada do SIM (H §2.3). «bora», «pode ser», «sim mas...» não estão."""
-    return t.texto_cliente is not None and all(normalizar(x) in SIMS for x in redacoes(t))
 
 
 def _campo_pedido_sem_alvo(t: Turno) -> bool:
@@ -191,18 +172,33 @@ def e5_completa(corpus: Corpus) -> list[str]:
 
 
 def gabarito_sim_literal(corpus: Corpus) -> list[str]:
-    """O SIM vale pelo TEXTO: no E6, `aceita` só com texto (e variações) da lista fechada; texto da lista com outro rótulo reprova."""
+    """O SIM vale pelo TEXTO: no E6, texto (e variações) que é um SIM isolado tem o rótulo `aceita`. O inverso (rótulo `aceita` com texto
+    que NÃO é SIM) é o caso TX-36, cobrado por `gabarito_tx36`, e nunca confirma nada (`gabarito_i1`)."""
+    return [
+        f"gabarito_sim_literal: {pid} turno {i}: o texto é um SIM isolado e o rótulo é {t.intencao_esperada}"
+        for pid, d in corpus.dialogos.items()
+        for i, t in enumerate(d.turnos)
+        if t.quem == "cliente"
+        and t.fase_esperada == "E6"
+        and t.texto_cliente is not None
+        and e_sim_literal(t)
+        and t.intencao_esperada != "aceita"
+    ]
+
+
+def gabarito_tx36(corpus: Corpus) -> list[str]:
+    """H §2.4/TX-36: no E6, quem não diz um SIM isolado e não muda o pedido (pergunta, «sim, mas...», «acho que sim», «bora») recebe TX-36
+    na resposta seguinte, sem T7; o pedido de SIM continua de pé."""
     erros = []
     for pid, d in corpus.dialogos.items():
         for i, t in enumerate(d.turnos):
             if t.quem != "cliente" or t.fase_esperada != "E6" or t.texto_cliente is None:
                 continue
-            if t.intencao_esperada == "aceita" and not e_sim_literal(t):
-                erros.append(
-                    f"gabarito_sim_literal: {pid} turno {i}: rotulado `aceita` mas o texto não é um SIM da lista fechada ({redacoes(t)})"
-                )
-            if t.intencao_esperada != "aceita" and e_sim_literal(t):
-                erros.append(f"gabarito_sim_literal: {pid} turno {i}: o texto é um SIM da lista fechada e o rótulo é {t.intencao_esperada}")
+            if t.intencao_esperada not in INTENCOES_DE_RESPOSTA_AMBIGUA or e_sim_literal(t):
+                continue
+            proxima = next((x for x in d.turnos[i + 1 :] if x.quem == "ia"), None)
+            if proxima is None or "TX-36" not in proxima.tx_esperado or "T7" in proxima.acoes_permitidas:
+                erros.append(f"gabarito_tx36: {pid} turno {i}: resposta ambígua no E6 ({t.texto_cliente!r}) pede TX-36 e nunca T7")
     return erros
 
 
@@ -215,8 +211,8 @@ def gabarito_janela24h(corpus: Corpus) -> list[str]:
         for i, (t, quando) in enumerate(zip(d.turnos, instantes(persona.contexto.inicio_utc, d.turnos), strict=True)):
             if t.quem == "cliente":
                 ultimo_cliente = quando
-            elif not mensagem_da_ia(t) or ultimo_cliente is None or quando is None or quando - ultimo_cliente <= limite:
-                continue
+            elif not mensagem_da_ia(t) or ultimo_cliente is None or quando is None or quando - ultimo_cliente < limite:
+                continue  # `< 24 h` (ROTEIRO/H E0): a 24 h00 exatas já é template
             elif t.texto_livre_ia or not set(t.tx_esperado) <= {"TX-24"}:
                 horas = (quando - ultimo_cliente).total_seconds() / 3600
                 erros.append(f"gabarito_janela24h: {pid} turno {i}: texto livre {horas:.0f} h depois do cliente")

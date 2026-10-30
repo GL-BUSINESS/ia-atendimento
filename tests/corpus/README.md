@@ -11,7 +11,7 @@ curto (p50 de 11 caracteres; aqui a mediana é 8), quase sempre texto (97%), uma
 | `personas_m.jsonl` | 24 personas P-M01-P-M24 (agendar assinatura, M EM2). As 20 `critica: true` (as que a rodada de 13/11 exige) têm diálogo; as outras 4 não |
 | `dialogos/<id>.jsonl` | gabarito roteirizado das 40 da F3 curta + as 20 P-M críticas: uma linha JSON por turno |
 | `semente.json` | ordem das personas, hold-out (20%) e sementes das 3 execuções por persona; reproduzível |
-| `duble_personas.json` | instantâneo (ids, CPFs, cenários) de `bancos-duble/personas/personas.yaml` para provar que os CPFs estão alinhados. **Com um ajuste proposto**: P14, P34, P44, P48, P52, P56, P57 e P58 digitam na FACTA e ganharam persona `aprovado-NN`; o `personas.yaml` do bancos-duble precisa do mesmo `f3` e sair de `f3_sem_facta` |
+| `duble_personas.json` | instantâneo (ids, CPFs, cenários) de `bancos-duble/personas/personas.yaml` **como está na main do dublê** (hash em `fonte`). O corpus se amarra ao dublê, não o contrário: `uv run --with pyyaml python scripts/atualizar_duble.py <personas.yaml> <hash> [--verificar]` regrava ou confere |
 
 ## A persona
 
@@ -23,9 +23,12 @@ pede humano, muda de ideia, hostil, mídia), `desfecho_esperado` (`vendeu`, `rep
 `recusado_facta`), `fases` (E0-E10 que percorre), `invariantes_em_risco` (I1-I9 que ela existe para testar), `cenario_facta` (o que o
 dublê devolve: persona do dublê, ou `sem_chamada_facta`, ou estado global `virada`/`reabertura`) e, nas P-M, `em` (EM1-EM9) e `critica`.
 
-CPFs: persona com stub no dublê usa o CPF dele; as que não chamam a FACTA (P13, P32, P33, P35-P43, P45-P47, P49-P51, P53-P55, P60 e algumas P-M) e os
-estados globais (P30, P31) usam `000.000.047`... em diante, que **não** têm stub (o validador recusa CPF do dublê nelas e CPF repetido entre
-elas). Persona «sem FACTA» nunca chega ao T7/E7/E8 (regra `t7_so_com_oferta_facta`).
+CPFs: persona com stub no dublê usa o CPF dele. P14, P34, P44, P48, P52, P56, P57 e P58 digitam na FACTA e aparecem em `f3_sem_facta` do
+dublê; o corpus as liga a uma persona `aprovado-NN` que **existe** lá (o caminho feliz serve a qualquer persona; o `f3` do dublê é só metadado).
+As que não chamam a FACTA (P13, P32, P33, P35-P43, P45-P47, P49-P51, P53-P55, P60) e os estados globais (P30, P31) usam CPFs da faixa
+reservada `000.000.075`-`098`, que o dublê não ocupa (o dublê cresce de baixo para cima; o `099` é dele): o validador recusa CPF do dublê
+nelas, CPF repetido e CPF fora da faixa. Persona «sem FACTA» nunca chega ao T7/E7/E8 (regra `t7_so_com_oferta_facta`) e o gabarito só
+produz os resultados de T7/T8 que o cenário do dublê da persona produz (regra `gabarito_cenario_duble`).
 
 ## O diálogo (gabarito)
 
@@ -48,8 +51,10 @@ Cada linha é um turno `{quem, fase_esperada, ...}`. O texto da IA **não** é f
   seguidos com mensagem da IA só com `evento` (I6). A fase da IA anda pelo grafo de H §2.1 e o cliente chega na fase em que a IA parou.
 - **E5 completa:** antes do primeiro TX-11 o diálogo colhe recebimento (PIX **ou** conta), CEP, número e celular (`campo_alvo`), salvo o que
   `perfil.campos_no_360` diz que o 360 já tem.
-- **SIM pelo texto:** no E6, `aceita` só com texto (e variações) da lista fechada (`sim`, `ss`, `pode`, `pode enviar`, `confirmo`, `isso`,
-  `quero`, `aceito`...); «bora», «pode ser», «acho que sim» e «sim mas...» não são SIM (viram TX-36).
+- **SIM pelo texto:** SIM é explícito e isolado: o texto inteiro (sem acento nem maiúsculas, `!`/`.` no fim) é um de `sim`, `ss`, `confirmo`,
+  `pode enviar`, `pode`, `isso`, `aceito`, `quero sim`, `pode sim`, `sim pode`. «sim?», «sim 👍», «sim, mas...», «acho que sim», «claro», «ok»,
+  «bora» e «pode ser» NÃO são SIM e recebem TX-36 (confirmação), sem T7. Há diálogos de E6 ambíguo (TX-36), de «não» (volta à E4 com nova
+  opção e novo TX-11) e de valores que mudam entre o SIM e o T7 (TX-12 e outro SIM), um deles no hold-out.
 - **Janela de 24 h (P-R21):** mensagem da IA a mais de 24 h do último cliente só como template (TX-24); por isso P45 e P46 terminam em
   silêncio com `janela_24h_vencida`.
 - **Agenda (M §2.4):** `dispara_em_utc` em seg-sáb 08:30-19:00 (sábado até 12:00), fora de feriado e DATAPREV, ≥ 10 min à frente, em até 23 h
@@ -67,9 +72,8 @@ O hold-out (12 personas: 8 das 40 e 4 das 20 restantes, uma por classe) é avali
 ## O que o validador exige (`uv run python -m ia_atendimento.corpus`)
 
 Esquema Pydantic `extra='forbid'`; ids e nomes únicos; CPF `000.000.0nn-dd` com DV certo e alinhado ao dublê; nomes só com sobrenome da
-lista de inventados; as 40 da F3 curta exatas, cada uma e cada P-M crítica com diálogo; hold-out sem esqueleto de diálogo repetido; cada invariante I1-I9 em ≥ 3 personas (também fora do hold-out);
-toda fase E0-E10, intenção, objeção, EM1-EM9 e cada cenário de tempo/comportamento exigido cobertos, e (nos diálogos) toda intenção, objeção e
-fase com ao menos um turno e ao menos um turno de texto livre do modelo; falas variadas (≥ 75% distintas); **nenhum** CPF de DV válido fora de
+lista de inventados; as 40 da F3 curta exatas, cada uma e cada P-M crítica com diálogo; hold-out sem esqueleto de diálogo nem roteiro do cliente (fase, intenção) repetidos e com menos de 25% das falas específicas iguais às do desenvolvimento; cada invariante I1-I9 em ≥ 3 personas (também fora do hold-out);
+toda fase E0-E10, intenção, objeção, EM1-EM9 e cada cenário de tempo/comportamento exigido cobertos, e (nos diálogos) toda objeção e fase com turno, cada intenção com ≥ 2 turnos, ≥ 8 turnos de texto livre do modelo (inclusive no hold-out), TX-36 e TX-12 com turno; falas variadas (≥ 75% distintas); **nenhum** CPF de DV válido fora de
 `000.000.0nn`, celular fora dos sintéticos, e-mail fora de `.test`, e todo dado pessoal digitado declarado em `pii_digitada`
 (a varredura usa `mascara.py`); nenhum `{{placeholder}}` fora do conjunto fechado dos TX nem TX inexistente; o gabarito não permite
 T7/T4 sem confirmação (I1), reenvio depois de indeterminado (I4), mensagem fora do horário (I3), duas mensagens por turno (I6), mais de
@@ -85,6 +89,13 @@ T7/T4 sem confirmação (I1), reenvio depois de indeterminado (I4), mensagem for
 4. Se for da F3 curta, escreva `dialogos/<id>.jsonl` seguindo o gabarito acima; copie um diálogo parecido e ajuste.
 5. Recalcule a semente: `uv run python -m ia_atendimento.corpus --semente` imprime a ordem, o hold-out e as sementes derivados; cole em
    `semente.json` (o validador `semente_reprodutivel` diz o que diverge). Mudar a lista de personas pode mudar o hold-out.
-6. `uv run python -m ia_atendimento.corpus` e `uv run pytest tests/test_corpus.py` até passar.
+6. `uv run python -m ia_atendimento.corpus` (a partir da raiz do repo; `--raiz DIR` troca) e `uv run pytest tests/test_corpus*.py` até passar.
 
 Dado real nunca entra: nem CPF, nem telefone, nem nome, nem trecho de conversa (extraia só a forma, ver `levantamento/09`).
+
+## Para o harness (B8.1b/B8.2)
+
+- O estado do WireMock do dublê é **global por nome de persona**: P24 e P28 dividem `indet-criada-5min`, e cada persona roda 3 vezes. Rode
+  `scripts/cenario.py reset` do bancos-duble entre execuções (o corpus não marca reset por persona).
+- `pessoas_teste` (B2.4) por persona **não** está no corpus: fica para a B2.4, que liga o CPF de cada persona à pessoa de teste do 360.
+- Os resultados de T7/T8 por cenário estão em `vocabulario.EVENTOS_POR_PERSONA_DO_DUBLE`/`EVENTOS_POR_CENARIO_DO_DUBLE`.

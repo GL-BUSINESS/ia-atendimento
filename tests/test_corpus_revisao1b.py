@@ -9,14 +9,14 @@ import pytest
 
 from ia_atendimento import corpus as c
 from ia_atendimento.corpus import calendario, pii, semente
-from tests.test_corpus import CPF_REAL_DE_EXEMPLO, _codigos, _persona, _reprova
+from tests.test_corpus import CORPUS_DIR, CPF_REAL_DE_EXEMPLO, _codigos, _persona, _reprova
 
 SEM_VIOLACAO = "não devia reprovar"
 
 
 @pytest.fixture(scope="module")
 def bruto_original() -> dict:
-    return c.carregar_bruto()
+    return c.carregar_bruto(CORPUS_DIR)
 
 
 @pytest.fixture
@@ -297,7 +297,7 @@ def test_forma_whatsapp_reprova_midia_demais_e_texto_longo_fora_da_manipulacao(b
         t["midia"] = "audio"
     achadas = _reprova(bruto, "forma_whatsapp")
     assert any("turnos de mídia" in a for a in achadas)
-    b2 = c.carregar_bruto()
+    b2 = c.carregar_bruto(CORPUS_DIR)
     t = _primeiro(b2, "P01", quem="cliente", fase_esperada="E3")
     t["texto_cliente"] = "x" * 400
     assert any("fora da persona de manipulação" in a for a in _reprova(b2, "forma_whatsapp"))
@@ -411,7 +411,7 @@ def test_ids_unicos_e_cpf_alinhado_ramos_de_erro(bruto):
     _persona(bruto, "P01")["cenario_facta"].update(sem_chamada_facta=True)
     _persona(bruto, "P30")["cenario_facta"]["global_duble"] = "reabertura"
     _persona(bruto, "P02")["cpf"] = _persona(bruto, "P03")["cpf"]
-    _persona(bruto, "P-M18")["cenario_facta"]["sem_chamada_facta"] = False
+    _persona(bruto, "P-M18")["cenario_facta"].update(persona_duble=None, sem_chamada_facta=False)
     _persona(bruto, "P37")["cpf"] = _persona(bruto, "P38")["cpf"]
     _persona(bruto, "P29")["cenario_facta"]["persona_duble"] = None
     achadas = c.validar(bruto)

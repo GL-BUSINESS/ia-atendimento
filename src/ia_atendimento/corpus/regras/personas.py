@@ -9,7 +9,7 @@ from ia_atendimento.corpus.calendario import cenarios_do_instante, dentro_do_hor
 from ia_atendimento.corpus.modelos import Corpus, Persona
 from ia_atendimento.corpus.pii import cpf_sintetico, digitos
 from ia_atendimento.corpus.regras._comum import precisa_de_dialogo
-from ia_atendimento.corpus.vocabulario import F3_CURTA_IDS, N_F3_CURTA, N_PERSONAS_H, N_PERSONAS_M, SOBRENOMES_FICTICIOS
+from ia_atendimento.corpus.vocabulario import F3_CURTA_IDS, FAIXA_SEM_STUB, N_F3_CURTA, N_PERSONAS_H, N_PERSONAS_M, SOBRENOMES_FICTICIOS
 
 
 def ids_unicos(corpus: Corpus) -> list[str]:
@@ -49,8 +49,12 @@ def _persona_do_duble(p: Persona, por_id: dict, quem_aponta: dict) -> list[str]:
         erros.append(f"cpf_alinhado_duble: {p.id}: cenário {cf.cenario!r} difere do do dublê ({d.cenario!r})")
     if cf.sem_chamada_facta or cf.global_duble:
         erros.append(f"cpf_alinhado_duble: {p.id}: persona do dublê não pode ser «sem FACTA» nem global")
-    if p.familia == "H" and quem_aponta.get(p.id) != d.id:
-        erros.append(f"cpf_alinhado_duble: {p.id}: o dublê não lista {p.id} em `f3` de {d.id}")
+    if p.familia == "H" and p.id in quem_aponta and quem_aponta[p.id] != d.id:
+        erros.append(f"cpf_alinhado_duble: {p.id}: o dublê lista {p.id} em `f3` de {quem_aponta[p.id]} e não de {d.id}")
+    elif p.familia == "H" and p.id not in quem_aponta and d.cenario != "aprovado":
+        erros.append(
+            f"cpf_alinhado_duble: {p.id}: o dublê não lista {p.id} e {d.id} não é o caminho feliz (aprovado) que serve a qualquer persona"
+        )
     return erros
 
 
@@ -58,6 +62,10 @@ def _persona_sem_stub(p: Persona, duble, quem_aponta: dict) -> list[str]:
     cf, erros = p.cenario_facta, []
     if p.cpf in {d.cpf for d in duble.personas}:
         erros.append(f"cpf_alinhado_duble: {p.id}: sem persona no dublê mas usa CPF de uma delas")
+    n = int(digitos(p.cpf)[7:9])
+    if not FAIXA_SEM_STUB[0] <= n <= FAIXA_SEM_STUB[1]:
+        faixa = f"{FAIXA_SEM_STUB[0]:03d}-{FAIXA_SEM_STUB[1]:03d}"
+        erros.append(f"cpf_alinhado_duble: {p.id}: sem stub no dublê o CPF fica na faixa reservada {faixa} (n={n})")
     if p.familia == "M":
         if not cf.sem_chamada_facta:
             erros.append(f"cpf_alinhado_duble: {p.id}: P-M sem persona do dublê tem de declarar sem_chamada_facta")

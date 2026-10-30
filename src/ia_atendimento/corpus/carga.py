@@ -7,14 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from ia_atendimento.corpus.modelos import Corpus, Dialogo, Duble, Persona, Semente, Turno
-from ia_atendimento.corpus.vocabulario import CORPUS_DIR
 
 
 def _ler_jsonl(caminho: Path) -> list[dict[str, Any]]:
     return [json.loads(linha) for linha in caminho.read_text(encoding="utf-8").splitlines() if linha.strip()]
 
 
-def carregar_bruto(raiz: Path = CORPUS_DIR) -> dict[str, Any]:
+def carregar_bruto(raiz: Path) -> dict[str, Any]:
     """Lê os arquivos do corpus sem validar nada (os testes mutam este dicionário e chamam `validar`)."""
     return {
         "personas": _ler_jsonl(raiz / "personas.jsonl"),
@@ -36,5 +35,5 @@ def montar(bruto: dict[str, Any]) -> Corpus:
     )
 
 
-def carregar(raiz: Path = CORPUS_DIR) -> Corpus:
+def carregar(raiz: Path) -> Corpus:
     return montar(carregar_bruto(raiz))

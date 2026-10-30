@@ -14,6 +14,8 @@ from ia_atendimento.corpus.vocabulario import (
     INTENCOES,
     INVARIANTES,
     MIN_PERSONAS_POR_INVARIANTE,
+    MIN_TURNOS_DE_TEXTO_LIVRE,
+    MIN_TURNOS_POR_INTENCAO,
     OBJECOES,
 )
 
@@ -87,25 +89,38 @@ def cobertura_cenarios(corpus: Corpus) -> list[str]:
 
 def cobertura_dialogos(corpus: Corpus) -> list[str]:
     """O que a B8.2 roda: toda intenção, objeção e fase aparece em ALGUM turno, e todo cenário de tempo tem persona com diálogo."""
-    intencoes: set[str] = set()
+    intencoes: Counter[str] = Counter()
     objecoes: set[str] = set()
     fases: set[str] = set()
+    tx: set[str] = set()
     for d in corpus.dialogos.values():
         for t in d.turnos:
             fases.add(t.fase_esperada)
+            tx.update(t.tx_esperado)
             if t.intencao_esperada:
-                intencoes.add(t.intencao_esperada)
+                intencoes[t.intencao_esperada] += 1
             if t.objecao_esperada:
                 objecoes.add(t.objecao_esperada)
     livres = sum(t.texto_livre_ia for d in corpus.dialogos.values() for t in d.turnos)
     com_dialogo = [p for p in corpus.todas() if p.id in corpus.dialogos]
     tempos = {p.contexto.cenario_tempo for p in com_dialogo}
-    erros = [f"cobertura_dialogos: intenção {i} sem nenhum turno de diálogo" for i in INTENCOES if i not in intencoes]
+    erros = [
+        f"cobertura_dialogos: intenção {i} com {intencoes[i]} turno(s) de diálogo (mínimo {MIN_TURNOS_POR_INTENCAO})"
+        for i in INTENCOES
+        if intencoes[i] < MIN_TURNOS_POR_INTENCAO
+    ]
+    erros += [
+        f"cobertura_dialogos: {x} sem nenhum turno de diálogo (negativo do SIM e nova confirmação)"
+        for x in ("TX-36", "TX-12")
+        if x not in tx
+    ]
     erros += [f"cobertura_dialogos: objeção {o} sem nenhum turno de diálogo" for o in OBJECOES if o not in objecoes]
     erros += [f"cobertura_dialogos: fase {f} sem nenhum turno de diálogo" for f in FASES if f not in fases]
     erros += [f"cobertura_dialogos: cenário de tempo {t} sem persona com diálogo" for t in CENARIOS_DE_TEMPO if t not in tempos]
-    if not livres:
-        erros.append("cobertura_dialogos: nenhum turno com `texto_livre_ia` (é onde I2 e I9 quebram)")
+    if livres < MIN_TURNOS_DE_TEXTO_LIVRE:
+        erros.append(
+            f"cobertura_dialogos: {livres} turnos com `texto_livre_ia` (mínimo {MIN_TURNOS_DE_TEXTO_LIVRE}; é onde I2 e I9 quebram)"
+        )
     return erros
 
 

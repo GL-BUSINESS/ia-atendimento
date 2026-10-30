@@ -8,15 +8,15 @@ import pytest
 
 from ia_atendimento import corpus as c
 from ia_atendimento.corpus.regras import semente as regras_semente
-from ia_atendimento.corpus.regras.gabarito import e_sim_literal, normalizar
-from tests.test_corpus import _codigos, _persona, _reprova
+from ia_atendimento.corpus.regras._comum import e_sim_literal, e_texto_sim
+from tests.test_corpus import CORPUS_DIR, _codigos, _persona, _reprova
 
 SEM_VIOLACAO = "não devia reprovar"
 
 
 @pytest.fixture(scope="module")
 def bruto_original() -> dict:
-    return c.carregar_bruto()
+    return c.carregar_bruto(CORPUS_DIR)
 
 
 @pytest.fixture
@@ -133,63 +133,117 @@ def test_nenhuma_persona_sem_facta_chega_ao_e7(bruto_original):
             assert not {"E7", "E8"} & set(p.fases), p.id
 
 
-def test_duble_snapshot_lista_as_oito_personas_que_digitam(bruto_original):
+def test_duble_snapshot_e_o_da_main_do_bancos_duble_e_as_oito_personas_usam_persona_que_existe(bruto_original):
     duble = bruto_original["duble"]
-    movidas = {"P14", "P34", "P44", "P48", "P52", "P56", "P57", "P58"}
-    assert movidas.isdisjoint(duble["f3_sem_facta"])
-    assert movidas <= {pid for d in duble["personas"] for pid in d["f3"]}
-    assert "PROPOSTO" in duble["fonte"]
+    assert "@1305152" in duble["fonte"]
+    assert "AJUSTE" not in duble["fonte"]  # o corpus se amarra ao dublê, não o contrário
+    existentes = {d["id"] for d in duble["personas"]}
+    corpus = c.montar(bruto_original)
+    for pid in ("P14", "P34", "P44", "P48", "P52", "P56", "P57", "P58"):
+        persona = next(p for p in corpus.personas if p.id == pid)
+        assert persona.cenario_facta.persona_duble in existentes
+        assert persona.cenario_facta.cenario == "aprovado"
 
 
-# --- A4 · o SIM vale pelo texto -----------------------------------------------------------------------------------------------------------
+def test_cpf_alinhado_reprova_persona_fora_do_f3_do_duble_que_nao_e_caminho_feliz(bruto):
+    p = _persona(bruto, "P14")
+    assert p["cenario_facta"]["persona_duble"].startswith("aprovado")
+    p["cenario_facta"].update(persona_duble="recusa-sem-margem", cenario="recusa")
+    p["cpf"] = "000.000.014-06"
+    achadas = _reprova(bruto, "cpf_alinhado_duble")
+    assert any("caminho feliz" in a for a in achadas)
+
+
+def test_cpf_dos_sem_stub_fica_na_faixa_reservada_e_nao_colide_com_o_duble(bruto_original, bruto):
+    corpus = c.montar(bruto_original)
+    sem_stub = [p for p in corpus.todas() if p.cenario_facta.persona_duble is None]
+    assert len(sem_stub) == 24
+    assert all(75 <= int(p.cpf[9:11]) <= 98 for p in sem_stub)
+    _persona(bruto, "P13")["cpf"] = "000.000.047-74"  # o CPF de indet-tentativa-antiga (n=47), criada no dublê depois do 1º instantâneo
+    achadas = _reprova(bruto, "cpf_alinhado_duble")
+    assert any("usa CPF de uma delas" in a for a in achadas)
+    assert any("faixa reservada" in a for a in achadas)
+
+
+# --- A4/R2-1 · o SIM vale pelo texto, isolado e explícito ---------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     ("texto", "esperado"),
     [
         ("sim", True),
-        ("Sim!", True),
+        ("SIM", True),
+        ("sim!", True),
+        ("Sim.", True),
+        ("ss", True),
         ("SS", True),
         ("pode", True),
-        ("Pode enviar.", True),
+        ("pode enviar", True),
+        ("Pode enviar!", True),
         ("confirmo", True),
-        ("quero", True),
-        ("aceito", True),
         ("isso", True),
-        ("Sim, pode enviar", True),
-        ("sim  confirmo", True),
+        ("aceito", True),
+        ("sim, pode", True),
+        ("pode sim", True),
+        ("quero sim", True),
+        ("sím", True),
+        ("sim  pode", True),
+        ("sim?", False),
+        ("sim 👍", False),
+        ("sim, mas e se mudar?", False),
+        ("sim mas e se o valor mudar?", False),
+        ("claro", False),
+        ("ok", False),
         ("bora", False),
         ("pode ser", False),
         ("acho que sim", False),
-        ("sim mas e se o valor mudar?", False),
-        ("sim?", True),
+        ("quero", False),
+        ("pode mandar", False),
+        ("sim pode enviar", False),
+        ("sim confirmo", False),
         ("nao", False),
-        ("sím", True),
         ("", False),
+        ("sim sim", False),
+        ("  ", False),
     ],
 )
-def test_e_sim_literal(texto, esperado):
-    turno = c.Turno(
-        quem="cliente",
-        fase_esperada="E6",
-        texto_cliente=texto,
-        intencao_esperada="aceita",
-        acoes_permitidas=("responder",),
-        acoes_proibidas=("T4",),
+def test_e_texto_sim_e_regra_fechada(texto, esperado):
+    assert e_texto_sim(texto) is esperado
+
+
+def test_e_sim_literal_exige_o_texto_e_todas_as_variacoes():
+    base = {
+        "quem": "cliente",
+        "fase_esperada": "E6",
+        "intencao_esperada": "aceita",
+        "acoes_permitidas": ("responder",),
+        "acoes_proibidas": ("T4",),
+    }
+    assert e_sim_literal(c.Turno(texto_cliente="sim", variacoes=("ss", "pode"), **base))
+    assert not e_sim_literal(c.Turno(texto_cliente="sim", variacoes=("ss", "sim?"), **base))
+    assert not e_sim_literal(
+        c.Turno(quem="cliente", fase_esperada="E6", midia="audio", acoes_permitidas=("responder",), acoes_proibidas=("T4",))
     )
-    assert e_sim_literal(turno) is esperado
 
 
-def test_normalizar():
-    assert normalizar("  Sim, PODE   enviar!! ") == "sim pode enviar"
-    assert normalizar("Pôde?") == "pode"
+def test_sim_do_corpus_so_usa_a_lista_estreita(bruto_original):
+    corpus = c.montar(bruto_original)
+    vistos = 0
+    for pid, d in corpus.dialogos.items():
+        for i, t in enumerate(d.turnos):
+            if t.quem == "cliente" and t.fase_esperada == "E6" and t.intencao_esperada == "aceita":
+                proxima = next(x for x in d.turnos[i + 1 :] if x.quem == "ia")
+                assert e_sim_literal(t) or "TX-36" in proxima.tx_esperado, (pid, t.texto_cliente)
+                vistos += 1
+    assert vistos >= 25
 
 
-def test_sim_literal_reprova_bora_rotulado_como_aceita_no_e6(bruto):
-    t = _primeiro(bruto, "P04", quem="cliente", fase_esperada="E6")
-    t["texto_cliente"], t["variacoes"] = "bora", ["pode ser", "ss"]
-    achadas = _reprova(bruto, "gabarito_sim_literal")
-    assert any("bora" in a for a in achadas)
+def test_i1_nao_aceita_sim_com_interrogacao_nem_sim_mas(bruto):
+    """Sonda da re-revisão: «quero» com variação «sim?» num SIM seguido de T7 reprova."""
+    t = _primeiro(bruto, "P01", quem="cliente", fase_esperada="E6")
+    t["texto_cliente"], t["variacoes"] = "quero", ["sim?"]
+    achadas = _reprova(bruto, "gabarito_i1")
+    assert any("T7 permitido sem pedido" in a for a in achadas)
 
 
 def test_i1_valida_o_texto_e_nao_o_rotulo(bruto):
@@ -198,13 +252,71 @@ def test_i1_valida_o_texto_e_nao_o_rotulo(bruto):
     t["texto_cliente"], t["variacoes"] = "sim mas e se o valor mudar?", []
     achadas = _reprova(bruto, "gabarito_i1")
     assert any("T7 permitido sem pedido de confirmação" in a for a in achadas)
-    _reprova(bruto, "gabarito_sim_literal")
+    _reprova(bruto, "gabarito_tx36")
 
 
 def test_sim_literal_reprova_texto_de_sim_com_outro_rotulo(bruto):
-    t = _primeiro(bruto, "P02", quem="cliente", fase_esperada="E6")
+    t = _primeiro(bruto, "P01", quem="cliente", fase_esperada="E6")
     t["intencao_esperada"] = "duvida_oferta"
     _reprova(bruto, "gabarito_sim_literal")
+
+
+# --- R2-2 · o negativo do SIM tem diálogo: TX-36, «não» e TX-12 -------------------------------------------------------------------------------------
+
+
+def test_pelo_menos_quatro_personas_da_f3_curta_tem_resposta_ambigua_no_e6_com_tx36_e_uma_no_hold_out(bruto_original):
+    corpus = c.montar(bruto_original)
+    com_tx36 = {pid for pid, d in corpus.dialogos.items() if not pid.startswith("P-M") and any("TX-36" in t.tx_esperado for t in d.turnos)}
+    assert len(com_tx36) >= 4
+    assert com_tx36 & set(corpus.semente.holdout)
+    textos = {t.texto_cliente for pid in com_tx36 for t in corpus.dialogos[pid].turnos if t.quem == "cliente" and t.fase_esperada == "E6"}
+    assert {"sim, mas e se o valor mudar?", "bora", "acho que sim"} <= textos
+
+
+def test_um_codigo_que_aceita_sim_mas_como_sim_reprova(bruto):
+    """O gabarito que deixa o T7 vir logo depois de «sim, mas...» (sem TX-36 no meio) reprova."""
+    turnos = bruto["dialogos"]["P02"]
+    i = next(i for i, t in enumerate(turnos) if t["quem"] == "ia" and "TX-36" in t.get("tx_esperado", []))
+    del turnos[i : i + 2]  # tira o TX-36 e o SIM que vinha depois: do «sim, mas...» direto para o T7
+    achadas = c.validar(bruto)
+    assert any(a.startswith("gabarito_tx36:") for a in achadas)
+    assert any(a.startswith("gabarito_i1:") for a in achadas)
+
+
+def test_tx36_reprova_resposta_ambigua_sem_tx36_e_com_t7(bruto):
+    turnos = bruto["dialogos"]["P04"]
+    i = next(i for i, t in enumerate(turnos) if t["quem"] == "ia" and "TX-36" in t.get("tx_esperado", []))
+    turnos[i]["tx_esperado"] = ["TX-11"]
+    _reprova(bruto, "gabarito_tx36")
+    b2 = c.carregar_bruto(CORPUS_DIR)
+    t2 = b2["dialogos"]["P04"][i]
+    t2["acoes_permitidas"] = [*t2["acoes_permitidas"], "T7"]
+    t2["acoes_proibidas"] = [a for a in t2["acoes_proibidas"] if a != "T7"]
+    _reprova(b2, "gabarito_tx36")
+
+
+def test_cobertura_dialogos_exige_tx36_e_tx12(bruto):
+    for d in bruto["dialogos"].values():
+        for t in d:
+            t["tx_esperado"] = [x for x in t.get("tx_esperado", []) if x not in ("TX-36", "TX-12")]
+    achadas = _reprova(bruto, "cobertura_dialogos")
+    assert any("TX-36" in a for a in achadas) and any("TX-12" in a for a in achadas)
+
+
+def test_nao_no_e6_volta_para_a_e4_e_a_nova_opcao_pede_nova_confirmacao(bruto_original):
+    corpus = c.montar(bruto_original)
+    turnos = corpus.dialogos["P20"].turnos
+    i = next(i for i, t in enumerate(turnos) if t.quem == "cliente" and t.fase_esperada == "E6" and t.texto_cliente.startswith("nao"))
+    assert turnos[i + 1].fase_esperada == "E4"
+    assert "TX-11" in next(t for t in turnos[i + 2 :] if t.quem == "ia" and t.fase_esperada == "E6").tx_esperado
+
+
+def test_tx12_depois_do_sim_invalida_a_confirmacao_e_exige_outro_sim(bruto):
+    turnos = bruto["dialogos"]["P25"]
+    i = next(i for i, t in enumerate(turnos) if t["quem"] == "ia" and "TX-12" in t.get("tx_esperado", []))
+    assert turnos[i]["evento"] == "precondicao_falhou_valores_mudaram"
+    del turnos[i + 1]  # tira o segundo SIM
+    _reprova(bruto, "gabarito_i1")
 
 
 def test_i1_nao_aceita_sim_depois_de_o_cliente_mudar_o_pedido(bruto):
@@ -213,18 +325,6 @@ def test_i1_nao_aceita_sim_depois_de_o_cliente_mudar_o_pedido(bruto):
     i = next(i for i, t in enumerate(turnos) if t["quem"] == "ia" and t["fase_esperada"] == "E6" and i > 12)
     del turnos[i]  # tira o segundo TX-11
     _reprova(bruto, "gabarito_i1")
-
-
-def test_todo_sim_do_corpus_e_da_lista_fechada(bruto_original):
-    corpus = c.montar(bruto_original)
-    simulados = [
-        t
-        for d in corpus.dialogos.values()
-        for t in d.turnos
-        if t.quem == "cliente" and t.fase_esperada == "E6" and t.intencao_esperada == "aceita"
-    ]
-    assert len(simulados) >= 25
-    assert all(e_sim_literal(t) for t in simulados)
 
 
 # --- A5 · recusa firme repassa com nota (Q5) --------------------------------------------------------------------------------------------
