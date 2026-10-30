@@ -225,7 +225,7 @@ def test_ia_app_nao_cria_nada_em_procrastinate_e_o_dono_e_ia_owner(banco):
 
 def test_cli_recusa_host_que_nao_e_local(capsys):
     with pytest.raises(SystemExit) as saida:
-        main(["--dsn", "postgresql://s4_super:segredo-nao-mostrar@10.9.0.4:5434/ia_atendimento"])
+        main(["--dsn", "postgresql://s4_super:segredo-nao-mostrar@203.0.113.4:5434/ia_atendimento"])
     assert saida.value.code == 2
     err = capsys.readouterr().err
     assert "local" in err and "segredo-nao-mostrar" not in err
@@ -243,11 +243,11 @@ def test_cli_aplica_em_banco_local_e_nao_imprime_senha(vazio, servidor, capsys):
 @pytest.mark.parametrize(
     "dsn",
     [
-        "host=localhost hostaddr=10.9.0.4 dbname=x user=s4_super",  # hostaddr vence o host: conectaria na S4
-        "host=localhost,10.9.0.4 dbname=x user=s4_super",
+        "host=localhost hostaddr=203.0.113.4 dbname=x user=s4_super",  # hostaddr vence o host: conectaria na S4
+        "host=localhost,203.0.113.4 dbname=x user=s4_super",
         "postgresql://u:p@db.exemplo.test/x",
         "service=s4 user=s4_super",  # pg_service.conf pode apontar para qualquer host
-        "dbname=x user=s4_super hostaddr=100.117.206.94",
+        "dbname=x user=s4_super hostaddr=203.0.113.9",
     ],
 )
 def test_cli_recusa_dsn_que_pode_chegar_a_um_host_remoto(dsn, capsys):
@@ -257,7 +257,7 @@ def test_cli_recusa_dsn_que_pode_chegar_a_um_host_remoto(dsn, capsys):
 
 
 def test_cli_sem_host_no_dsn_respeita_pghost_do_ambiente(monkeypatch):
-    monkeypatch.setenv("PGHOST", "10.9.0.4")
+    monkeypatch.setenv("PGHOST", "203.0.113.4")
     with pytest.raises(SystemExit) as saida:
         main(["--dsn", "dbname=x user=s4_super"])
     assert saida.value.code == 2

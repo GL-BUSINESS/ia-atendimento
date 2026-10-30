@@ -38,7 +38,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      - run: uv sync --frozen
+      - run: uv sync --locked   # falha se o uv.lock não bate com o pyproject (--frozen usaria o lock velho em silêncio)
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run python scripts/varredura.py

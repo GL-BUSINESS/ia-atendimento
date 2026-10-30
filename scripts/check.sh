@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Portão local (o CI do GitHub pode estar parado por cobrança): lint, varredura, checksum da 0001, 0002 em dia e testes com tempo medido.
+# Portão local (o CI do GitHub pode estar parado por cobrança): lock coerente, lint, varredura, checksum da 0001, 0002 em dia e testes com tempo medido.
 # Uso: bash scripts/check.sh        (precisa de docker com a imagem postgres:18, ou IA_TESTE_PG_HOST/IA_TESTE_PG_PORT)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 run() { echo "== $*"; "$@"; }
+run uv lock --check
 run uv run ruff check .
 run uv run ruff format --check .
 run uv run python scripts/varredura.py

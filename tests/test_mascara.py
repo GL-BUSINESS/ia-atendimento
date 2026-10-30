@@ -300,7 +300,7 @@ def test_mascara_roda_em_tempo_linear_no_tamanho_do_texto(texto):
         ("a@exemplo.test;JOAO@EXEMPLO.COM.BR", "[EMAIL];[EMAIL]"),
         ("JOAO@EXEMPLO.COM.BR", "[EMAIL]"),
         ("João@Exemplo.Test", "[EMAIL]"),
-        ("a@b.test.joao@exemplo.test", "[EMAIL][EMAIL]"),  # ambíguo: mascara os dois pedaços em vez de deixar `@exemplo.test`
+        ("a@b.test.test@exemplo.test", "[EMAIL][EMAIL]"),  # ambíguo: mascara os dois pedaços em vez de deixar `@exemplo.test`
     ],
 )
 def test_emails_colados_ou_em_caixa_alta_ficam_todos_mascarados(entrada, esperado):

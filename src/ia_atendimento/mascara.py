@@ -30,7 +30,7 @@ MIN_DIGITOS = 8
 # E-mail em dois passos, sem lookbehind: (1) corridas MAXIMAIS de caracteres de parte-local (letras Unicode via `\w`, acentos combinantes,
 # `.%+-`), achadas por varredura linear; (2) se a corrida termina em `@`, o domínio é casado ali. Cada caractere é lido uma vez, então
 # 100 mil letras seguidas não são quadráticas (um padrão único `local@dominio` varria a corrida inteira a cada posição: ~9 s), e um
-# segundo e-mail colado ao primeiro (`a@b.c+joao@gmail.com`) não fica em claro: o início da parte-local nunca recua para antes do fim
+# segundo e-mail colado ao primeiro (`a@b.test+joao@exemplo.test`) não fica em claro: o início da parte-local nunca recua para antes do fim
 # do e-mail anterior.
 _LOCAL = r"[\w\u0300-\u036f.%+\-]"
 _CORRIDA_LOCAL = re.compile(_LOCAL + "+")
