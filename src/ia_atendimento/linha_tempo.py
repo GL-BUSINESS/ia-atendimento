@@ -112,7 +112,7 @@ def _uma_linha(conn: psycopg.Connection, consulta: str, parametros: tuple[Any, .
     return tuple(linha)
 
 
-def _travar(conn: psycopg.Connection, atendimento_id: uuid.UUID) -> tuple[str, int]:
+def travar_atendimento(conn: psycopg.Connection, atendimento_id: uuid.UUID) -> tuple[str, int]:
     """`SELECT … FOR UPDATE` do atendimento: serializa a `ordem`. Devolve (fase atual, rodada)."""
     linha = conn.execute(
         "SELECT fase, coalesce((estado_conversa #>> '{contadores,rodada}')::int, 0)"
@@ -180,7 +180,7 @@ def gravar_passo(
     if agora is not None:
         extras["ocorrido_em"] = agora
     with conn.transaction():
-        _travar(conn, atendimento_id)
+        travar_atendimento(conn, atendimento_id)
         ordem = _proxima_ordem(conn, atendimento_id)
         _inserir(conn, atendimento_id, ordem, dados, texto, extras)
     return Passo(ordem, dados.tipo, texto)
@@ -228,7 +228,7 @@ def gravar_mensagem_recebida(
         msg_chave_rpa=None,
     )
     with conn.transaction():
-        fase, rodada = _travar(conn, atendimento_id)
+        fase, rodada = travar_atendimento(conn, atendimento_id)
         anterior = _existente(conn, ident, evento.rpa_id)
         if anterior is not None:
             return _comparar(anterior, ident)
@@ -266,7 +266,7 @@ def mensagens_pendentes(conn: psycopg.Connection, atendimento_id: uuid.UUID) -> 
 def consumir(conn: psycopg.Connection, atendimento_id: uuid.UUID, *, versao: int, ate_ordem: int, agora: datetime | None = None) -> int:
     """Consome as pendentes até `ate_ordem` (inclusive): um turno por lote. CAS por `versao`; devolve a versão nova."""
     with conn.transaction():
-        _travar(conn, atendimento_id)
+        travar_atendimento(conn, atendimento_id)
         consumida, ultima = _uma_linha(
             conn,
             "SELECT a.ordem_consumida, (SELECT max(p.ordem) FROM ia.passo p WHERE p.atendimento_id = a.atendimento_id"

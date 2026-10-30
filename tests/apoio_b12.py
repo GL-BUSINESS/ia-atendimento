@@ -61,3 +61,15 @@ def novo_atendimento(conn: psycopg.Connection, *, chat: str = CHAT, modo: str = 
     ).fetchone()
     assert linha is not None
     return linha[0]
+
+
+def chaveiro_com(tmp_path: Path, chaves: dict[int, str], vigente: int, nome: str = "chaves_extra.json") -> Chaveiro:
+    """Chaveiro com chaves dadas (base64), para provar descarte e rotação mensal."""
+    arquivo = tmp_path / nome
+    arquivo.write_text(json.dumps({str(k): v for k, v in chaves.items()}), encoding="utf-8")
+    arquivo.chmod(0o600)
+    return Chaveiro.de_arquivo(arquivo, vigente=vigente)
+
+
+def chave_aleatoria() -> str:
+    return _b64()
