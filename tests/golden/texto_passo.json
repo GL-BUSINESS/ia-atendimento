@@ -1,0 +1,195 @@
+[
+  {
+    "tipo": "mensagem_recebida",
+    "dados": {
+      "msg_chave": "cg:0123456789abcdef01234567:0f1e2d3c4b5a6978",
+      "msg_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "msg_tipo": "texto",
+      "msg_tamanho": 42,
+      "origem_evento": "webhook"
+    },
+    "texto": "Cliente enviou texto (42 caracteres)."
+  },
+  {
+    "tipo": "mensagem_recebida",
+    "dados": {
+      "msg_chave": "rpa:65f1c2a9b8d7e6f5a4b3c2d1",
+      "msg_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "msg_tipo": "audio",
+      "msg_tamanho": 0,
+      "origem_evento": "reconciliacao"
+    },
+    "texto": "Cliente enviou audio."
+  },
+  {
+    "tipo": "decisao",
+    "dados": {
+      "motor": "modelo",
+      "intencao": "aceita_oferta",
+      "confianca": "alta",
+      "objecao": "preco",
+      "modelo": "deepseek-v4p1-flash-1017",
+      "provedor": "fireworks-us",
+      "motivo": "cliente_concordou"
+    },
+    "texto": "Modelo classificou a intenção como aceita_oferta (confiança alta); objeção: preco."
+  },
+  {
+    "tipo": "decisao",
+    "dados": {
+      "motor": "modelo",
+      "intencao": "duvida",
+      "confianca": "baixa",
+      "acao_invalida": true,
+      "modelo": "deepseek-v4p1-flash-1017",
+      "provedor": "fireworks-us"
+    },
+    "texto": "Modelo classificou a intenção como duvida (confiança baixa); ação fora da fase."
+  },
+  {
+    "tipo": "decisao",
+    "dados": {
+      "motor": "regra",
+      "transversal": "opt_out"
+    },
+    "texto": "Decisão por regra; tratamento transversal: opt_out."
+  },
+  {
+    "tipo": "decisao",
+    "dados": {
+      "motor": "motor_escolha"
+    },
+    "texto": "Decisão pelo motor de escolha."
+  },
+  {
+    "tipo": "chamada_ferramenta",
+    "dados": {
+      "ferramenta": "t7",
+      "ferramenta_versao": "1.0.0",
+      "confirmacao_ref": "0123456789abcdef"
+    },
+    "texto": "Ferramenta t7 (versão 1.0.0) chamada com confirmação."
+  },
+  {
+    "tipo": "chamada_ferramenta",
+    "dados": {
+      "ferramenta": "t1",
+      "ferramenta_versao": "1.2.0"
+    },
+    "texto": "Ferramenta t1 (versão 1.2.0) chamada."
+  },
+  {
+    "tipo": "confirmacao",
+    "dados": {
+      "confirmacao_id": "01a18a0a-6522-722b-8bf2-cced4767f1aa",
+      "confirmacao_ref": "0123456789abcdef",
+      "resultado": "pergunta"
+    },
+    "texto": "Confirmação: pergunta."
+  },
+  {
+    "tipo": "confirmacao",
+    "dados": {
+      "confirmacao_id": "01a18a0a-6522-722b-8bf2-cced4767f1aa",
+      "confirmacao_ref": "0123456789abcdef",
+      "resultado": "invalidada",
+      "invalidacao": "valor_mudou"
+    },
+    "texto": "Confirmação invalidada (motivo: valor_mudou)."
+  },
+  {
+    "tipo": "resposta_enviada",
+    "dados": {
+      "entrega": "aceito",
+      "verif_det": [],
+      "tx_id": "TX-03",
+      "responde_ordem": 1
+    },
+    "texto": "Resposta enviada (aceito) com o texto TX-03; verificação determinística limpa."
+  },
+  {
+    "tipo": "resposta_enviada",
+    "dados": {
+      "entrega": "rascunho",
+      "verif_det": ["promessa", "numero_inventado"]
+    },
+    "texto": "Resposta livre enviada (rascunho); verificação determinística apontou: promessa, numero_inventado."
+  },
+  {
+    "tipo": "lembrete",
+    "dados": {
+      "entrega": "aceito",
+      "verif_det": [],
+      "tx_id": "TX-20",
+      "janela_24h": true
+    },
+    "texto": "Lembrete enviado (aceito) com o texto TX-20, dentro da janela de 24 h; verificação determinística limpa."
+  },
+  {
+    "tipo": "lembrete",
+    "dados": {
+      "entrega": "aceito",
+      "verif_det": [],
+      "tx_id": "TX-21",
+      "janela_24h": false,
+      "custo_brl": "0.4500"
+    },
+    "texto": "Lembrete enviado (aceito) com o texto TX-21, fora da janela de 24 h (template pago); verificação determinística limpa."
+  },
+  {
+    "tipo": "encerramento",
+    "dados": {
+      "desfecho": "sem_venda",
+      "motivo_desfecho": "cliente_desistiu"
+    },
+    "texto": "Atendimento encerrado: sem_venda (motivo: cliente_desistiu)."
+  },
+  {
+    "tipo": "repasse",
+    "dados": {
+      "repasse_etapa": "nota",
+      "tx_id": "TX-M05"
+    },
+    "texto": "Repasse ao vendedor: etapa nota (texto TX-M05)."
+  },
+  {
+    "tipo": "erro",
+    "dados": {
+      "peca": "fila"
+    },
+    "texto": "Erro na peça fila."
+  },
+  {
+    "tipo": "verificacao",
+    "dados": {
+      "verif_momento": "saida",
+      "verif_rotulo": "ok",
+      "verif_confianca": "0.950",
+      "modelo": "deepseek-v4p1-flash-1017",
+      "provedor": "fireworks-us"
+    },
+    "texto": "Verificação na saida: ok (confiança 0.950)."
+  },
+  {
+    "tipo": "opt_out",
+    "dados": {},
+    "texto": "Pedido de não receber mais mensagens registrado."
+  },
+  {
+    "tipo": "anotacao_operador",
+    "dados": {
+      "operador": "operador.teste@exemplo.invalid",
+      "resultado": "observacao",
+      "nota": "retorno combinado para amanha"
+    },
+    "texto": "Anotação (observacao): retorno combinado para amanha"
+  },
+  {
+    "tipo": "agendamento",
+    "dados": {
+      "agendamento_id": "01a18a0a-6522-722b-8bf2-cced4767f1ab",
+      "resultado": "confirmado"
+    },
+    "texto": "Agendamento confirmado."
+  }
+]

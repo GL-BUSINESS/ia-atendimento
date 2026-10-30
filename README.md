@@ -49,6 +49,7 @@ URL do modelo em https (http só em localhost) e **nunca** `deepseek.com` nem `a
 | `API_TOKEN` | token da API de entrada |
 | `PHOENIX_ENDPOINT` | traces (banco `ia_obs`); vazio = não exporta |
 | `CHAVE_AES_ID`, `CHAVE_AES_ARQUIVO` | chave vigente (mensal) e arquivo 0600 `{"<id>": "<base64 de 32 bytes>"}` |
+| `CHAVE_H16`, `CHAVE_FINGERPRINT` | chaves HMAC (>= 32 caracteres, diferentes entre si, permanentes) do `msg_chave` e do `msg_fingerprint` da mensagem recebida |
 
 ## Contrato de dados
 
