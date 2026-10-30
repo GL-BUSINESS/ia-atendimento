@@ -11,6 +11,7 @@ fundação**, sem agente, sem ferramentas, sem API de negócio, sem n8n e sem na
 | `Settings` por env (`SecretStr`, sem segredo no `repr`) | `src/ia_atendimento/config.py` | `tests/test_config.py` |
 | AES-256-GCM com AAD, chaves em arquivo 0600 | `src/ia_atendimento/cifra.py` | `tests/test_cifra.py` |
 | Máscara determinística de PII | `src/ia_atendimento/mascara.py` | `tests/test_mascara.py` |
+| Extrator determinístico de horário do agendamento (B5.7a, puro) | `src/ia_atendimento/agenda_extrator.py`, `tests/corpus/` | `tests/test_agenda_extrator.py` (EM1) |
 
 ## Como rodar
 
