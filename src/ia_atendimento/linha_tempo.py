@@ -215,18 +215,23 @@ def gravar_passo(
 # --- mensagens recebidas ---------------------------------------------------------------------------------------------------------
 
 
-def _existente(conn: psycopg.Connection, ident: Identidade, rpa_id: str | None) -> tuple[uuid.UUID, int, str] | None:
-    """Passo `mensagem_recebida` com a mesma `msg_chave` (ou, na reconciliação, com o `_id` do RPA já anexado)."""
+def _existente(conn: psycopg.Connection, ident: Identidade, rpa_id: str | None) -> tuple[uuid.UUID, int, str, str] | None:
+    """Passo `mensagem_recebida` com a mesma `msg_chave` (ou, na reconciliação, com o `_id` do RPA já anexado) e a `msg_chave` da linha."""
     linha = conn.execute(
-        "SELECT atendimento_id, ordem, msg_fingerprint FROM ia.passo WHERE tipo = 'mensagem_recebida'"
+        "SELECT atendimento_id, ordem, msg_fingerprint, msg_chave FROM ia.passo WHERE tipo = 'mensagem_recebida'"
         " AND (msg_chave = %s OR (%s::text IS NOT NULL AND msg_chave_rpa = %s)) LIMIT 1",
         (ident.msg_chave, rpa_id, rpa_id),
     ).fetchone()
-    return (linha[0], linha[1], linha[2]) if linha else None
+    return (linha[0], linha[1], linha[2], linha[3]) if linha else None
 
 
-def _comparar(existente: tuple[uuid.UUID, int, str], ident: Identidade, atendimento_id: uuid.UUID) -> Duplicada | Conflito:
-    atendimento, ordem, fingerprint = existente
+def _comparar(existente: tuple[uuid.UUID, int, str, str], ident: Identidade, atendimento_id: uuid.UUID) -> Duplicada | Conflito:
+    atendimento, ordem, fingerprint, chave_da_linha = existente
+    # Achada pelo `_id` do RPA já anexado a uma linha do WEBHOOK (a chave da linha é outra): o `_id` é a identidade da mensagem do RPA, e o
+    # fingerprint dele leva a hora do RPA, que difere da do webhook. Reenvio do mesmo `_id` é repetição, não conflito (o reconciliador
+    # repete a cada 2 min).
+    if chave_da_linha != ident.msg_chave:
+        return Duplicada(ident.msg_chave, atendimento == atendimento_id, ordem if atendimento == atendimento_id else None)
     if fingerprint != ident.msg_fingerprint:
         return Conflito(ident.msg_chave)
     mesmo = atendimento == atendimento_id

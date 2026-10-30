@@ -65,7 +65,7 @@ class MensagemNormalizada(BaseModel):
 
 
 def url_sem_query(url: str | None, campo: str) -> str | None:
-    """`esquema://host[:porta]/caminho`: sem query, fragmento nem credencial na URL. Só http/https (senão `422 validacao`, sem ecoar a URL)."""
+    """`esquema://host[:porta]/caminho`: sem query, fragmento nem credencial. Só http/https (senão `422 validacao`, sem ecoar a URL)."""
     if not url:
         return None
     try:
