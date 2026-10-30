@@ -44,27 +44,35 @@ Pré-requisito: A4.3 pronto (papéis, database `ia_atendimento`, certificados, `
 ```bash
 # 0. checksums batem com o que foi revisado
 (cd migrations && sha256sum -c 0001.sha256) && uv run python scripts/gerar_0002.py --verificar
-# 1. 0001, por stdin, transação única (o arquivo faz SET ROLE ia_owner e RESET ROLE)
-$S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -' < migrations/0001_esquema.up.sql
+# 1. 0001 + linha do ledger NA MESMA TRANSAÇÃO (psql -1): ou entra tudo ou nada. O arquivo faz SET ROLE ia_owner e RESET ROLE.
 SUM1=$(sha256sum migrations/0001_esquema.up.sql | cut -d' ' -f1)
-$S4 "sudo -n -u s4_super psql -X -q -p 5434 -d ia_atendimento -c \"SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id,checksum) VALUES ('0001_esquema','$SUM1')\""
-# 2. 0002 (Procrastinate 3.10.0); o arquivo já traz SET ROLE ia_owner e search_path = procrastinate, public
-$S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -' < migrations/0002_procrastinate.up.sql
+{ cat migrations/0001_esquema.up.sql
+  printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0001_esquema', '%s');\nRESET ROLE;\n" "$SUM1"; } \
+  | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
+# 2. 0002 (Procrastinate 3.10.0) + ledger, igual; o arquivo já traz SET ROLE ia_owner e search_path = procrastinate, public
 SUM2=$(sha256sum migrations/0002_procrastinate.up.sql | cut -d' ' -f1)
-$S4 "sudo -n -u s4_super psql -X -q -p 5434 -d ia_atendimento -c \"SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id,checksum) VALUES ('0002_procrastinate','$SUM2')\""
+{ cat migrations/0002_procrastinate.up.sql
+  printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0002_procrastinate', '%s');\nRESET ROLE;\n" "$SUM2"; } \
+  | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
 ```
 
 **Conferir** (como `ia_app_a`, da VPS): `select migracao_id, left(checksum,8) from ia.migracao` (2 linhas); `select valor from
 ia.config_versao where nome='ia_ativa'` = `false` e `nome='modo'` = `"duble"`; `DROP TABLE ia.passo` falha; `ia_app_a` sem `DELETE`.
 
-**Se der errado:** erro no meio de um arquivo → a transação única (`-1`) desfaz tudo; reaplicar a 0001 é idempotente; a 0002 já aplicada
-**não** se reaplica (o ledger é a verdade). **Desfazer:** `DROP DATABASE … WITH (FORCE)` só com autorização nova do dono (estudo E «Desfazer tudo» 1).
+**Se der errado:** erro no meio de um arquivo (ou no INSERT do ledger) → a transação única (`-1`) desfaz tudo, inclusive o ledger; reaplicar
+a 0001 é idempotente; a 0002 já aplicada **não** se reaplica (o ledger é a verdade). **Desfazer:** `DROP DATABASE … WITH (FORCE)` só com autorização nova do dono (estudo E «Desfazer tudo» 1).
 
 ## 4. Conexão da fila (Procrastinate) — decisão de infra
 
 As funções e gatilhos do Procrastinate usam nomes sem schema. Defina para `ia_app_a`/`_b` **uma** das opções (nenhuma é aplicada por este repo):
-`options=-c search_path=procrastinate,public` na `DATABASE_URL`, ou `ALTER ROLE ia_app IN DATABASE ia_atendimento SET search_path = procrastinate, public`
-(exige `s4_super`; **não executar sem o «sim»**).
+`options=-c search_path=procrastinate,public` na `DATABASE_URL`, ou, **por login** (`s4_super`; **não executar sem o «sim»**):
+
+```sql
+ALTER ROLE ia_app_a IN DATABASE ia_atendimento SET search_path = procrastinate, public;
+ALTER ROLE ia_app_b IN DATABASE ia_atendimento SET search_path = procrastinate, public;
+```
+
+Não use o grupo `ia_app` no `ALTER ROLE`: configuração de papel não é herdada pelos logins membros (`tests/test_migracoes.py` prova).
 
 ## 5. Quando o checksum divergir
 

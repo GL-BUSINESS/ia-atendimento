@@ -24,7 +24,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 - Esqueleto do repositório: Python 3.13, dependências pinadas (`uv.lock`), ruff, pytest, `.env.example` só com nomes, `LICENSE` privada.
 - `config.Settings` (pydantic-settings, `SecretStr`, `hide_input_in_errors`): recusa API oficial da DeepSeek, qualquer coisa da
   Anthropic, modelo fora de `deepseek-*`/`gemini-*` e `DATABASE_URL` com login `postgres`/`s4_super`/`ia_owner` (o runtime é `ia_app_*`).
-- `cifra`: AES-256-GCM com AAD (`atendimento_id`, ou a forma completa do esquema `atendimento_id|seq|remetente|tipo|chave_id`),
+- `cifra`: AES-256-GCM com AAD completa do esquema (`atendimento_id|seq|remetente|tipo|chave_id`; cofre `atendimento_id|0|cofre|finalidade|chave_id`),
   chaveiro em arquivo 0600 por `chave_id`; erros e logs sem texto, chave ou ciphertext.
 - `mascara`: máscara determinística de PII (CPF por DV, telefone, e-mail, CEP, UUID, número longo, nome marcado).
 - `migrations/0001` = bloco `sql` do estudo I **rodada 3c**, byte a byte (`5d1ceec1…3808`, `0001.sha256`); `0002` = Procrastinate 3.10.0

@@ -330,3 +330,68 @@ def test_cli_recusa_pgservice_mesmo_com_host_no_dsn(monkeypatch):
     monkeypatch.setenv("PGSERVICE", "s4")
     assert not _host_local("host=127.0.0.1 dbname=x")
     assert not _host_local("host=/var/run/postgresql dbname=x")
+
+
+# --- revisão 29/10: o passo a passo da S4 (docs) é testado contra o banco -----------------------------------------------------------
+
+DOCS_S4 = (RAIZ / "docs" / "OPERACAO.md", MIGRACOES / "README.md")
+ALTER_DOCUMENTADO = re.compile(r"ALTER ROLE (\w+) IN DATABASE ia_atendimento SET search_path = procrastinate, public")
+
+
+def _texto(caminho: Path) -> str:
+    return caminho.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("doc", DOCS_S4, ids=lambda d: d.name)
+def test_docs_mandam_o_search_path_para_os_logins_e_nunca_para_o_grupo(doc):
+    papeis = ALTER_DOCUMENTADO.findall(_texto(doc))
+    assert set(papeis) == {"ia_app_a", "ia_app_b"}, f"{doc.name}: ALTER ROLE de search_path tem de ser nos logins, achei {papeis}"
+
+
+@pytest.mark.banco
+def test_search_path_do_grupo_nao_chega_ao_login_e_o_alter_documentado_chega(banco):
+    """Configuração de papel não é herdada por quem é membro: `ALTER ROLE ia_app ...` (o que os docs diziam) não valia para ia_app_a."""
+
+    def search_path_do_login() -> str:
+        with banco.sessao("ia_app_a") as conn:
+            return conn.execute("SHOW search_path").fetchone()[0]
+
+    with banco.sessao() as conn:
+        conn.execute(f"ALTER ROLE ia_app IN DATABASE {banco.nome} SET search_path = procrastinate, public")
+    assert search_path_do_login() == '"$user", public'  # o grupo não vale
+    documentado = ALTER_DOCUMENTADO.search(_texto(DOCS_S4[1]).replace("ia_app_b", "ia_app_a"))
+    assert documentado is not None
+    with banco.sessao() as conn:
+        conn.execute(documentado.group().replace("ia_atendimento", banco.nome))  # o comando EXATO do README, no banco de teste
+    assert search_path_do_login() == "procrastinate, public"
+    with banco.sessao("ia_app_a") as conn:  # e a fila funciona sem nenhum SET na sessão
+        conn.execute("INSERT INTO procrastinate_jobs (queue_name, task_name, args) VALUES ('q', 't', '{}')")
+        assert conn.execute("SELECT count(*) FROM procrastinate_events").fetchone() == (1,)
+
+
+def _epilogo_documentado(doc: Path, migracao_id: str, checksum: str) -> str:
+    padrao = re.compile(
+        rf'printf "(SET ROLE ia_owner; INSERT INTO ia\.migracao \(migracao_id, checksum\) VALUES \(\'{migracao_id}\', \'%s\'\);\\nRESET ROLE;\\n)"'
+    )
+    achado = padrao.search(_texto(doc))
+    assert achado is not None, (
+        f"{doc.name}: a linha do ledger de {migracao_id} tem de ir no mesmo psql -1 que o arquivo (printf ... | psql)"
+    )
+    return achado.group(1).replace("\\n", "\n") % checksum
+
+
+@pytest.mark.banco
+@pytest.mark.parametrize("doc", DOCS_S4, ids=lambda d: d.name)
+def test_ledger_documentado_vai_na_mesma_transacao_do_arquivo(vazio, doc):
+    """O fluxo do dono (`{ cat arquivo; printf ledger; } | psql -1`) entra ou sai inteiro, igual ao `aplicar()`."""
+    arquivo = MIGRACOES / "0001_esquema.up.sql"
+    soma = _sha(arquivo)
+    corpo = arquivo.read_text(encoding="utf-8")
+    ruim = _epilogo_documentado(doc, "0001_esquema", "xyz")  # checksum inválido: o CHECK do ledger recusa
+    with vazio.conectar(autocommit=False) as conn, pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+        conn.execute(corpo + ruim)
+    with vazio.sessao() as conn:
+        assert conn.execute("SELECT to_regclass('ia.migracao')").fetchone() == (None,)  # nada ficou: o arquivo foi desfeito junto
+    with vazio.conectar(autocommit=False) as conn, conn.transaction():
+        conn.execute(corpo + _epilogo_documentado(doc, "0001_esquema", soma))
+    assert _ledger(vazio) == {"0001_esquema": soma}

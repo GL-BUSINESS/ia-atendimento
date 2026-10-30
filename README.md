@@ -72,8 +72,12 @@ Para aplicar na S4 (feito pelo dono, nunca por este código): `migrations/README
   excesso de máscara é aceito (corrente de 8+ dígitos vira `[NUMERO]`, data e valor `R$ 1.234,56` bem formados são isentos).
 - **Procrastinate** usa nomes sem schema em funções e gatilhos: a conexão da fila precisa de `search_path = procrastinate, public`
   (ver `migrations/README.md`). Isso é decisão da infra/B1.3, não da migração.
-- O AAD da cifra tem duas formas: `atendimento_id` (simples) e `atendimento_id|seq|remetente|tipo|chave_id` (a do esquema,
-  a usar em `conversa_cifrada` e `cofre`). Quem decifra precisa passar o mesmo contexto de quem cifrou.
+- **AAD da cifra:** uma só forma, `atendimento_id|seq|remetente|tipo|chave_id` (cofre: `atendimento_id|0|cofre|finalidade|chave_id`),
+  com contexto obrigatório e domínio fechado. Quem decifra passa o mesmo contexto de quem cifrou.
+- **Máscara de PII:** `[NOME]` só para nomes que o chamador informa (a máscara não adivinha «me chamo X»); e-mail escrito por extenso
+  («fulano arroba gmail ponto com», «fulano (at) gmail.com») e CPF com `%`-codificação em URL não são mascarados.
+- **Destino do modelo:** `Settings` aceita só `https://us.api.fireworks.ai` ou loopback. Trocar de provedor (reserva Together só-EUA,
+  Gemini) é mudança de código revisada, não de variável de ambiente.
 
 ## Estrutura
 
