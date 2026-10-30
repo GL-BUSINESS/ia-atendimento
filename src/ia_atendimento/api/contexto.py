@@ -81,6 +81,7 @@ class Contadores:
 
     def somar(self, nome: str, n: int = 1) -> None:
         self._valores[nome] += n
+        log.warning("alerta ti: contador=%s total=%d", nome, self._valores[nome])  # sem isto o sinal ficaria invisível (R1-11)
 
     def valor(self, nome: str) -> int:
         return self._valores[nome]

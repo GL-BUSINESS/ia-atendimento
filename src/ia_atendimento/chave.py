@@ -168,6 +168,11 @@ class LeitorConfig:
             self._cache = {**self._cache, nome: (agora, lida)}
         return lida
 
+    def invalidar(self, nome: str) -> None:
+        """Descarta a chave do cache. Quem grava DENTRO de uma transação chama de novo DEPOIS do commit: uma leitura concorrente, entre o
+        `registrar` e o commit, repõe o valor velho por até `ttl_s` segundos (R1-20)."""
+        self._cache = {k: v for k, v in self._cache.items() if k != nome}
+
     def valor(self, conn: psycopg.Connection, nome: str) -> Any:
         """Valor vigente; se a chave nunca foi gravada, o padrão do registro (None se nem isso)."""
         lida = self.vigente(conn, nome)

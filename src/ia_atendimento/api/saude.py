@@ -28,6 +28,8 @@ def _espelho_pendente_mais_velho_s(conn: psycopg.Connection) -> float | None:
 
 
 def _prontidao(ctx: ContextoApi) -> prontidao.Prontidao:
+    if ctx.diretorio_migracoes is None:  # sem a pasta não há como conferir checksum nem pendência: falha FECHADO (R1-09), nunca em silêncio
+        raise ErroApi("nao_pronto", detalhe={"falhas": ["migracoes_nao_conferidas"]})
     opcoes: dict[str, Any] = {"conninfo_direto": ctx.dsn} if ctx.dsn else {}
     if ctx.diretorio_migracoes is not None:
         opcoes["diretorio_migracoes"] = ctx.diretorio_migracoes

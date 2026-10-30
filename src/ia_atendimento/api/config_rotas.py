@@ -189,6 +189,7 @@ def gravar_config(ctx: ContextoApi, origem: str, nome: str, corpo: dict[str, Any
             raise ErroApi("config_inexistente", campo="nome") from None
         except ValorInvalido:  # o banco (CHECK) ou a regra cruzada recusou
             raise ErroApi("valor_invalido", campo="valor") from None
+        ctx.leitor.invalidar(nome)  # já commitado: tira do cache o que uma leitura concorrente pode ter reposto antes do commit
     return 200, {
         "nome": nova.nome, "versao": nova.versao, "valor": nova.valor, "publicado_em": _iso(nova.publicado_em),
         "efeitos": {"encerrar_por_chave_agendados": agendados},

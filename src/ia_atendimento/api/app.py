@@ -189,7 +189,8 @@ def _registrar_tratadores(app: FastAPI) -> None:
         return await _erro_api(request, ErroApi(codigo))
 
     @app.exception_handler(psycopg.OperationalError)
-    async def _banco_fora(request: Request, erro: psycopg.OperationalError) -> JSONResponse:
+    @app.exception_handler(psycopg.InterfaceError)  # conexão fechada pelo pool no meio da requisição
+    async def _banco_fora(request: Request, erro: psycopg.Error) -> JSONResponse:
         log.warning("banco indisponível trace=%s tipo=%s", _trace_id(request), type(erro).__name__)
         return await _erro_api(request, ErroApi("nao_pronto"))
 

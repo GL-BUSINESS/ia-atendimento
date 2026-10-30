@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -193,3 +194,98 @@ def test_o_token_do_c360_tambem_passa_pela_regra_do_por(ambiente):
     assert r.status_code == 422 and _codigo(r) == "pii_no_texto_livre"
     assert ambiente.put("/config/modo", {"valor": "sombra", "por": POR}, token="c360_api").status_code == 200
     assert TOKENS["c360_api"] not in r.text
+
+
+# --- R1-09: /readyz falha FECHADO sem a pasta de migrações; a pasta viaja no wheel -------------------------------------------------------------
+
+
+def test_readyz_sem_pasta_de_migracoes_e_503_e_nunca_200_sem_conferir(ambiente):
+    with ambiente.super() as conn:
+        conn.execute("INSERT INTO procrastinate.procrastinate_workers (last_heartbeat) VALUES (now() - interval '5 seconds')")
+    assert ambiente.get("/readyz").status_code == 200
+    ambiente.trocar(diretorio_migracoes=None)
+    r = ambiente.get("/readyz")
+    assert r.status_code == 503 and r.json()["erro"]["detalhe"]["falhas"] == ["migracoes_nao_conferidas"]
+
+
+def test_subida_recusa_pasta_de_migracoes_ausente_ou_vazia(monkeypatch, tmp_path):
+    from ia_atendimento.api.ambiente import _diretorio_de_migracoes
+    from ia_atendimento.config import ConfiguracaoInvalida
+
+    monkeypatch.delenv("IA_MIGRACOES_DIR", raising=False)
+    assert (_diretorio_de_migracoes() / "0001_esquema.up.sql").exists(), "no checkout vale a pasta migrations/ do repositório"
+    monkeypatch.setenv("IA_MIGRACOES_DIR", str(tmp_path / "nao-existe"))
+    with pytest.raises(ConfiguracaoInvalida):
+        _diretorio_de_migracoes()
+    monkeypatch.setenv("IA_MIGRACOES_DIR", str(tmp_path))
+    with pytest.raises(ConfiguracaoInvalida):
+        _diretorio_de_migracoes()
+    monkeypatch.setenv("IA_MIGRACOES_DIR", str(Path(__file__).resolve().parent.parent / "migrations"))
+    assert _diretorio_de_migracoes().name == "migrations"
+
+
+def test_o_wheel_leva_as_migracoes_como_dados_do_pacote():
+    import tomllib
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parent.parent
+    wheel = tomllib.loads((raiz / "pyproject.toml").read_text())["tool"]["hatch"]["build"]["targets"]["wheel"]
+    assert wheel["force-include"] == {"migrations": "ia_atendimento/migrations"}
+
+
+# --- R1-30, R1-11, R1-25, R1-20 -------------------------------------------------------------------------------------------------------------
+
+
+def test_conexao_fechada_pelo_pool_e_503_e_nao_500(ambiente):
+    import psycopg
+
+    def quebrada():
+        raise psycopg.InterfaceError("connection is closed")
+
+    ambiente.trocar(conexao=quebrada)
+    r = ambiente.get("/saude")
+    assert r.status_code == 503 and _codigo(r) == "nao_pronto"
+
+
+def test_alertas_dos_contadores_aparecem_no_log(ambiente, caplog):
+    with ambiente.super() as conn:
+        conn.execute(
+            "INSERT INTO ia.config_versao (nome, versao, valor, publicado_por, motivo) VALUES ('max_abertos', 2, '12', 'legado', %s)",
+            (f"cpf {CPF}",),
+        )
+    with caplog.at_level("WARNING"):
+        ambiente.get("/config/max_abertos")
+    assert "alerta ti: contador=texto_livre_mascarado_na_leitura total=1" in caplog.text and CPF not in caplog.text
+
+
+def test_casamento_com_chave_do_mes_descartada_deixa_alerta_no_log(ambiente, caplog):
+    import os
+
+    from ia_atendimento.cifra import Chaveiro
+    from ia_atendimento.mensagens import _texto_do_passo
+
+    atd = abrir_ativo(ambiente)
+    assert ambiente.evento_chatguru(mensagem_nativa()).json()["resultado"] == "gravado"
+    sem_a_chave = Chaveiro({1: os.urandom(32)}, vigente=1)  # a chave 2, que cifrou, foi descartada
+    with ambiente.runtime() as conn, caplog.at_level("WARNING"):
+        assert _texto_do_passo(conn, atd, 1, sem_a_chave) is None
+    assert "alerta ti: casamento sem a chave do mês" in caplog.text
+
+
+def test_put_invalida_o_cache_depois_do_commit(ambiente, monkeypatch):
+    """Uma leitura concorrente entre o `registrar` e o commit repõe o valor velho no cache; o PUT o limpa de novo ao fim."""
+    from ia_atendimento.chave import LeitorConfig
+
+    leitor = LeitorConfig(ambiente.relogio, ttl_s=5)
+    ambiente.trocar(leitor=leitor)
+    registrar = LeitorConfig.registrar
+
+    def registrar_e_deixar_leitura_velha_no_cache(self, conn, nome, valor, por, **opcoes):
+        nova = registrar(self, conn, nome, valor, por, **opcoes)
+        self._cache = {**self._cache, nome: (self._relogio.agora(), None)}  # a leitura concorrente repôs algo velho
+        return nova
+
+    monkeypatch.setattr(LeitorConfig, "registrar", registrar_e_deixar_leitura_velha_no_cache)
+    assert ambiente.put("/config/max_abertos", {"valor": 12, "por": POR}).status_code == 200
+    with ambiente.runtime() as conn:
+        assert leitor.valor(conn, "max_abertos") == 12

@@ -168,6 +168,7 @@ def _texto_do_passo(conn: psycopg.Connection, atendimento_id: uuid.UUID, ordem: 
     try:
         return chaveiro.decifrar(chave_id, bytes(nonce), bytes(cifra), atendimento_id, seq=seq, remetente=remetente, tipo=tipo)
     except ChaveDesconhecida:
+        log.warning("alerta ti: casamento sem a chave do mês do candidato (chave descartada); a mensagem do RPA entra como nova")
         return None
 
 

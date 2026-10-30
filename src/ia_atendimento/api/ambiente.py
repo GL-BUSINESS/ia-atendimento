@@ -6,18 +6,19 @@ Faltou segredo obrigatório, arquivo aberto demais, chave inválida ou fixture m
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 from fastapi import FastAPI
 from psycopg_pool import ConnectionPool
 
-from ia_atendimento import fila
+from ia_atendimento import fila, migracoes
 from ia_atendimento.api.app import criar_app
 from ia_atendimento.api.contexto import ContextoApi, PreVooComCache, PreVooLivre
 from ia_atendimento.chave import LeitorConfig
 from ia_atendimento.cifra import Chaveiro
-from ia_atendimento.config import Settings, get_settings
+from ia_atendimento.config import ConfiguracaoInvalida, Settings, get_settings
 from ia_atendimento.enfileirador import EnfileiradorProcrastinate
 from ia_atendimento.evento_mensagem import ChavesDeMensagem
 from ia_atendimento.pessoas_teste import carregar as carregar_pessoas_teste
@@ -31,6 +32,8 @@ POOL_ESPERA_S = 5.0  # sem conexão livre em 5 s ⇒ PoolTimeout ⇒ 503 `nao_pr
 
 
 def criar_app_de_ambiente() -> FastAPI:
+    # o access log do uvicorn grava caminho e query (`/atendimentos/por-chave/{chave}`, `?historico=`): a API loga a sua linha sem eles
+    logging.getLogger("uvicorn.access").disabled = True
     settings = get_settings()
     return _montar(settings)
 
@@ -57,7 +60,17 @@ def _montar(settings: Settings) -> FastAPI:
     return criar_app(contexto, ao_iniciar=pool.open, ao_encerrar=pool.close)
 
 
-def _diretorio_de_migracoes() -> Path | None:
-    """`migrations/` ao lado do pacote (imagem com o repo inteiro) ou `IA_MIGRACOES_DIR`; sem ela o `/readyz` não confere checksum."""
-    escolhido = Path(os.environ["IA_MIGRACOES_DIR"]) if os.environ.get("IA_MIGRACOES_DIR") else RAIZ / "migrations"
-    return escolhido if escolhido.is_dir() else None
+def _diretorio_de_migracoes() -> Path:
+    """Pasta das migrações que o `/readyz` confere contra o ledger (checksum e pendência). Ordem: `IA_MIGRACOES_DIR` (explícito),
+    `migrations/` do checkout, `ia_atendimento/migrations/` no pacote instalado (o wheel as leva). Não achou, ou veio sem migração válida:
+    FALHA a subida, porque um `/readyz` que deixa de conferir checksum em silêncio (R1-09) é pior que não subir."""
+    explicito = os.environ.get("IA_MIGRACOES_DIR")
+    candidatas = [Path(explicito)] if explicito else [RAIZ / "migrations", Path(__file__).resolve().parents[1] / "migrations"]
+    for pasta in candidatas:
+        if pasta.is_dir():
+            try:
+                migracoes.listar(pasta)
+            except migracoes.MigracaoErro:
+                raise ConfiguracaoInvalida(f"pasta de migrações sem migração válida: {pasta.name}") from None
+            return pasta
+    raise ConfiguracaoInvalida("pasta de migrações não encontrada (defina IA_MIGRACOES_DIR ou instale o pacote com migrations/)")

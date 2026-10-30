@@ -37,6 +37,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ia_atendimento"]
+# o /readyz confere o checksum das migrações contra a pasta: instalada em site-packages ela viaja dentro do pacote (R1-09)
+force-include = { "migrations" = "ia_atendimento/migrations" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -903,7 +903,6 @@ def test_readyz_503_so_nas_falhas_duras_e_200_com_a_view(ambiente):
     assert r.status_code == 503 and _codigo(r) == "nao_pronto" and "workers_sem_heartbeat" in r.json()["erro"]["detalhe"]["falhas"]
     with ambiente.super() as conn:
         conn.execute("INSERT INTO procrastinate.procrastinate_workers (last_heartbeat) VALUES (now() - interval '5 seconds')")
-    ambiente.trocar(diretorio_migracoes=None)  # a conferência de checksum tem teste próprio abaixo
     abrir_ativo(ambiente, estado="aberto")
     abrir_ativo(ambiente, "aaaaaaaaaaaaaaaaaaaaaaa1", estado="pausado")
     r = ambiente.get("/readyz", "ti")
