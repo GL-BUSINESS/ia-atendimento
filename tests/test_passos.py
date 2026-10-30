@@ -89,6 +89,9 @@ def test_motivo_da_decisao_e_codigo_de_catalogo_e_tem_padrao():
         "Com Espaço",
         "x" * 41,
         "(não informado)",
+        "cliente_disse_zebraquantica",  # casa o regex de código mas NÃO está no catálogo (R2-2)
+        "cpf_52998224725",
+        "joao_carlos_silva",
     ],
 )
 def test_motivo_com_texto_livre_e_recusado_a1(texto):
