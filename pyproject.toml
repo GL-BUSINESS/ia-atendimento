@@ -1,6 +1,6 @@
 [project]
 name = "ia-atendimento"
-version = "0.1.0"
+version = "0.2.0"
 description = "IA de atendimento GL Capital: orquestrador (fundação do repositório)"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -19,6 +19,7 @@ dependencies = [
   "opentelemetry-exporter-otlp==1.45.2",
   "openinference-instrumentation-pydantic-ai==0.1.32",
   "cryptography==50.0.2",
+  "tzdata==2026.6",
 ]
 
 [dependency-groups]

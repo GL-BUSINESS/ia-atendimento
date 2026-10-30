@@ -15,7 +15,7 @@ from urllib.parse import unquote, urlsplit
 
 from psycopg import ProgrammingError
 from psycopg.conninfo import conninfo_to_dict
-from pydantic import Field, SecretStr, ValidationError, field_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HOSTS_LOCAIS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -34,6 +34,7 @@ PADRAO_LOGIN_RUNTIME = re.compile(r"^ia_app_[a-z0-9]{1,16}$")
 TAMANHO_MIN_SEGREDO = 16  # `.env.example` traz os segredos vazios: esquecer de preencher não pode subir com API aberta
 # `options=-c role=…`/`session_authorization=…` trocariam a identidade após o login; `-c search_path=…` (OPERACAO.md §4) segue valendo
 OPCOES_PROIBIDAS = re.compile(r"\b(?:role|session_authorization)\b", re.IGNORECASE)
+TAMANHO_MIN_CHAVE_HMAC = 32  # chaves HMAC de mensagem (`h16` e `msg_fingerprint`): ao menos 32 caracteres
 CHAVE_ID_MAX = 32767  # coluna smallint (conversa_cifrada.chave_id, cofre.chave_id)
 
 
@@ -51,6 +52,16 @@ class Settings(BaseSettings):
     # Chave AES-256-GCM da conversa/cofre: id vigente (mensal) + arquivo 0600 com {"<id>": "<base64 de 32 bytes>"}.
     chave_aes_id: int = Field(ge=1, le=CHAVE_ID_MAX)
     chave_aes_arquivo: Path
+    # HMAC da identidade da mensagem recebida (contrato 08 §5.1): `h16` (msg_chave) e `msg_fingerprint`, com chaves PRÓPRIAS e
+    # permanentes (trocar quebra o dedupe). Texto curto de cliente é enumerável: sha256 puro seria reversível por dicionário (S2).
+    chave_h16: SecretStr = Field(min_length=TAMANHO_MIN_CHAVE_HMAC)
+    chave_fingerprint: SecretStr = Field(min_length=TAMANHO_MIN_CHAVE_HMAC)
+
+    @model_validator(mode="after")
+    def _chaves_hmac_distintas(self) -> Settings:
+        if self.chave_h16.get_secret_value() == self.chave_fingerprint.get_secret_value():
+            raise ValueError("chave_h16 e chave_fingerprint devem ser diferentes")
+        return self
 
     @field_validator("database_url")
     @classmethod
