@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from ia_atendimento.config import Settings, get_settings
+from ia_atendimento.config import ConfiguracaoInvalida, Settings, get_settings
 
 SEGREDOS = {
     "DATABASE_URL": "postgresql://ia_app_a:senha-do-banco-XYZ@127.0.0.1:5434/ia_atendimento",
@@ -153,3 +153,145 @@ def test_database_url_recusa_dono_superusuario_e_esquema_errado_sem_ecoar_a_senh
 def test_database_url_do_ia_app_e_aceita(monkeypatch, scheme):
     _definir(monkeypatch, {**BASE, "DATABASE_URL": f"{scheme}://ia_app_a:senha@127.0.0.1:5434/ia_atendimento"})
     assert Settings().database_url.get_secret_value().startswith(scheme)
+
+
+# --- revisão 29/10: o que a lista de proibidos deixava passar ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://api.deepseek.com./v1",  # ponto final de FQDN: o DNS resolve para o mesmo host
+        "https://api.deepseek\u3002com/v1",  # ponto ideográfico: o httpx normaliza para «.»
+        "https://API.DEEPSEEK.COM/v1",
+        "https://api.anthropic.com./v1",
+        "https://api.fireworks.ai/inference/v1",  # fireworks GLOBAL: «global» não é EUA (regra 1)
+        "https://openrouter.ai/api/v1",
+        "https://us.api.fireworks.ai.evil.example/inference/v1",
+        "https://evil.example/us.api.fireworks.ai",
+        "https://us.api.fireworks.ai@evil.example/inference/v1",
+        "https://u:p@us.api.fireworks.ai/inference/v1",  # credencial na URL sairia no repr (o campo não é SecretStr)
+        "https://us.api.fireworks.ai/inference/v1?api_key=x",
+        "https://us.api.fireworks.ai:8443/inference/v1",
+        "https://us.api.fireworks.ai%2Eevil.example/v1",
+        "ftp://us.api.fireworks.ai/inference/v1",
+        "http://localhost.evil.example/v1",
+        "http://127.0.0.1.evil.example/v1",
+    ],
+)
+def test_url_do_modelo_so_aceita_o_provedor_aprovado_ou_loopback(monkeypatch, url):
+    _definir(monkeypatch, {**BASE, "MODELO_BASE_URL_1": url})
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://us.api.fireworks.ai/inference/v1",
+        "https://us.api.fireworks.ai/inference",
+        "http://127.0.0.1:8089/v1",
+        "http://localhost:8089/v1",
+        "http://[::1]:8089/v1",
+    ],
+)
+def test_url_do_modelo_aprovada_ou_loopback_do_duble_e_aceita(monkeypatch, url):
+    _definir(monkeypatch, {**BASE, "MODELO_BASE_URL_1": url})
+    assert Settings().modelo_base_url_1 == url
+
+
+@pytest.mark.parametrize(
+    "nome",
+    [
+        "anthropic/deepseek-v4",
+        "claude/deepseek-v4",
+        "accounts/anthropic/routers/deepseek-v4p1-flash-1017-us",
+        "deepseek-claude-3",
+        "gemini-anthropic",
+        "deepseek-x/anthropic",
+        "../deepseek-v4",
+        "accounts/fireworks/outra/deepseek-v4",
+        "accounts//routers/deepseek-v4",
+    ],
+)
+def test_modelo_nome_recusa_anthropic_em_qualquer_segmento_e_prefixo_fora_do_padrao(monkeypatch, nome):
+    _definir(monkeypatch, {**BASE, "MODELO_NOME": nome})
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize(
+    "nome",
+    [
+        "deepseek-v4p1-flash-1017",
+        "gemini-2.5-flash",
+        "accounts/fireworks/models/deepseek-v4p1-flash-1017",
+        "accounts/fireworks/routers/deepseek-v4p1-flash-1017-us",
+    ],
+)
+def test_modelo_nome_aprovado_e_aceito(monkeypatch, nome):
+    _definir(monkeypatch, {**BASE, "MODELO_NOME": nome})
+    assert Settings().modelo_nome == nome
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://ia%5Fowner:segredo-do-super@127.0.0.1:5434/ia_atendimento",  # o libpq decodifica %5F: é o ia_owner
+        "postgresql://s4%5Fsuper:segredo-do-super@127.0.0.1:5434/ia_atendimento",
+        "postgresql://%69a_owner:segredo-do-super@127.0.0.1:5434/ia_atendimento",
+        "postgresql://ia_app_a:segredo-do-super@127.0.0.1:5434/ia_atendimento?user=ia_owner",  # ?user= vence a userinfo
+        "postgresql://ia_app_a:segredo-do-super@127.0.0.1:5434/ia_atendimento?user=postgres",
+        "postgresql://ia_leitura_a:segredo-do-super@127.0.0.1:5434/ia_atendimento",  # login de outro grupo
+        "postgresql://ia_qualidade_a:segredo-do-super@127.0.0.1:5434/ia_atendimento",
+        "postgresql://admin:segredo-do-super@127.0.0.1:5434/ia_atendimento",
+        "postgresql://ia_app:segredo-do-super@127.0.0.1:5434/ia_atendimento",  # o grupo NOLOGIN não é login
+        "postgresql://ia_app_a:segredo-do-super@[::1/ia_atendimento",  # URL malformada: a mensagem do libpq ecoaria a senha
+    ],
+)
+def test_database_url_exige_login_ia_app_efetivo_pelo_libpq(monkeypatch, url):
+    _definir(monkeypatch, {**BASE, "DATABASE_URL": url})
+    with pytest.raises(ValidationError) as erro:
+        Settings()
+    assert "segredo-do-super" not in str(erro.value)
+    with pytest.raises(ConfiguracaoInvalida) as boot:  # o caminho do boot: nem `.errors()` nem `.json()` carregam o valor
+        get_settings()
+    saidas = (str(boot.value), repr(boot.value), repr(boot.value.args), str(boot.value.__cause__), str(boot.value.__context__))
+    assert all("segredo-do-super" not in s for s in saidas)
+    assert "database_url" in str(boot.value)
+
+
+@pytest.mark.parametrize("login", ["ia_app_a", "ia_app_b"])
+def test_database_url_aceita_os_dois_logins_do_runtime(monkeypatch, login):
+    _definir(monkeypatch, {**BASE, "DATABASE_URL": f"postgresql://{login}:senha@127.0.0.1:5434/ia_atendimento"})
+    assert Settings().database_url.get_secret_value().startswith(f"postgresql://{login}:")
+
+
+@pytest.mark.parametrize("campo", ["MODELO_API_KEY_1", "API_TOKEN"])
+@pytest.mark.parametrize("valor", ["", "k", "curto-demais"])
+def test_segredo_vazio_ou_curto_recusa_o_boot(monkeypatch, campo, valor):
+    """O `.env.example` traz os campos vazios: copiar e esquecer de preencher não pode subir com a API aberta."""
+    _definir(monkeypatch, {**BASE, campo: valor})
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize("endpoint", ["http://user:segredo@127.0.0.1:6006/v1/traces", "ftp://127.0.0.1/x", "127.0.0.1:6006"])
+def test_phoenix_endpoint_recusa_credencial_na_url_e_esquema_estranho(monkeypatch, endpoint):
+    _definir(monkeypatch, {**BASE, "PHOENIX_ENDPOINT": endpoint})
+    with pytest.raises(ValidationError) as erro:
+        Settings()
+    assert "segredo" not in str(erro.value)
+
+
+def test_phoenix_endpoint_vazio_do_env_example_vale_como_sem_exportar(monkeypatch):
+    _definir(monkeypatch, {**BASE, "PHOENIX_ENDPOINT": ""})
+    assert Settings().phoenix_endpoint is None
+
+
+def test_boot_com_erro_lista_campo_e_motivo_sem_valor(monkeypatch):
+    _definir(monkeypatch, {**BASE, "API_TOKEN": "curto", "CHAVE_AES_ID": "0"})
+    with pytest.raises(ConfiguracaoInvalida) as erro:
+        get_settings()
+    texto = str(erro.value)
+    assert "api_token" in texto and "chave_aes_id" in texto and "curto" not in texto
