@@ -1,0 +1,401 @@
+"""B5.7a: extrator determinístico de horário (EM1). Módulo puro: sem banco, sem rede, relógio injetado."""
+
+from __future__ import annotations
+
+import ast
+import dataclasses
+import json
+import random
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from ia_atendimento import agenda_extrator
+from ia_atendimento.agenda_extrator import VERSAO, ConfigAgenda, extrair
+
+BRT = ZoneInfo("America/Sao_Paulo")
+CORPUS = Path(__file__).parent / "corpus" / "agenda_frases.jsonl"
+CONFIANCA_ORDEM = {"baixa": 0, "media": 1, "alta": 2}
+QUI10 = datetime(2026, 11, 5, 10, 0, tzinfo=BRT)  # quinta; o teto padrão é sexta 09:00
+
+
+def _carregar() -> list[dict]:
+    return [json.loads(linha) for linha in CORPUS.read_text(encoding="utf-8").splitlines() if linha.strip()]
+
+
+FRASES = _carregar()
+DEV = [f for f in FRASES if not f["holdout"]]
+HOLDOUT = [f for f in FRASES if f["holdout"]]
+
+
+def _rodar(caso: dict):
+    agora = datetime.fromisoformat(caso["agora"])
+    ultima = datetime.fromisoformat(caso["ultima_msg"]) if caso["ultima_msg"] else agora
+    return extrair(caso["texto"], agora, ultima, ConfigAgenda(usa_periodos=caso["usa_periodos"]))
+
+
+def _confere(caso: dict) -> bool:
+    r = _rodar(caso)
+    return (
+        [c.quando for c in r.candidatos] == [datetime.fromisoformat(e) for e in caso["esperado"]]
+        and [c.confianca for c in r.candidatos] == caso["confianca"]
+        and r.motivo_recusa == caso["motivo"]
+    )
+
+
+def _ex(texto: str, agora: datetime = QUI10, ultima: datetime | None = None, **cfg):
+    return extrair(texto, agora, ultima or agora, ConfigAgenda(**cfg))
+
+
+# ------------------------------------------------------------------ o corpus
+def test_corpus_tem_o_tamanho_pedido():
+    assert len(FRASES) >= 150
+    assert len(HOLDOUT) >= 30
+    assert len({f["id"] for f in FRASES}) == len(FRASES)
+    assert len({(f["texto"], f["agora"], f["ultima_msg"], f["usa_periodos"]) for f in FRASES}) == len(FRASES)
+
+
+def test_corpus_cobre_os_casos_exigidos():
+    tags = {f["tag"] for f in FRASES}
+    for exigida in ("utc", "sabado", "domingo", "feriado", "dataprev", "relativo", "ambiguo", "sem_hora", "ruido", "hora_passada", "teto"):
+        assert exigida in tags, exigida
+    assert any(f["agora"].endswith("+00:00") for f in FRASES)  # 22:30 UTC
+    assert any("amanhã" in f["texto"].lower() and f["agora"].startswith("2026-11-06") for f in FRASES)  # "amanhã" numa sexta
+    assert any("daqui a 1 hora" in f["texto"] for f in FRASES)
+    assert any("umas 3" in f["texto"] for f in FRASES) and any("3 e meia" in f["texto"] for f in FRASES)
+
+
+@pytest.mark.parametrize("caso", DEV, ids=[f["id"] for f in DEV])
+def test_corpus_de_desenvolvimento_acerta_tudo(caso):
+    r = _rodar(caso)
+    assert [c.quando.isoformat() for c in r.candidatos] == [
+        datetime.fromisoformat(e).astimezone(BRT).isoformat() for e in caso["esperado"]
+    ], caso["texto"]
+    assert [c.confianca for c in r.candidatos] == caso["confianca"], caso["texto"]
+    assert r.motivo_recusa == caso["motivo"], caso["texto"]
+
+
+def test_holdout_acerto_minimo_de_95_por_cento(capsys):
+    erros = [f for f in HOLDOUT if not _confere(f)]
+    taxa = 1 - len(erros) / len(HOLDOUT)
+    with capsys.disabled():
+        print(f"\n[hold-out] {len(HOLDOUT) - len(erros)}/{len(HOLDOUT)} = {taxa:.1%}")
+    assert taxa >= 0.95, [(f["id"], f["texto"]) for f in erros]
+
+
+# ------------------------------------------------------------------ EM1: zero data inventada
+def _todas_as_entradas() -> list[tuple[str, datetime, datetime, bool]]:
+    saida = []
+    for f in FRASES:
+        agora = datetime.fromisoformat(f["agora"])
+        ultima = datetime.fromisoformat(f["ultima_msg"]) if f["ultima_msg"] else agora
+        saida.append((f["texto"], agora, ultima, f["usa_periodos"]))
+    return saida
+
+
+def test_em1_todo_quando_tem_origem_que_aparece_no_texto():
+    com_candidato = 0
+    for texto, agora, ultima, periodos in _todas_as_entradas():
+        for c in extrair(texto, agora, ultima, ConfigAgenda(usa_periodos=periodos)).candidatos:
+            com_candidato += 1
+            assert c.origem and c.origem in texto, (texto, c.origem)
+            assert c.quando.tzinfo is not None and c.quando.utcoffset() == timedelta(hours=-3)
+    assert com_candidato > 100
+
+
+def test_em1_sem_hora_nao_ha_candidato_nem_data_inventada():
+    for texto in ("depois", "mais tarde", "semana que vem", "amanhã", "segunda", "dia 5", "daqui a pouco", "boa tarde", ""):
+        r = _ex(texto)
+        assert r.candidatos == () and r.motivo_recusa == "sem_hora_explicita", texto
+
+
+def test_em1_ambiguo_nunca_vira_alta():
+    ambiguos = 0
+    for texto, agora, ultima, periodos in _todas_as_entradas():
+        r = extrair(texto, agora, ultima, ConfigAgenda(usa_periodos=periodos))
+        if len(r.candidatos) >= 2:
+            ambiguos += 1
+            assert all(c.confianca != "alta" for c in r.candidatos), texto
+    assert ambiguos >= 10
+    for texto in ("15 ou 16", "às 15h ou 16h", "3 ou 4 da tarde", "hoje ou amanhã às 15"):
+        assert {c.confianca for c in _ex(texto).candidatos} <= {"media", "baixa"}, texto
+
+
+def test_periodos_nunca_viram_alta():
+    for texto in ("amanhã de tarde", "depois do almoço", "de manhã", "à noite", "fim da tarde", "amanhã cedo", "hoje à noite"):
+        r = _ex(texto, usa_periodos=True)
+        assert r.candidatos and all(c.confianca in ("media", "baixa") for c in r.candidatos), texto
+
+
+def test_periodo_so_vale_com_a_chave_na_config_e_a_v1_nao_o_usa_por_padrao():
+    assert _ex("depois do almoço").motivo_recusa == "sem_hora_explicita"
+    sem_almoco = {k: v for k, v in ConfigAgenda().periodos.items() if k != "depois_do_almoco"}
+    r = _ex("depois do almoço", usa_periodos=True, periodos=sem_almoco)
+    assert r.candidatos == () and r.motivo_recusa == "sem_hora_explicita"
+
+
+# ------------------------------------------------------------------ janela, antecedência, teto
+@pytest.mark.parametrize(
+    ("texto", "agora", "motivo"),
+    [
+        ("hoje às 19:01", QUI10, "depois_da_janela"),
+        ("hoje às 8", QUI10, "passado"),
+        ("amanhã às 8", QUI10, "antes_da_janela"),
+        ("hoje às 10:05", QUI10, "antecedencia"),
+        ("hoje às 9", QUI10, "passado"),
+        ("sábado às 12:30", datetime(2026, 11, 6, 8, 0, tzinfo=BRT), "depois_da_janela"),
+        ("domingo às 10", datetime(2026, 11, 6, 8, 0, tzinfo=BRT), "domingo"),
+    ],
+)
+def test_candidato_fora_da_janela_e_marcado_nao_descartado(texto, agora, motivo):
+    r = _ex(texto, agora)
+    assert len(r.candidatos) == 1
+    assert r.candidatos[0].fora_da_janela is True
+    assert motivo in r.candidatos[0].razoes
+    assert r.motivo_recusa is not None
+
+
+def test_limites_da_janela_sao_inclusivos_e_antecedencia_de_10_minutos():
+    assert _ex("hoje às 10:10").motivo_recusa is None  # exatamente 10 min
+    assert _ex("hoje às 10:09").motivo_recusa == "antecedencia"
+    assert _ex("hoje às 19h").candidatos[0].fora_da_janela is False
+    cedo = datetime(2026, 11, 5, 9, 30, tzinfo=BRT)  # teto = sexta 08:30
+    assert _ex("amanhã às 8:30", cedo).candidatos[0].razoes == ()
+    assert _ex("amanhã às 8:31", cedo).candidatos[0].razoes == ("acima_do_teto",)
+
+
+def test_sabado_ate_meio_dia_e_flag_na_config():
+    sabado = datetime(2026, 11, 7, 8, 0, tzinfo=BRT)
+    assert _ex("hoje às 12", sabado).motivo_recusa is None
+    assert _ex("hoje às 14", sabado).motivo_recusa == "depois_da_janela"
+    assert _ex("hoje às 14", sabado, sabado_fim=None).motivo_recusa is None  # sem corte de sábado
+
+
+def test_teto_e_o_menor_entre_23h_da_ultima_msg_e_proximo_dia_util_19h():
+    ultima = datetime(2026, 11, 5, 9, 0, tzinfo=BRT)
+    agora = datetime(2026, 11, 5, 14, 0, tzinfo=BRT)
+    assert _ex("amanhã às 8", agora, ultima).motivo_recusa == "antes_da_janela"
+    ok = _ex("amanhã às 8:30", agora, ultima)  # teto = sexta 08:00 (09:00 + 23 h): 08:30 passa
+    assert ok.candidatos[0].razoes == ("acima_do_teto",)
+    assert _ex("amanhã às 07:59", agora, ultima).candidatos[0].razoes == ("antes_da_janela",)
+    # o próximo dia útil 19:00 vence quando 23 h depois da última msg passa dele (quinta 23:30 + 23 h = sexta 22:30)
+    noite = datetime(2026, 11, 5, 23, 30, tzinfo=BRT)
+    alargada = {"janela_fim": "20:00"}  # janela mais larga que o teto: só o teto segura
+    assert _ex("amanhã às 19h", noite, **alargada).motivo_recusa is None
+    assert _ex("amanhã às 19:30", noite, **alargada).candidatos[0].razoes == ("acima_do_teto",)
+
+
+def test_teto_horas_vem_da_config():
+    r = _ex("hoje às 14", teto_horas=2)  # teto 12:00
+    assert r.candidatos[0].razoes == ("acima_do_teto",)
+    assert _ex("hoje às 12", teto_horas=2).motivo_recusa is None
+    assert _ex("hoje às 12:01", teto_horas=2).motivo_recusa == "acima_do_teto"
+
+
+def test_proximo_dia_util_pula_domingo_e_feriado():
+    # sexta 30/10 16:00 com teto de 100 h: o único limite é o próximo dia útil (sábado) 19:00
+    sexta = datetime(2026, 10, 30, 16, 0, tzinfo=BRT)
+    r = _ex("sábado às 11", sexta, teto_horas=100)
+    assert r.motivo_recusa is None
+    # sábado 31/10: próximo dia útil é terça 03/11 (domingo e feriado de 02/11 pulados)
+    sabado = datetime(2026, 10, 31, 8, 0, tzinfo=BRT)
+    assert _ex("terça às 19h", sabado, teto_horas=100).motivo_recusa is None
+    assert _ex("quarta às 9", sabado, teto_horas=100).motivo_recusa == "acima_do_teto"
+
+
+# ------------------------------------------------------------------ feriados e DATAPREV
+@pytest.mark.parametrize(
+    ("texto", "motivo"),
+    [
+        ("dia 2 às 10", "feriado"),
+        ("02/11 às 14h", "feriado"),
+        ("20/11 às 9h", "feriado"),
+        ("21/11 às 10", "bloqueio_dataprev"),
+        ("domingo 22/11 às 10", "bloqueio_dataprev"),
+        ("segunda 23/11 05:30", "bloqueio_dataprev"),
+    ],
+)
+def test_feriado_e_bloqueio_dataprev_recusam_com_motivo(texto, motivo):
+    agora = datetime(2026, 10, 30, 15, 0, tzinfo=BRT)
+    r = extrair(texto, agora, agora, ConfigAgenda(teto_horas=23))
+    assert r.motivo_recusa == motivo and r.candidatos and all(c.fora_da_janela for c in r.candidatos)
+
+
+def test_bloqueio_dataprev_termina_as_6h_de_23_11():
+    agora = datetime(2026, 11, 18, 10, 0, tzinfo=BRT)
+    r = extrair("23/11 06:00", agora, agora, ConfigAgenda(teto_horas=23))
+    assert "bloqueio_dataprev" not in r.candidatos[0].razoes  # 06:00 já não é bloqueio (só falha por antes da janela/teto)
+    r2 = extrair("23/11 05:59", agora, agora, ConfigAgenda(teto_horas=23))
+    assert "bloqueio_dataprev" in r2.candidatos[0].razoes
+
+
+def test_feriados_e_bloqueios_vem_da_config():
+    sem_feriado = _ex("dia 20 às 10", feriados=frozenset(), bloqueios=())
+    assert "feriado" not in sem_feriado.candidatos[0].razoes
+
+
+# ------------------------------------------------------------------ fuso, entrada e forma do resultado
+def test_virada_de_dia_em_utc_usa_o_dia_de_brasilia():
+    agora_utc = datetime(2026, 11, 6, 2, 30, tzinfo=UTC)  # ainda é quinta 23:30 em Brasília
+    r = extrair("amanhã às 10", agora_utc, agora_utc, ConfigAgenda())
+    assert r.candidatos[0].quando == datetime(2026, 11, 6, 10, 0, tzinfo=BRT)
+    assert r.motivo_recusa is None
+    r2 = extrair("sexta às 10", agora_utc, agora_utc, ConfigAgenda())
+    assert r2.candidatos[0].quando == datetime(2026, 11, 6, 10, 0, tzinfo=BRT)
+
+
+def test_datetime_ingenuo_e_recusado():
+    ingenuo = datetime(2026, 11, 5, 10, 0)
+    with pytest.raises(ValueError, match="fuso"):
+        extrair("15h", ingenuo, QUI10, ConfigAgenda())
+    with pytest.raises(ValueError, match="fuso"):
+        extrair("15h", QUI10, ingenuo, ConfigAgenda())
+
+
+def test_texto_longo_e_recusado_sem_varrer():
+    r = _ex("às 15h " + "a" * 2000)
+    assert r.candidatos == () and r.motivo_recusa == "texto_longo"
+
+
+def test_resultado_e_candidato_sao_imutaveis_e_versionados():
+    r = _ex("às 15h")
+    assert VERSAO == "1" and r.versao == "1"
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        r.motivo_recusa = "x"  # type: ignore[misc]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        r.candidatos[0].confianca = "baixa"  # type: ignore[misc]
+    assert isinstance(r.candidatos, tuple)
+
+
+def test_idempotencia_mesma_entrada_mesma_saida():
+    for texto, agora, ultima, periodos in _todas_as_entradas():
+        cfg = ConfigAgenda(usa_periodos=periodos)
+        assert extrair(texto, agora, ultima, cfg) == extrair(texto, agora, ultima, cfg), texto
+
+
+def test_config_a_partir_das_chaves_do_banco():
+    cfg = ConfigAgenda.das_chaves(
+        agenda_janela={"inicio": "09:00", "fim": "18:00", "sabado_fim": "11:00"},
+        agenda_periodos={"manha": "10:00", "tarde": "15:00"},
+        agenda_teto_horas=20,
+    )
+    assert (cfg.janela_inicio, cfg.janela_fim, cfg.sabado_fim, cfg.teto_horas) == ("09:00", "18:00", "11:00", 20)
+    assert dict(cfg.periodos) == {"manha": "10:00", "tarde": "15:00"}
+    with pytest.raises(ValueError, match="agenda_teto_horas"):
+        ConfigAgenda.das_chaves(agenda_teto_horas=24)
+    with pytest.raises(ValueError, match="agenda_periodos"):
+        ConfigAgenda.das_chaves(agenda_periodos={"manha": "25:00"})
+
+
+def test_modulo_e_puro_so_biblioteca_padrao():
+    arvore = ast.parse(Path(agenda_extrator.__file__).read_text(encoding="utf-8"))
+    importados = set()
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.Import):
+            importados |= {a.name.split(".")[0] for a in no.names}
+        elif isinstance(no, ast.ImportFrom) and no.module:
+            importados.add(no.module.split(".")[0])
+    permitidos = {
+        "__future__",
+        "dataclasses",
+        "datetime",
+        "re",
+        "unicodedata",
+        "zoneinfo",
+        "typing",
+        "collections",
+        "itertools",
+        "math",
+        "types",
+    }
+    assert importados <= permitidos, importados - permitidos
+
+
+# ------------------------------------------------------------------ propriedades (sem hypothesis nas dependências: aleatório com semente)
+PALAVRAS_DE_RUIDO = [
+    "oi",
+    "ok",
+    "blz",
+    "beleza",
+    "depois",
+    "mais tarde",
+    "amanhã",
+    "hoje",
+    "segunda",
+    "sexta",
+    "de manhã",
+    "à tarde",
+    "à noite",
+    "cedo",
+    "tudo bem",
+    "valeu",
+    "kkk",
+    "😀",
+    "👍",
+    "?",
+    "!!",
+    "...",
+    "pode ser",
+    "não",
+    "sim",
+    "quando",
+    "semana que vem",
+    "mês que vem",
+    "daqui a pouco",
+    "agora",
+    "boa tarde",
+    "boa noite",
+    "bom dia",
+    "obrigado",
+    "tenho parcelas",
+    "quero o dinheiro",
+    "me chama",
+    "fala",
+    "dia",
+    "hora",
+    "horário",
+    "tarde",
+    "manhã",
+    "noite",
+    "almoço",
+    "fim da tarde",
+    "outro dia",
+    "qualquer hora",
+]  # sem dígito, sem número por extenso, sem «meio-dia»: nenhuma hora explícita
+
+
+@pytest.mark.parametrize("usa_periodos", [False, True])
+def test_ruido_sem_hora_explicita_nunca_produz_candidato_alta(usa_periodos):
+    rng = random.Random(20261105)
+    for _ in range(200):
+        texto = " ".join(rng.choice(PALAVRAS_DE_RUIDO) for _ in range(rng.randint(1, 8)))
+        r = _ex(texto, usa_periodos=usa_periodos)
+        assert all(c.confianca != "alta" for c in r.candidatos), texto
+        if not usa_periodos:
+            assert r.candidatos == (), texto
+            assert r.motivo_recusa == "sem_hora_explicita", texto
+
+
+def test_propriedades_em_entradas_aleatorias_com_hora():
+    rng = random.Random(7)
+    extras = ["às 15h", "16:30", "3 da tarde", "15 ou 16", "meio-dia", "dia 9", "05/11", "daqui a 1 hora", "umas 3", "sábado"]
+    pedacos = [*PALAVRAS_DE_RUIDO, *extras]
+    agoras = [
+        QUI10,
+        datetime(2026, 11, 7, 9, 30, tzinfo=BRT),
+        datetime(2026, 11, 8, 10, 0, tzinfo=BRT),
+        datetime(2026, 11, 20, 8, 0, tzinfo=BRT),
+    ]
+    for _ in range(300):
+        texto = " ".join(rng.choice(pedacos) for _ in range(rng.randint(1, 6)))
+        agora = rng.choice(agoras)
+        r = _ex(texto, agora)
+        assert r == _ex(texto, agora)
+        assert len(r.candidatos) <= 3
+        assert (r.motivo_recusa is None) == any(not c.fora_da_janela for c in r.candidatos)
+        if len(r.candidatos) >= 2:
+            assert all(c.confianca != "alta" for c in r.candidatos), texto
+        for c in r.candidatos:
+            assert c.origem in texto and c.quando.tzinfo is not None
