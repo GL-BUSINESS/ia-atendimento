@@ -56,6 +56,13 @@ def _horario(
     return ag.horario_unico(entrada.texto_mensagem, agora, ultima, config)
 
 
+def _procurar_replay(conn: psycopg.Connection, chave: str, hash_do_texto: str) -> ag.Agendado | None:
+    try:
+        return ag.procurar_replay(conn, chave, hash_do_texto)
+    except estado.ConflitoIdempotencia:
+        raise ErroApi("chave_reutilizada", campo="chave") from None
+
+
 def criar_agendamento(ctx: ContextoApi, origem: str, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     entrada = validar(ag.EntradaAgendamento, corpo)
     agora = ctx.relogio.agora()
@@ -66,26 +73,27 @@ def criar_agendamento(ctx: ContextoApi, origem: str, corpo: dict[str, Any]) -> t
         raise ErroApi("chave_incoerente", campo="chave") from None
     hash_do_texto = ag.texto_hash(entrada.texto_mensagem, ctx.chaves_msg.h16)
     with ctx.conexao() as conn:
-        try:
-            anterior = ag.procurar_replay(conn, chave, hash_do_texto)
-        except estado.ConflitoIdempotencia:
-            raise ErroApi("chave_reutilizada", campo="chave") from None
-        if anterior is not None:
+        if (anterior := _procurar_replay(conn, chave, hash_do_texto)) is not None:
             return 200, anterior.corpo()
-        if (recusa := _recusa(ctx, conn, entrada, agora)) is not None:
-            raise ErroApi(recusa)
-        horario = _horario(ctx, conn, entrada, agora)
-        if isinstance(horario, ag.SemHora):
-            return 200, {"agendado": False, "motivo": horario.motivo}
-        modo_do_atendimento(ctx, conn, chat_id=entrada.chat_id, pessoa_id=entrada.pessoa_id)  # 422 de modo/pessoa de teste, antes de gravar
-        return _reservar(ctx, conn, origem, entrada, chave, hash_do_texto, horario, agora)
+        try:
+            return _tentar_reservar(ctx, conn, origem, entrada, chave, hash_do_texto, agora)
+        except ErroApi:
+            # o gêmeo pode ter commitado entre a busca de replay e a recusa (`chat_ocupado` pela PRÓPRIA reserva): repetição, não erro
+            if (anterior := _procurar_replay(conn, chave, hash_do_texto)) is not None:
+                return 200, anterior.corpo()
+            raise
 
 
-def _replay_sob_a_trava(conn: psycopg.Connection, chave: str, hash_do_texto: str) -> ag.Agendado | None:
-    try:
-        return ag.procurar_replay(conn, chave, hash_do_texto)
-    except estado.ConflitoIdempotencia:
-        raise ErroApi("chave_reutilizada", campo="chave") from None
+def _tentar_reservar(
+    ctx: ContextoApi, conn: psycopg.Connection, origem: str, entrada: ag.EntradaAgendamento, chave: str, hash_do_texto: str, agora: datetime
+) -> tuple[int, dict[str, Any]]:
+    if (recusa := _recusa(ctx, conn, entrada, agora)) is not None:
+        raise ErroApi(recusa)
+    horario = _horario(ctx, conn, entrada, agora)
+    if isinstance(horario, ag.SemHora):
+        return 200, {"agendado": False, "motivo": horario.motivo}
+    modo_do_atendimento(ctx, conn, chat_id=entrada.chat_id, pessoa_id=entrada.pessoa_id)  # 422 de modo/pessoa de teste, antes de gravar
+    return _reservar(ctx, conn, origem, entrada, chave, hash_do_texto, horario, agora)
 
 
 def _reservar(
@@ -107,7 +115,7 @@ def _reservar(
         with conn.transaction():
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (TRAVA_ABRIR,))
             # a contagem de `_recusa` foi feita fora da trava: duas requisições concorrentes passariam. Repete AQUI, já serializado.
-            if (repetido := _replay_sob_a_trava(conn, chave, hash_do_texto)) is not None:
+            if (repetido := _procurar_replay(conn, chave, hash_do_texto)) is not None:
                 return 200, repetido.corpo()  # o gêmeo concorrente da MESMA chave já reservou: é repetição, não `chat_ocupado`
             if ag.agendamentos_hoje(conn, agora) >= ctx.leitor.valor(conn, "agenda_max_dia"):
                 raise ErroApi("agenda_max_dia")

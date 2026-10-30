@@ -123,26 +123,39 @@ def _recusas_de_config(ctx: ContextoApi, conn: psycopg.Connection, entrada: Entr
         raise ErroApi(recusa)
 
 
+def _procurar_replay(conn: psycopg.Connection, origem: str, entrada: EntradaApi) -> estado.Resultado | None:
+    try:
+        return estado.procurar_replay(conn, origem, entrada)
+    except estado.ConflitoIdempotencia:
+        raise ErroApi("chave_reutilizada", campo="chave_logica") from None
+
+
 def criar_atendimento(ctx: ContextoApi, origem: str, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     entrada = validar(EntradaApi, corpo)
     _conferir_forma(entrada, ctx.relogio.agora())
     with ctx.conexao() as conn:
-        try:
-            anterior = estado.procurar_replay(conn, origem, entrada)
-        except estado.ConflitoIdempotencia:
-            raise ErroApi("chave_reutilizada", campo="chave_logica") from None
-        if anterior is not None:
+        if (anterior := _procurar_replay(conn, origem, entrada)) is not None:
             return _replay(conn, anterior)
-        _recusas_de_config(ctx, conn, entrada)
-        modo = modo_do_atendimento(
-            ctx, conn, chat_id=entrada.chat_id, pessoa_id=entrada.pessoa_id, persona_id=entrada.persona_id, modo_pedido=entrada.modo
-        )
-        faixa, comissao = _faixa(ctx, conn, entrada)
         try:
-            versoes = estado.versoes_vigentes(conn)
-        except estado.ArtefatoAusente:
-            raise ErroApi("artefatos_ausentes") from None
-        return _abrir(ctx, conn, origem, entrada, versoes, modo, faixa, comissao)
+            return _tentar_abrir(ctx, conn, origem, entrada)
+        except ErroApi:
+            # o gêmeo (retry do n8n) pode ter commitado entre a busca de replay e a recusa: o POST não leva 409 pela própria reserva
+            if (anterior := _procurar_replay(conn, origem, entrada)) is not None:
+                return _replay(conn, anterior)
+            raise
+
+
+def _tentar_abrir(ctx: ContextoApi, conn: psycopg.Connection, origem: str, entrada: EntradaApi) -> tuple[int, dict[str, Any]]:
+    _recusas_de_config(ctx, conn, entrada)
+    modo = modo_do_atendimento(
+        ctx, conn, chat_id=entrada.chat_id, pessoa_id=entrada.pessoa_id, persona_id=entrada.persona_id, modo_pedido=entrada.modo
+    )
+    faixa, comissao = _faixa(ctx, conn, entrada)
+    try:
+        versoes = estado.versoes_vigentes(conn)
+    except estado.ArtefatoAusente:
+        raise ErroApi("artefatos_ausentes") from None
+    return _abrir(ctx, conn, origem, entrada, versoes, modo, faixa, comissao)
 
 
 def _abrir(
@@ -158,6 +171,10 @@ def _abrir(
     agora = ctx.relogio.agora()
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (TRAVA_ABRIR,))  # serializa `abertos_max` entre processos
+        if (
+            anterior := _procurar_replay(conn, origem, entrada)
+        ) is not None:  # o gêmeo que estava na frente da trava já abriu: 200, antes dos tetos
+            return _replay(conn, anterior)
         if abertos_agora(conn) >= ctx.leitor.valor(conn, "max_abertos"):
             raise ErroApi("abertos_max")
         try:
