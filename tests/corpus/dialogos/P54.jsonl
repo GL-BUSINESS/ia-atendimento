@@ -1,0 +1,1 @@
+{"quem": "ia", "fase_esperada": "E0", "acoes_permitidas": ["aguardar", "encerrar"], "acoes_proibidas": ["enviar", "T4", "T7", "T3", "T6"], "tx_esperado": [], "invariantes": ["I2", "I5", "I6", "I7"]}

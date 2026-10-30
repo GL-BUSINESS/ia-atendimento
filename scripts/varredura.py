@@ -2,7 +2,7 @@
 """Varredura dos arquivos versionados E dos novos ainda não adicionados (respeitando .gitignore): segredo, credencial em URL de
 host que não seja local, CPF com DV válido, celular brasileiro e e-mail que não seja de teste. Sai 1 se achar algo.
 
-Dado sintético permitido fica nas listas abaixo (CPFs de exemplo conhecidos; celulares de exemplo; e-mails `@exemplo.test`; hosts
+Dado sintético permitido fica nas listas abaixo (CPFs de exemplo conhecidos e a faixa `000.000.0nn` do corpus; celulares de exemplo; e-mails `@exemplo.test`; hosts
 `.test`, loopback e a faixa de documentação 203.0.113.0/24).
 
 NÃO pega: texto de cliente em prosa, nome de pessoa, CEP, dado em arquivo binário, segredo sem forma conhecida (use gitleaks quando o
@@ -34,6 +34,7 @@ DOMINIOS_DE_TESTE = {"exemplo.test", "x.com", "sub.exemplo.com.br", "exemplo.com
 # reservados (RFC 2606) e o domínio do provedor aprovado, que aparece em URLs de exemplo (`https://u:p@us.api.fireworks.ai`)
 SUFIXOS_DE_DOMINIO_OK = (".test", ".example", ".invalid", ".localhost", ".fireworks.ai")
 CPFS_SINTETICOS = {"52998224725", "00000000000", "12345678909", "11144477735"}
+PREFIXO_CPF_DO_CORPUS = "0000000"  # `000.000.0nn-dd`: a faixa sintética das personas do corpus da F3 (e do dublê); nenhuma pessoa real tem
 IGNORAR = {"uv.lock"}
 
 
@@ -76,7 +77,7 @@ def varrer(arquivo: Path) -> list[str]:
                 achados.append(f"{arquivo.relative_to(RAIZ)}:{numero}: celular brasileiro fora da lista sintética")
         for m in CPF.finditer(linha):
             onze = "".join(m.groups())
-            if onze not in CPFS_SINTETICOS and _cpf_valido(onze):
+            if onze not in CPFS_SINTETICOS and not onze.startswith(PREFIXO_CPF_DO_CORPUS) and _cpf_valido(onze):
                 achados.append(f"{arquivo.relative_to(RAIZ)}:{numero}: CPF com DV válido fora da lista sintética")
         for m in EMAIL.finditer(linha):
             if m.group(1).lower() not in DOMINIOS_DE_TESTE and not m.group(1).lower().endswith(SUFIXOS_DE_DOMINIO_OK):
