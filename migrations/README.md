@@ -9,6 +9,7 @@
 | `0001.sha256` | `sha256sum` do arquivo acima (`5d1ceec1…3808`) | só junto com uma nova extração do estudo |
 | `0002_procrastinate.up.sql` | fila de jobs (Procrastinate 3.10.0), gerada por `scripts/gerar_0002.py` | só regerar ao trocar a versão **antes** de aplicada |
 | `0003_estado_aditivo.up.sql` | ciclo de vida (B1.1), **aditiva**: `ia.atendimento.ultimo_cliente_em` (+ `GRANT UPDATE` próprio a `ia_app`), CHECK `chats_teste` ≤ 20 ids de 24 hex, CHECK `chat_id` de 24 hex minúsculo (D1–D3 do contrato 08 §8), trigger de `encerrado` terminal e CHECK fase×estado (revisão 1) | **Nunca** depois de aplicada: o desenho novo é a 0004 |
+| `0004_anexo_rpa_e_espelho.up.sql` | API de entrada (B1.5), **aditiva** (D5 e D6 do contrato 08 §11): `ia.fn_anexar_rpa(bigint, text)` `SECURITY DEFINER` (dono `ia_owner`, `search_path = pg_catalog, ia`, `EXECUTE` só a `ia_app`: o único jeito de anexar o `_id` do RPA a um passo, que é append-only) e a tabela `ia.espelho_evento` (outbox do espelho: `SELECT, INSERT` e `UPDATE` de 4 colunas a `ia_app`, **nada** a `ia_leitura`) | **Nunca** depois de aplicada: o desenho novo é a 0005 |
 
 Convenções: nome `NNNN_nome.up.sql` (casa com o CHECK de `ia.migracao.migracao_id`), numeração contínua, sem `down`
 (desfazer é decisão do dono: `DROP DATABASE … WITH (FORCE)` só com autorização nova). Cada arquivo faz o próprio `SET ROLE ia_owner`
@@ -45,15 +46,22 @@ pode não ler o home).
      printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0003_estado_aditivo', '%s');\nRESET ROLE;\n" "$SUM3"; } \
      | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
    ```
-4. **`search_path` da fila**, por **login** (passo de infra, `s4_super`, depois do «sim»; ver «Pontos de atenção»):
+4. **0004 + ledger**, igual; aditiva e independente da 0003 (pode entrar junto), mas **antes** da imagem que sobe a API (`/readyz` fica `migracao_pendente` sem ela); nada a conferir antes (cria uma função e uma tabela nova):
+   ```bash
+   SUM4=$(sha256sum migrations/0004_anexo_rpa_e_espelho.up.sql | cut -d' ' -f1)
+   { cat migrations/0004_anexo_rpa_e_espelho.up.sql
+     printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0004_anexo_rpa_e_espelho', '%s');\nRESET ROLE;\n" "$SUM4"; } \
+     | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
+   ```
+5. **`search_path` da fila**, por **login** (passo de infra, `s4_super`, depois do «sim»; ver «Pontos de atenção»):
    ```sql
    ALTER ROLE ia_app_a IN DATABASE ia_atendimento SET search_path = procrastinate, public;
    ALTER ROLE ia_app_b IN DATABASE ia_atendimento SET search_path = procrastinate, public;
    ```
-5. **Conferir** (como `ia_app_a`): `ia_ativa = false`, `modo = "duble"`, `ia.migracao` com 3 linhas e checksums iguais aos arquivos;
+6. **Conferir** (como `ia_app_a`): `ia_ativa = false`, `modo = "duble"`, `ia.migracao` com 4 linhas e checksums iguais aos arquivos; `UPDATE ia.passo` direto falha com `permission denied` e `SELECT ia.fn_anexar_rpa(-1, 'rpa_inexistente')` devolve `f`; `ia_leitura_a` não lê `ia.espelho_evento`;
    `DROP TABLE ia.passo` e `DELETE FROM ia.passo` falham com `permission denied`/`must be owner`.
 
-Reaplicar a **0001** é idempotente (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`; provado em teste). A **0002 e a 0003 não** se reaplicam (`ADD CONSTRAINT` não é idempotente): o ledger é
+Reaplicar a **0001** é idempotente (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`; provado em teste). A **0002, a 0003 e a 0004 não** se reaplicam (`ADD CONSTRAINT` não é idempotente): o ledger é
 quem impede (`aplicar()` do repo faz isso sozinho, mas só para banco **local**).
 
 ### Pontos de atenção
@@ -66,9 +74,9 @@ quem impede (`aplicar()` do repo faz isso sozinho, mas só para banco **local**)
   `INSERT` em `procrastinate_jobs` falha no gatilho. As tabelas de `ia` são sempre qualificadas no DDL.
 - **Default privileges** da 0001 já cobrem a 0002: tabela nova em `procrastinate` nasce com DML ao `ia_app`; em `ia` não nasce com grant.
 - **Texto da conversa e cofre** são cifrados na aplicação (sem pgcrypto); a chave nunca passa pelo banco.
-- Uma migração `0004+` nova segue o mesmo caminho: arquivo com `SET ROLE ia_owner`, transação única, ledger com o sha256.
+- Uma migração `0005+` nova segue o mesmo caminho: arquivo com `SET ROLE ia_owner`, transação única, ledger com o sha256.
 
 ## Verificação local (sem S4)
 
-`bash scripts/aplicar_migracoes_local.sh` sobe um `postgres:18` descartável, aplica as três migrações com `migracoes.aplicar` e mostra o ledger.
+`bash scripts/aplicar_migracoes_local.sh` sobe um `postgres:18` descartável, aplica as quatro migrações com `migracoes.aplicar` e mostra o ledger.
 `uv run pytest tests/test_migracoes.py tests/test_esquema.py` prova a aplicação, o ledger, o checksum e os 350 casos.

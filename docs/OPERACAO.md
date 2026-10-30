@@ -67,16 +67,22 @@ SUM3=$(sha256sum migrations/0003_estado_aditivo.up.sql | cut -d' ' -f1)
 { cat migrations/0003_estado_aditivo.up.sql
   printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0003_estado_aditivo', '%s');\nRESET ROLE;\n" "$SUM3"; } \
   | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
+# 4. 0004 (aditiva: `ia.fn_anexar_rpa` SECURITY DEFINER e a outbox `ia.espelho_evento`) + ledger, igual; ANTES da imagem que sobe a API (B1.5)
+SUM4=$(sha256sum migrations/0004_anexo_rpa_e_espelho.up.sql | cut -d' ' -f1)
+{ cat migrations/0004_anexo_rpa_e_espelho.up.sql
+  printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0004_anexo_rpa_e_espelho', '%s');\nRESET ROLE;\n" "$SUM4"; } \
+  | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
 ```
 
-**Conferir** (como `ia_app_a`, da VPS): `select migracao_id, left(checksum,8) from ia.migracao` (3 linhas); `select valor from
+**Conferir** (como `ia_app_a`, da VPS): `select migracao_id, left(checksum,8) from ia.migracao` (4 linhas); `select valor from
 ia.config_versao where nome='ia_ativa'` = `false` e `nome='modo'` = `"duble"`; `DROP TABLE ia.passo` falha; `ia_app_a` sem `DELETE`; `ia.atendimento.ultimo_cliente_em` existe e um `INSERT` de `chats_teste` com 21 ids ou id fora de 24 hex minúsculo é recusado
 (`config_versao_chats_teste_check`). Depois do fim, `ia_app` ainda grava `contrato_id`, `pii_auditoria`, `sinais_cliente`, `ultimo_cliente_em` e os contadores; `estado`, `desfecho`,
 `encerrado_em`, `estado_conversa`, `motivo_desfecho`, `contexto_codigos` e `repasse_modo`/`repasse_consultor_ref` de um encerrado ficam congelados
 (trigger `atendimento_terminal_absorvente`). A 0003 é aditiva: o código sem ela segue funcionando, e ela é inofensiva sem o código novo (desfazer = parar o app).
+A 0004 também é aditiva: `UPDATE ia.passo` direto segue falhando (`permission denied`), `SELECT ia.fn_anexar_rpa(-1, 'rpa_inexistente')` devolve `f` como `ia_app_a`, e `ia_leitura_a` não lê `ia.espelho_evento`.
 
 **Se der errado:** erro no meio de um arquivo (ou no INSERT do ledger) → a transação única (`-1`) desfaz tudo, inclusive o ledger; reaplicar
-a 0001 é idempotente; a 0002 e a 0003 já aplicadas **não** se reaplicam (o ledger é a verdade; `ADD CONSTRAINT` não é idempotente). **Desfazer:** `DROP DATABASE … WITH (FORCE)` só com autorização nova do dono (estudo E «Desfazer tudo» 1).
+a 0001 é idempotente; a 0002, a 0003 e a 0004 já aplicadas **não** se reaplicam (o ledger é a verdade; `ADD CONSTRAINT` não é idempotente). **Desfazer:** `DROP DATABASE … WITH (FORCE)` só com autorização nova do dono (estudo E «Desfazer tudo» 1).
 
 ## 4. Conexão da fila (Procrastinate) — decisão de infra
 
@@ -96,12 +102,12 @@ Não use o grupo `ia_app` no `ALTER ROLE`: configuração de papel não é herda
 ## 5. Quando o checksum divergir
 
 `aplicar()`/`conferir()` levantam `ChecksumDivergente` e **param**: alguém editou uma migração já aplicada. Não corrija o DDL: restaure o arquivo
-(`git checkout`) ou, se o desenho mudou, crie a migração seguinte (`0004+`) e reabra o estudo I. Na dúvida, abra achado na Parte F do roteiro.
+(`git checkout`) ou, se o desenho mudou, crie a migração seguinte (`0005+`) e reabra o estudo I. Na dúvida, abra achado na Parte F do roteiro.
 
 ## 6. Trocar a versão do Procrastinate
 
 Antes de aplicada: `uv add procrastinate==X`, `uv run python scripts/gerar_0002.py`, revisar o diff e commitar. Depois de aplicada: **não** regerar a 0002; o diff da pasta
-de migrações do pacote vira a migração seguinte (`0004+`).
+de migrações do pacote vira a migração seguinte (`0005+`).
 
 ## 7. Release
 
