@@ -88,6 +88,9 @@ ALTER ROLE ia_app_a IN DATABASE ia_atendimento SET search_path = procrastinate, 
 ALTER ROLE ia_app_b IN DATABASE ia_atendimento SET search_path = procrastinate, public;
 ```
 
+O código da fila (`fila.conninfo_da_fila`) acrescenta `-c search_path=procrastinate,public` às `options` da conexão do Procrastinate sozinho; a conexão
+precisa ser **direta** ao Postgres (nunca por pooler em modo transação: o LISTEN/NOTIFY não atravessa; `prontidao.verificar_listen_notify` prova).
+
 Não use o grupo `ia_app` no `ALTER ROLE`: configuração de papel não é herdada pelos logins membros (`tests/test_migracoes.py` prova).
 
 ## 5. Quando o checksum divergir
