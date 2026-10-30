@@ -153,13 +153,17 @@ def test_limites_do_dia_e_do_mes_sao_de_sao_paulo():
     assert limites_do_mes(utc(2026, 12, 15, 12)) == (utc(2026, 12, 1, 3), utc(2027, 1, 1, 3))
 
 
-def test_base_de_fusos_nao_depende_do_sistema(monkeypatch):
-    """Revisão A10: o `tzdata` é dependência declarada; sem `TZPATH` do sistema o fuso de São Paulo ainda carrega."""
+def test_base_de_fusos_nao_depende_do_sistema():
+    """Revisão A10/N5: o `tzdata` é dependência declarada. Com o TZPATH do sistema vazio (`reset_tzpath`, que é o que o `ZoneInfo` consulta;
+    mexer em `zoneinfo.TZPATH` não muda nada) o fuso de São Paulo carrega pelo pacote."""
     import zoneinfo
 
-    monkeypatch.setattr(zoneinfo, "TZPATH", ())
+    zoneinfo.reset_tzpath(to=[])
     zoneinfo.ZoneInfo.clear_cache()
     try:
-        assert zoneinfo.ZoneInfo("America/Sao_Paulo").utcoffset(datetime(2026, 11, 17, 12)).total_seconds() == -3 * 3600
+        assert zoneinfo._tzpath.find_tzfile("America/Sao_Paulo") is None  # o sistema NÃO ajuda mais
+        fuso = zoneinfo.ZoneInfo("America/Sao_Paulo")
+        assert fuso.utcoffset(datetime(2026, 11, 17, 12)).total_seconds() == -3 * 3600
     finally:
+        zoneinfo.reset_tzpath()
         zoneinfo.ZoneInfo.clear_cache()

@@ -183,6 +183,8 @@ uv run python -m pytest -p tests.conftest --import-mode=importlib ~/.cache/rev-b
 # passam (= provas sem achado): fronteiras, cas_duas_escritas, dois_workers_mesmo_chat, worker_heartbeat_real, periodica_roda, conninfo, reaper_lease_igual_agora
 ```
 
+> **Correção (revisão 2, N8):** a premissa «`PeriodicDeferrer` descarta tick mais velho que 10 s» do A3 estava errada: o `max_delay` do Procrastinate 3.10.0 é **600 s** (`periodic.py:22`). Deploy a 11 s do tick não perde a tarefa; perde-se a partir de 601 s, e aí a reconciliação cobre. As correções do A3 continuam valendo (a guarda por hora de execução e a falta de reconciliação eram reais).
+
 ---
 
 ## Resposta do autor (30/10)

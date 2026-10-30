@@ -19,6 +19,7 @@ from typing import Any, Literal
 import psycopg
 
 from ia_atendimento.calendario import (
+    BLOQUEIO_DATAPREV_EM,
     DATAPREV_ATE,
     FUSO,
     HORA_BLOQUEIO_ENTRADA,
@@ -121,7 +122,9 @@ class Decisao:
     motivo: str | None = None
 
 
-def decidir_lembrete(snapshot: InstantaneoLembrete | None, agora: datetime, calendario: Calendario) -> Decisao:
+def decidir_lembrete(
+    snapshot: InstantaneoLembrete | None, agora: datetime, calendario: Calendario, *, intervalo: timedelta = timedelta(0)
+) -> Decisao:
     """Regras do lembrete (B1.3): só em `aguardando_cliente`, sem resposta do cliente depois da IA e abaixo do máximo efetivo.
 
     Fora da janela de mensagem: adia para a abertura da próxima janela se, NESSE instante, o cliente ainda estará a <= 24 h da última
@@ -136,6 +139,11 @@ def decidir_lembrete(snapshot: InstantaneoLembrete | None, agora: datetime, cale
     cliente, ia = snapshot.ultimo_cliente_em, snapshot.ultima_ia_em
     if cliente is not None and ia is not None and cliente > ia:
         return Decisao("ignorar", motivo="cliente_respondeu")
+    devido = ia + intervalo if ia is not None else None
+    if devido is not None and devido > agora:
+        # o alarme é de uma fala anterior da IA (o `queueing_lock` descarta o alarme novo): o lembrete sai `intervalo` depois da ÚLTIMA fala
+        futura = decidir_lembrete(snapshot, devido, calendario)
+        return Decisao("adiar", ate=futura.ate if futura.tipo == "adiar" else devido)
     if calendario.dentro_da_janela(agora):
         return Decisao("enviar", janela_24h=_dentro_de_24h(cliente, agora))
     abertura = calendario.proxima_janela(agora)
@@ -148,18 +156,21 @@ def _dentro_de_24h(ultimo_cliente_em: datetime | None, instante: datetime) -> bo
     return ultimo_cliente_em is not None and instante - ultimo_cliente_em <= JANELA_24H
 
 
-def _calendario_vigente(servicos: Servicos) -> Calendario:
+def _config_do_lembrete(servicos: Servicos, n: int) -> tuple[Calendario, timedelta]:
+    """Calendário vigente e o intervalo (min) do lembrete `n` em `lembretes_intervalos_min` (o último vale para os seguintes)."""
     leitor = servicos.leitor()
     with servicos.abrir_conexao() as conn:
-        return carregar_calendario(leitor.valor(conn, "janela_mensagem"), leitor.valor(conn, "calendario_bloqueio"))
+        calendario = carregar_calendario(leitor.valor(conn, "janela_mensagem"), leitor.valor(conn, "calendario_bloqueio"))
+        intervalos = leitor.valor(conn, "lembretes_intervalos_min")
+    return calendario, timedelta(minutes=intervalos[min(max(n, 1), len(intervalos)) - 1])
 
 
 async def executar_lembrete(
     servicos: Servicos, atendimento_id: uuid.UUID, n: int, reagendar: Callable[[datetime], Awaitable[None]]
 ) -> Decisao:
     snapshot = await servicos.ler_para_lembrete(atendimento_id)
-    calendario = await asyncio.to_thread(_calendario_vigente, servicos)
-    decisao = decidir_lembrete(snapshot, servicos.relogio.agora(), calendario)
+    calendario, intervalo = await asyncio.to_thread(_config_do_lembrete, servicos, n)
+    decisao = decidir_lembrete(snapshot, servicos.relogio.agora(), calendario, intervalo=intervalo)
     if decisao.tipo == "enviar":
         await servicos.enviar_lembrete(atendimento_id, n, bool(decisao.janela_24h))
     elif decisao.tipo == "adiar" and decisao.ate is not None:
@@ -171,11 +182,11 @@ async def executar_lembrete(
 
 # --- reaper de lease ---------------------------------------------------------------------------------------------------------------------
 
+# job com lock do chat (turno, iniciar, lembrete) `doing` ou `todo` = o chat está em curso; o alarme do lembrete não tem lock
 _SQL_LEASES = """
-SELECT a.atendimento_id, a.chat_id, a.estado, a.gatilho, a.lease_ate FROM ia.atendimento a  -- turno/iniciar/lembrete já na fila = em curso
+SELECT a.atendimento_id, a.chat_id, a.estado, a.gatilho, a.lease_ate FROM ia.atendimento a
 WHERE a.estado IN ('reservado', 'aberto', 'aguardando_cliente', 'pausado') AND a.lease_ate < %s
-  AND NOT EXISTS (SELECT 1 FROM procrastinate.procrastinate_jobs j WHERE j.lock = 'chat:' || a.chat_id
-                  AND (j.status = 'doing' OR (j.status = 'todo' AND (j.scheduled_at IS NULL OR j.scheduled_at <= %s))))
+  AND NOT EXISTS (SELECT 1 FROM procrastinate.procrastinate_jobs j WHERE j.lock = 'chat:' || a.chat_id AND j.status IN ('doing', 'todo'))
 ORDER BY a.lease_ate LIMIT %s
 """
 
@@ -189,12 +200,12 @@ def _acao_do_lease(estado: str, gatilho: str) -> Literal["abortar", "repassar", 
 
 
 def selecionar_leases_vencidos(conn: psycopg.Connection, agora: datetime, limite: int = LIMITE_LOTE) -> list[LeaseVencido]:
-    """Leases vencidos pelo relógio injetado, sem turno em curso ou já na fila (`doing`, ou `todo` vencido do mesmo chat).
+    """Leases vencidos pelo relógio injetado, sem job do chat em curso ou na fila (`doing` ou `todo`, inclusive dentro da rajada de 3 s).
 
     Pausado e `reservado` de agendamento têm o lease estendido até a volta (`lease_ate >= retoma_em`): só aparecem quando a volta falhou."""
     return [
         LeaseVencido(atendimento_id=r[0], chat_id=r[1], estado=r[2], gatilho=r[3], lease_ate=r[4], acao=_acao_do_lease(r[2], r[3]))
-        for r in conn.execute(_SQL_LEASES, (agora, agora, limite))
+        for r in conn.execute(_SQL_LEASES, (agora, limite))
     ]
 
 
@@ -213,7 +224,17 @@ async def executar_reaper_lease(servicos: Servicos) -> int:
 # --- bloqueio programado (B6.7) ---------------------------------------------------------------------------------------------------------
 
 
-def gravar_bloqueio_entrada(servicos: Servicos, por: str) -> bool:
+def _deve_fechar(atual: object, tick: datetime | None) -> bool:
+    """Critério único (tarefa das 20:15, job de 20/11 e reconciliação): fecha se ainda não está `true` e ninguém gravou DEPOIS do tick
+    (quem abriu de propósito depois do tick não é desfeito, nem por job atrasado nem por retry)."""
+    if atual is None:
+        return True
+    if atual.valor is True:
+        return False
+    return tick is None or atual.publicado_em < tick
+
+
+def gravar_bloqueio_entrada(servicos: Servicos, por: str, tick: datetime | None = None) -> bool:
     """Grava `bloqueio_entrada=true` se ainda não está. NUNCA grava false (quem abre é o Danilo às 07:45). Devolve se gravou.
 
     Escreve pelo `LeitorConfig` do processo: o cache enxerga o `true` na hora (revisão A5).
@@ -221,7 +242,7 @@ def gravar_bloqueio_entrada(servicos: Servicos, por: str) -> bool:
     leitor = servicos.leitor()
     with servicos.abrir_conexao() as conn:
         atual = config_vigente(conn, "bloqueio_entrada")
-        if atual is not None and atual.valor is True:
+        if not _deve_fechar(atual, tick):
             return False
         try:
             leitor.registrar(
@@ -230,7 +251,7 @@ def gravar_bloqueio_entrada(servicos: Servicos, por: str) -> bool:
             )  # fmt: skip
         except ConfigCorrida:
             depois = config_vigente(conn, "bloqueio_entrada")
-            if depois is not None and depois.valor is True:  # outro worker (ou o Danilo) fechou no mesmo instante
+            if not _deve_fechar(depois, tick):  # outro worker fechou, ou o Danilo abriu, entre a leitura e a escrita
                 return False
             raise
         return True
@@ -247,7 +268,7 @@ def executar_bloqueio_diario(servicos: Servicos, timestamp: int | None = None) -
         raise HorarioInesperado(f"o tick do bloqueio é das {hora_local:%H:%M} (esperado {HORA_BLOQUEIO_ENTRADA:%H}h): cron defasado")
     if agora - tick > JANELA_DO_BLOQUEIO:
         return False
-    return gravar_bloqueio_entrada(servicos, "tarefa:bloqueio_2015")
+    return gravar_bloqueio_entrada(servicos, "tarefa:bloqueio_2015", tick)
 
 
 def reconciliar_bloqueio_diario(servicos: Servicos) -> bool:
@@ -260,18 +281,14 @@ def reconciliar_bloqueio_diario(servicos: Servicos) -> bool:
         tick -= timedelta(days=1)
     if agora - tick >= JANELA_DO_BLOQUEIO:
         return False
-    with servicos.abrir_conexao() as conn:
-        atual = config_vigente(conn, "bloqueio_entrada")
-        if atual is not None and (atual.valor is True or atual.publicado_em >= tick):
-            return False
-    return gravar_bloqueio_entrada(servicos, "tarefa:reconciliacao_bloqueio")
+    return gravar_bloqueio_entrada(servicos, "tarefa:reconciliacao_bloqueio", tick)
 
 
 def executar_bloqueio_dataprev(servicos: Servicos) -> bool:
     """Job único de 20/11: fecha a entrada antes da janela DATAPREV. Atrasado para depois da janela, não faz nada (a volta é do Danilo)."""
     if servicos.relogio.agora() >= DATAPREV_ATE:
         return False
-    return gravar_bloqueio_entrada(servicos, "tarefa:bloqueio_dataprev")
+    return gravar_bloqueio_entrada(servicos, "tarefa:bloqueio_dataprev", BLOQUEIO_DATAPREV_EM)
 
 
 # --- poda ------------------------------------------------------------------------------------------------------------------------------

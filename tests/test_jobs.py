@@ -99,7 +99,7 @@ async def test_executar_lembrete_age_conforme_a_decisao(banco, relogio):
     async def reagendar(ate: datetime) -> None:
         adiados.append(ate)
 
-    chamadas.instantaneos[atendimento] = instantaneo(ultimo_cliente_em=relogio.agora() - timedelta(hours=1))
+    chamadas.instantaneos[atendimento] = instantaneo(ultimo_cliente_em=relogio.agora() - timedelta(hours=5))
     await jobs.executar_lembrete(servicos, atendimento, 1, reagendar)
     assert chamadas.lembretes == [(atendimento, 1, True)]
 

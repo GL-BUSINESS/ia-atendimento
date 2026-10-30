@@ -4,7 +4,9 @@
   conexão direta ao Postgres, nunca por pooler (LISTEN/NOTIFY não atravessa pooler em modo transação; ver `prontidao.py`).
 - **Rajada:** o `queueing_lock` do Procrastinate 3.10.0 é índice único parcial só para `status='todo'`, sem janela. Por isso o turno é
   agendado `schedule_in=3 s` com `queueing_lock=turno:{chat}`: mensagens dentro desses 3 s caem no mesmo job (`AlreadyEnqueued` engolido).
-  `lock=chat:{chat}` impede dois jobs do mesmo chat de rodarem juntos, inclusive um turno e o seguinte.
+  `lock=chat:{chat}` impede dois jobs do mesmo chat de rodarem juntos, inclusive um turno e o seguinte. Resíduo aceito: o turno em rajada
+  (id menor, 3 s) segura `iniciar`/`lembrete` do mesmo chat por até 3 s.
+  `POOL_MAX=8` com `concurrency=4` deixa 2 conexões livres por processo (4 jobs + listener + batimento).
 - **App por chamada:** o `Blueprint` nasce em `criar_app`, nunca no import: `add_tasks_from` o modifica, então não se reaproveita.
   Os `Servicos` (funções injetadas, `jobs.py`) chegam à tarefa por `additional_context`, sem estado global.
 - Nenhuma tarefa decide negócio: chama o handler de `jobs.py`.
@@ -13,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import date, datetime, time
 from typing import Any
@@ -28,6 +31,7 @@ from ia_atendimento.calendario import BLOQUEIO_DATAPREV_EM, DATAPREV_ATE, HORA_B
 from ia_atendimento.chave import ConfigCorrida
 from ia_atendimento.relogio import Relogio
 
+log = logging.getLogger(__name__)
 SEARCH_PATH = "procrastinate,public"
 JANELA_RAJADA_S = 3
 NAMESPACE = "ia"
@@ -35,6 +39,7 @@ POOL_MIN = 1
 POOL_MAX = 8
 CONCORRENCIA_PADRAO = 4  # o lock por chat serializa o que precisa; a periódica não espera atrás de um turno de modelo (revisão A3)
 # só falha transitória de banco/rede/corrida repete; erro de lógica (ex.: HorarioInesperado) falha de vez e a vigia alerta
+RETRY_FILA = procrastinate.RetryStrategy(max_attempts=5, wait=30, retry_exceptions={psycopg.Error, OSError})
 RETRY_BLOQUEIO = procrastinate.RetryStrategy(max_attempts=5, wait=30, retry_exceptions={psycopg.Error, OSError, ConfigCorrida})
 # 03:30 em São Paulo: fim da madrugada, longe do horário de atendimento
 HORA_PODA_LOCAL = time(3, 30)
@@ -81,14 +86,14 @@ def _montar_tarefas(com_periodicas: bool) -> procrastinate.Blueprint:
     async def iniciar(contexto: procrastinate.JobContext, atendimento_id: str) -> None:
         await jobs.executar_iniciar(_servicos(contexto), uuid.UUID(atendimento_id))
 
-    @bp.task(name="lembrete", pass_context=True)
+    @bp.task(name="lembrete", pass_context=True, retry=RETRY_FILA)
     async def lembrete(contexto: procrastinate.JobContext, atendimento_id: str, chat_id: str, n: int) -> None:
         async def reagendar(ate: datetime) -> None:
             await agendar_lembrete(contexto.app, uuid.UUID(atendimento_id), chat_id, n, ate)
 
         await jobs.executar_lembrete(_servicos(contexto), uuid.UUID(atendimento_id), n, reagendar)
 
-    @bp.task(name="alarme_lembrete", pass_context=True)
+    @bp.task(name="alarme_lembrete", pass_context=True, retry=RETRY_FILA)
     async def alarme_lembrete(contexto: procrastinate.JobContext, atendimento_id: str, chat_id: str, n: int) -> None:
         """O alarme agendado NÃO leva lock (um job futuro com lock trava os turnos do chat até a hora, revisão A1); ao disparar
         enfileira o `lembrete` de verdade, com lock do chat e sem agendamento."""
@@ -215,7 +220,10 @@ async def agendar_bloqueio_dataprev(app: procrastinate.App, relogio: Relogio) ->
 async def rodar_worker(app: procrastinate.App, servicos: jobs.Servicos, **opcoes: Any) -> None:
     """Worker com os `Servicos` no contexto. Na subida reconcilia o bloqueio das 20:15 (se a tarefa perdeu o tick, fecha a casa agora).
     `opcoes` vão ao `run_worker_async` (`wait=False` nos testes)."""
-    await asyncio.to_thread(jobs.reconciliar_bloqueio_diario, servicos)
+    try:
+        await asyncio.to_thread(jobs.reconciliar_bloqueio_diario, servicos)
+    except psycopg.Error as erro:  # a periódica de 5 min repete; um soluço de banco não pode impedir o worker de subir
+        log.warning("reconciliação do bloqueio na subida falhou (%s)", type(erro).__name__)
     contexto = {**opcoes.pop("additional_context", {}), "servicos": servicos}
     opcoes.setdefault("concurrency", CONCORRENCIA_PADRAO)
     await app.run_worker_async(additional_context=contexto, **opcoes)
