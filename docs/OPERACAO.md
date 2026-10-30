@@ -1,4 +1,4 @@
-# Operação do `ia-atendimento` (fundação)
+# Operação do `ia-atendimento` (fundação e API de entrada)
 
 > **Atenção.** As seções 3 e 4 descrevem escrita em **produção** (S4). São **texto para o dono**: **não executar sem o «sim» do
 > dono**, só pelos kits (`bash ~/retomada-2809/fila-2910/ia/<passo>/…`), com ensaio, contagem na mão e caminho de volta.
@@ -112,3 +112,34 @@ de migrações do pacote vira a migração seguinte (`0005+`).
 ## 7. Release
 
 Tag semver e `gh release create` só depois da revisão (rodízio: quem implementa não revisa). Esta fundação é a `v0.1.0`; **a tag ainda não foi criada**.
+
+## 8. Subir a API de entrada (B1.5) — na VPS, só com as migrações 0003 e 0004 aplicadas
+
+Pré-requisitos (ordem do contrato 08 §10): migrações 0003 e 0004 (seção 3) **antes** da imagem; os três arquivos de segredo abaixo montados `:ro`; o worker do
+Procrastinate de pé (o `/readyz` dá 503 sem batimento de worker). Nada disto roda na S4 nem é feito por este repositório; a imagem e o Coolify são do dono.
+
+```bash
+# arquivos de segredo (modo 0600, dono do usuário do contêiner; nunca em variável de ambiente do Coolify, nunca no git)
+umask 077
+printf '%s\n' "<chave HMAC 1 do gateway, a mesma do GATEWAY_ASSINATURAS>" > /etc/ia-s4/gateway-hmac.keys    # 2ª linha só na virada de rotação
+cat > /etc/ia-s4/saida.json <<'JSON'
+{"ia_orquestrador_bearer": "<...>", "chatguru_token_ia": "<...>", "c360_client_id": "<...>", "c360_client_secret": "<...>"}
+JSON
+chmod 600 /etc/ia-s4/gateway-hmac.keys /etc/ia-s4/saida.json
+
+# variáveis (só nomes e valores NÃO secretos no Coolify; os segredos de env — tokens, chaves HMAC, modelo, banco — vêm do cofre da plataforma)
+export GATEWAY_HMAC_ARQUIVO=/etc/ia-s4/gateway-hmac.keys SEGREDOS_SAIDA_ARQUIVO=/etc/ia-s4/saida.json
+export RESPONSAVEL_IA=<e-mail do Amado> GIT_SHA=<sha da tag> BUILT_AT=<AAAA-MM-DDTHH:MM:SSZ>
+uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90.0.5 --port 8000 --no-access-log
+```
+
+- **Falha de subida (de propósito):** segredo obrigatório ausente, arquivo de segredo aberto (diferente de 0600), link simbólico, chave HMAC curta ou repetida,
+  token duplicado, `RESPONSAVEL_IA` que não é e-mail, preço ≤ 0, chave AES que não é a do mês. A mensagem diz o campo e a regra, **nunca o valor**.
+- **Rotação da chave do gateway:** acrescente a chave nova como 2ª linha de `gateway-hmac.keys` e reinicie a API; só depois troque a do gateway; depois tire a velha
+  (01 §3.2). Reiniciar também ao virar o mês da chave AES (seção 2).
+- **Conferir:** `GET /healthz` (sem token) devolve `version`/`git_sha`; `GET /readyz` e `GET /saude` com qualquer token válido (`ia_ativa=false` e `modo="duble"` no seed).
+  Sem `/docs` nem `/openapi.json` (o esquema não é público). O log traz só `trace_id`, rota (molde), status, código e duração: **nenhum corpo, texto, token nem assinatura**.
+- **Conexão:** o pool usa a `DATABASE_URL` (login `ia_app_a/_b`) com `search_path=procrastinate,public` nas `options`, para o job entrar **na mesma transação** da gravação;
+  conexão direta ao Postgres (nunca por pooler em modo transação).
+- **Parada leve:** `PUT /config/ia_ativa` com `false` agenda um `encerrar_por_chave` por atendimento aberto, aguardando ou pausado (até 19 min). O serviço que executa o job
+  é da B1.6: até lá o job falha alto (`ServicoNaoConfigurado`) e a vigia alerta; a chave desligada já recusa entrada nova.

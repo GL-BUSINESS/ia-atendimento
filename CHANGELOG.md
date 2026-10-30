@@ -4,6 +4,23 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **B1.5, API de entrada (T7) + migração 0004** (`feat/b1-5-api-entrada`; `docs/DECISOES-B1.5-3010.md`; a versão do `pyproject` não muda, entra na v0.3.0):
+  - **Migração `0004_anexo_rpa_e_espelho`** (D5 e D6 do contrato 08 §11, aditiva): `ia.fn_anexar_rpa(bigint, text)` `SECURITY DEFINER` (dono `ia_owner`, `search_path = pg_catalog, ia`,
+    `EXECUTE` só a `ia_app`; o único jeito de anexar o `_id` do RPA ao passo, que é append-only) e a outbox `ia.espelho_evento` (`SELECT, INSERT` e `UPDATE` de 4 colunas a `ia_app`, nada a `ia_leitura`).
+    `tests/test_migracao_0004.py` prova `ia_app` executando a função e **sem** `UPDATE` direto em `passo`, `ia_leitura` sem a outbox, reaplicar recusado pelo ledger, checksum e o passo a passo da S4.
+  - **`src/ia_atendimento/api/`** (FastAPI 0.162.0, já pinado): as 13 rotas do contrato 08, autenticação por `X-IA-Token` (origem = a do token) e, em `/eventos/chatguru`, por **assinatura HMAC do gateway**
+    (`x-gl-*`, janela de ± 300 s, duas chaves na rotação); 403 por origem; envelope de erro sem eco do valor (também no 422 do Pydantic); log sem corpo; sem `/docs`.
+    `POST /atendimentos` (sem CPF; `chat_number` cifrado no cofre; replay 200/409 pelo `entrada_fingerprint` do §4; recusas de config na ordem do catálogo, com `janela_24h`; `modo` por atendimento,
+    `persona_id` só em chat de teste; faixa pela comissão), `POST /agendamentos` (chave recalculada, extrator B5.7a, `agenda_max_dia` sob a trava), eventos (uma função para webhook e RPA,
+    `descartado`/`conflito` como 200, **casamento webhook × RPA** por `fn_anexar_rpa`), `GET|PUT /config` (corrida = 409, `ia_ativa=false` agenda `encerrar_por_chave`), anotações, candidatos, `por-chave`, `/healthz`, `/readyz`, `/saude`.
+  - **Novos módulos:** `mensagens.py`, `agendamento.py`, `esforco.py`, `pessoas_teste.py`, `enfileirador.py` (defer síncrono do Procrastinate **na transação da API**), `segredos.py` (arquivos 0600), tarefa `encerrar_por_chave` (fila e `jobs`).
+  - **`Settings`:** `api_tokens` por origem substitui `api_token`; `chat_ref_chave`, `responsavel_ia`, `casamento_janela_*`, `preco_*`/`cambio`, `pessoas_teste_arquivo`, e os arquivos de segredo (`GATEWAY_HMAC_ARQUIVO`, `SEGREDOS_SAIDA_ARQUIVO`); `.env.example` e README atualizados.
+  - **Ajustes em módulos existentes:** `estado.procurar_replay` e `fingerprint_de_identidade`; `chave.bloqueio_entrada(abertura_possivel=)` e `optou_por_sair`/`abertos_agora` públicos; `linha_tempo.gravar_mensagem_recebida(fora_de_ordem=)`
+    e o reenvio do `_id` do RPA já anexado vira `repetido` (não `conflito`).
+  - **Dependências:** `psycopg-pool==3.3.3` declarado (já estava no `uv.lock` por causa do Procrastinate; a API o usa direto para o pool). `fastapi`, `uvicorn` e `httpx` (dev) já estavam pinados.
+  - **Revisão de segurança automática (2 achados MEDIUM, corrigidos):** `agenda_max_dia` conferido de novo dentro do `pg_advisory_xact_lock`; URL malformada em `url_arquivo` virava `NameError` (500), agora 422 sem eco.
+  - **Testes:** 1.891 → 2.136 (`test_api`, `test_contrato_api`, `test_migracao_0004`, `test_enfileirador`, `test_ambiente_api`, `test_segredos`, `test_esforco`, `test_mensagens`, mais os de `config`).
+
 - **B8.1a, corpus da F3** (`tests/corpus/`, pacote `src/ia_atendimento/corpus/`, `tests/test_corpus*.py`): 60 personas P01-P60 (40 da F3 curta,
   C5) + 24 P-M, 60 diálogos-gabarito (40 da F3 curta + as 20 P-M críticas; 739 turnos; o texto da IA não é fixado), semente determinística
   (ordem, hold-out de 20%, 3 execuções por persona, escolha da variação do cliente) e carregador/validador Pydantic estrito (`extra='forbid'`,
