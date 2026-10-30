@@ -92,7 +92,8 @@ def test_readyz_confere_o_checksum_das_migracoes(conn_app, conn_super, relogio, 
     pendente.mkdir()
     for arquivo in MIGRACOES.glob("*.up.sql"):
         (pendente / arquivo.name).write_bytes(arquivo.read_bytes())
-    (pendente / "0003_nova.up.sql").write_text("SELECT 1;\n")
+    proximo = max(int(a.name[:4]) for a in pendente.glob("*.up.sql")) + 1  # a main já tem a 0003
+    (pendente / f"{proximo:04d}_nova.up.sql").write_text("SELECT 1;\n")
     assert readyz(conn_app, diretorio_migracoes=pendente).falhas_duras == ("migracao_pendente",)
 
 
