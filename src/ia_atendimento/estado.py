@@ -404,23 +404,27 @@ def abrir(
             modo_pedido=entrada.modo,
         )
         params = _parametros_de_insercao(origem, entrada, versoes, modo, faixa_esforco, comissao, agora)
-        try:
-            with conn.transaction():  # savepoint: a violação não envenena a transação de fora, e dá para reler
-                nova = conn.execute(_INSERIR, params).fetchone()
-        except psycopg.errors.UniqueViolation as erro:
-            if erro.diag.constraint_name != "atendimento_ativo_chat_uq":
-                raise
-            # perdeu a corrida para a MESMA chave (o índice do chat é o 1º a reclamar)? então é replay, não chat ocupado
-            achado = _replay(conn, origem, idem, fp)
-            if achado is None:
-                raise ChatOcupado("chat com atendimento não encerrado") from None
-            return achado
-        if nova is not None:
-            return Resultado(nova[0], nova[1], nova[2], nova[3], repetido=False)
-        achado = _replay(conn, origem, idem, fp)  # DO NOTHING: o vencedor da mesma chave já está visível
+        return _inserir(conn, params, origem, idem, fp)
+
+
+def _inserir(conn: psycopg.Connection, params: dict[str, Any], origem: str, idem: str, fp: str) -> Resultado:
+    try:
+        with conn.transaction():  # savepoint: a violação não envenena a transação de fora, e dá para reler
+            nova = conn.execute(_INSERIR, params).fetchone()
+    except psycopg.errors.UniqueViolation as erro:
+        if erro.diag.constraint_name != "atendimento_ativo_chat_uq":
+            raise
+        # perdeu a corrida para a MESMA chave (o índice do chat é o 1º a reclamar)? então é replay, não chat ocupado
+        achado = _replay(conn, origem, idem, fp)
         if achado is None:
-            raise EstadoErro("conflito de chave sem linha visível")
+            raise ChatOcupado("chat com atendimento não encerrado") from None
         return achado
+    if nova is not None:
+        return Resultado(nova[0], nova[1], nova[2], nova[3], repetido=False)
+    achado = _replay(conn, origem, idem, fp)  # DO NOTHING: o vencedor da mesma chave já está visível
+    if achado is None:
+        raise EstadoErro("conflito de chave sem linha visível")
+    return achado
 
 
 # --- aplicar: o único UPDATE com CAS ---------------------------------------------------------------------------------------------
