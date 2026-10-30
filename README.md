@@ -14,6 +14,11 @@ Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este re
 | Migração 0003 aditiva (`ultimo_cliente_em`, `chats_teste` ≤ 20 ids de 24 hex, `chat_id` de 24 hex) | `migrations/0003_estado_aditivo.up.sql` | `tests/test_migracao_0003.py` |
 | Ciclo de vida do atendimento (CAS por `versao`, lease, idempotência, trava por chat) — B1.1 | `src/ia_atendimento/estado.py` | `tests/test_estado.py`, `tests/test_estado_entrada.py` |
 | Estado da conversa (JSON ≤ 2 KB, só códigos) e `ultimo_cliente_em` — B1.1 | `src/ia_atendimento/estado_conversa.py` | `tests/test_estado_conversa.py` |
+| Calendário de mensagem (08–20 seg–sáb SP, feriados, DATAPREV) | `src/ia_atendimento/calendario.py` | `tests/test_calendario.py` |
+| Config versionada, registro validado e recusas de entrada | `src/ia_atendimento/chave.py`, `chave_registro.py` | `tests/test_chave.py` |
+| Fila Procrastinate (rajada de 3 s, trava por chat), jobs e bloqueio das 20:15 | `src/ia_atendimento/fila.py`, `jobs.py` | `tests/test_fila.py`, `tests/test_jobs.py` |
+| Prontidão (`readyz`, LISTEN/NOTIFY) | `src/ia_atendimento/prontidao.py` | `tests/test_prontidao.py` |
+
 | Extrator determinístico de horário do agendamento (B5.7a, puro) | `src/ia_atendimento/agenda_extrator.py`, `tests/corpus/` | `tests/test_agenda_extrator.py` (EM1) |
 
 ## Como rodar
