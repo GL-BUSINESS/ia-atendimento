@@ -1,11 +1,11 @@
 """Identidade de uma mensagem recebida: `msg_chave` e `msg_fingerprint` (contrato 08 §5.1; uma função para os dois caminhos).
 
-- `msg_chave`: webhook e replay ⇒ `cg:{chat_id}:{h16}`; reconciliação do RPA ⇒ `rpa:{rpa_id}`.
+- `msg_chave`: reconciliação do RPA ⇒ `rpa:{rpa_id}`; com id do ChatGuru ⇒ `cgid:{id}`; senão `cg:{chat_id}:{h16}`.
   `h16` = 16 hex iniciais de `HMAC-SHA256(chave_h16, b"h16/v1\\n" + "\\n".join([chat_id, hora_utc, tipo, texto, url_sem_query]))`.
   HMAC porque o sha256 puro de um texto curto é reversível por dicionário e a chave de dedupe é permanente; o texto bruto só entra
   no HMAC e nunca é gravado. (O `(chat_id, datetime_post)` sozinho colide em 0,55 % no corpus, 0,26 % com tipo e tamanho; o texto resolve.)
 - `msg_fingerprint`: `HMAC-SHA256(chave_fingerprint, b"ia-evento/v1\\n" + JSON canônico {chat_id, datetime_post, phone_id, texto
-  MASCARADO (inclusive os nomes da conversa), tipo, url_sem_query})`, nulos omitidos. **Achado S2:** o contrato 08 §5.1 previa `sha256`
+  MASCARADO (sem os nomes: M5), tipo, url_sem_query})`, nulos omitidos. **Achado S2:** o contrato 08 §5.1 previa `sha256`
   puro; como o texto do cliente é curto (p50 11 caracteres) e enumerável, o hash seria reversível por dicionário, então a chave é
   dedicada (config `CHAVE_FINGERPRINT`, a mesma no webhook e no RPA para o dedupe casar). O vetor do contrato precisa ser atualizado.
   Não inclui a origem: o mesmo conteúdo visto pelo webhook e pelo RPA tem o mesmo fingerprint (serve ao casamento, §5.3).
@@ -20,16 +20,15 @@ import hashlib
 import hmac
 import json
 import unicodedata
-from collections.abc import Collection
 from dataclasses import dataclass, field
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, Field, StringConstraints, model_validator
 
 from ia_atendimento.mascara import mascarar
-from ia_atendimento.scrubber import validar
+from ia_atendimento.scrubber import ModeloSemEco, validar
 
 if TYPE_CHECKING:
     from ia_atendimento.config import Settings
@@ -44,16 +43,15 @@ RpaId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{8,64}$")]
 TipoMensagem = Literal["texto", "audio", "imagem", "documento", "sticker", "localizacao", "outro"]
 
 
-class EventoMensagem(BaseModel):
-    """Evento já projetado pela allowlist (CPF, celular e token nunca chegam aqui). Sem eco do valor nos erros."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+class EventoMensagem(ModeloSemEco):
+    """Evento já projetado pela allowlist (CPF, celular e token nunca chegam aqui). Sem eco do valor nos erros nem no `repr`."""
 
     chat_id: Hex24
     phone_id: Hex24
     tipo: TipoMensagem
-    texto: Annotated[str, Field(max_length=LIMITE_TEXTO)] | None = None
-    url_arquivo: Annotated[str, Field(max_length=2000)] | None = None
+    texto: str | None = Field(default=None, max_length=LIMITE_TEXTO, repr=False)
+    url_arquivo: str | None = Field(default=None, max_length=2000, repr=False)  # pode levar token na query
+    mensagem_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.=-]{1,120}$")] | None = None
     datetime_post: AwareDatetime | None = None
     origem_evento: Literal["webhook", "reconciliacao", "replay"]
     rpa_id: RpaId | None = None
@@ -117,19 +115,34 @@ def _url_sem_query(evento: EventoMensagem) -> str | None:
     return f"{partes.scheme}://{partes.netloc}{partes.path}"
 
 
-def _h16(evento: EventoMensagem, chave_h16: bytes) -> str:
-    campos = [evento.chat_id, _hora_utc(evento) or "", evento.tipo, _texto_normalizado(evento) or "", _url_sem_query(evento) or ""]
+def _hora_para_chave(instante: datetime) -> str:
+    """Segundos, como no contrato (vetor dourado); com fração só quando ela existe, para duas mensagens do mesmo segundo se distinguirem."""
+    utc = instante.astimezone(UTC)
+    return utc.strftime("%Y-%m-%dT%H:%M:%SZ") if utc.microsecond == 0 else utc.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _url_para_chave(evento: EventoMensagem) -> str:
+    """URL inteira (sem fragmento): duas imagens cujo link só difere na query são mensagens diferentes. Só entra no HMAC."""
+    if not evento.url_arquivo:
+        return ""
+    partes = urlsplit(evento.url_arquivo)
+    return partes._replace(fragment="").geturl()
+
+
+def _h16(evento: EventoMensagem, chave_h16: bytes, instante: datetime) -> str:
+    campos = [evento.chat_id, _hora_para_chave(instante), evento.tipo, _texto_normalizado(evento) or "", _url_para_chave(evento)]
     corpo = PREFIXO_H16 + "\n".join(campos).encode("utf-8")
     return hmac.new(chave_h16, corpo, hashlib.sha256).hexdigest()[:16]
 
 
-def _fingerprint(evento: EventoMensagem, chave: bytes, nomes: Collection[str]) -> str:
+def _fingerprint(evento: EventoMensagem, chave: bytes) -> str:
+    """Texto mascarado SEM nomes (M5): se o nome do cliente for aprendido depois, o replay antigo não vira `Conflito`."""
     texto = _texto_normalizado(evento)
     canonico = {
         "chat_id": evento.chat_id,
         "datetime_post": _hora_utc(evento),
         "phone_id": evento.phone_id,
-        "texto": mascarar(texto, nomes) if texto is not None else None,
+        "texto": mascarar(texto) if texto is not None else None,
         "tipo": evento.tipo,
         "url_sem_query": _url_sem_query(evento),
     }
@@ -137,9 +150,24 @@ def _fingerprint(evento: EventoMensagem, chave: bytes, nomes: Collection[str]) -
     return hmac.new(chave, PREFIXO_FINGERPRINT + corpo.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def identidade(evento: EventoMensagem, chaves: ChavesDeMensagem, nomes: Collection[str] = ()) -> Identidade:
+def _chave_da_mensagem(evento: EventoMensagem, chave_h16: bytes, recebido_em: datetime | None) -> str:
+    if evento.origem_evento == "reconciliacao":
+        return f"rpa:{evento.rpa_id}"
+    if evento.mensagem_id is not None:
+        return f"cgid:{evento.mensagem_id}"  # id do próprio ChatGuru: distingue até duas mensagens idênticas no mesmo segundo
+    instante = evento.datetime_post or recebido_em
+    if instante is None:
+        raise ValueError("sem datetime_post nem mensagem_id a chave exige recebido_em (senão mensagens iguais colapsariam para sempre)")
+    if instante.tzinfo is None:
+        raise ValueError("recebido_em precisa de fuso")
+    return f"cg:{evento.chat_id}:{_h16(evento, chave_h16, instante)}"
+
+
+def identidade(evento: EventoMensagem, chaves: ChavesDeMensagem, *, recebido_em: datetime | None = None) -> Identidade:
     """`msg_chave`, `msg_fingerprint` e `msg_tamanho` (caracteres do texto normalizado; 0 para mídia).
 
-    `nomes` = nome do cliente e variantes: mascarados antes do HMAC do fingerprint. Webhook e RPA devem passar os mesmos nomes."""
-    chave = f"rpa:{evento.rpa_id}" if evento.origem_evento == "reconciliacao" else f"cg:{evento.chat_id}:{_h16(evento, chaves.h16)}"
-    return Identidade(chave, _fingerprint(evento, chaves.fingerprint, nomes), len(_texto_normalizado(evento) or ""))
+    `msg_chave`: `rpa:{id}` na reconciliação; `cgid:{mensagem_id}` se o ChatGuru mandou id; senão `cg:{chat}:{h16}` com a hora do evento
+    (com fração de segundo) ou, sem `datetime_post`, com `recebido_em` (a mensagem nunca colapsa; em troca o replay SEM hora não dedupa).
+    O fingerprint segue o contrato 08 §5.1 (HMAC, texto mascarado sem nomes, URL sem query)."""
+    chave = _chave_da_mensagem(evento, chaves.h16, recebido_em)
+    return Identidade(chave, _fingerprint(evento, chaves.fingerprint), len(_texto_normalizado(evento) or ""))

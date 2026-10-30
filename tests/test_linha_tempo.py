@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import threading
 import time
 import uuid
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import psycopg
 import pytest
 
+from ia_atendimento import linha_tempo
 from ia_atendimento.evento_mensagem import ChavesDeMensagem, EventoMensagem, identidade
 from ia_atendimento.linha_tempo import (
     AtendimentoInexistente,
+    Casada,
     Conflito,
     ConflitoDeVersao,
     CtxPasso,
@@ -22,6 +26,7 @@ from ia_atendimento.linha_tempo import (
     EnvioSemVerificacao,
     Gravada,
     PassoComPii,
+    PassoRecusadoPeloBanco,
     PassoSemTurnoOuFase,
     consumir,
     gravar_mensagem_recebida,
@@ -30,7 +35,7 @@ from ia_atendimento.linha_tempo import (
 )
 from ia_atendimento.passos import criar
 from ia_atendimento.scrubber import EntradaInvalida
-from tests.apoio_b12 import AGORA, CHAT, CPF_SINTETICO, MARCADOR, OUTRO_CHAT, PHONE, novo_atendimento
+from tests.apoio_b12 import CHAT, CPF_SINTETICO, MARCADOR, OUTRO_CHAT, PHONE, novo_atendimento
 
 pytest_plugins = ["tests.apoio_b12"]
 
@@ -87,13 +92,17 @@ def test_mesma_mensagem_com_chaves_diferentes_da_fingerprints_diferentes_s2():
     assert a.msg_fingerprint != b.msg_fingerprint
 
 
-def test_nome_do_cliente_nao_entra_no_fingerprint_s2():
-    """Os nomes da conversa passam pelo `mascarar` antes do HMAC (como no S1): o fingerprint não depende do nome."""
-    a = identidade(_evento(texto="Maria Souza quer a proposta"), CHAVES, nomes=("Maria Souza",))
-    b = identidade(_evento(texto="Joana Lima quer a proposta"), CHAVES, nomes=("Joana Lima",))
-    c = identidade(_evento(texto="[NOME] quer a proposta"), CHAVES)
-    assert a.msg_fingerprint == b.msg_fingerprint == c.msg_fingerprint
-    assert a.msg_chave != b.msg_chave  # a chave h16 cobre o texto bruto (HMAC), então textos diferentes seguem sendo mensagens diferentes
+def test_fingerprint_nao_depende_dos_nomes_da_conversa_m5():
+    """M5: o fingerprint é HMAC do texto mascarado SEM nomes (contrato 08 §5.1). Se o nome do cliente for aprendido depois, um replay
+    antigo não pode virar `Conflito` (alarme falso). O HMAC já impede a reversão por dicionário (S2)."""
+    with pytest.raises(TypeError):
+        identidade(_evento(), CHAVES, nomes=("Maria Souza",))  # type: ignore[call-arg]
+
+
+def test_replay_com_nomes_novos_nao_vira_conflito_m5(conn_app, atd):
+    ev = _evento(texto="sou o joão")
+    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=ev, chaves=CHAVES), Gravada)
+    assert isinstance(gravar_mensagem_recebida(conn_app, atd, evento=ev, chaves=CHAVES), Duplicada)
 
 
 def test_chaves_de_mensagem_recusam_curta_repetida_e_nao_vazam_no_repr():
@@ -169,11 +178,13 @@ def test_passo_sem_turno_ou_fase_e_recusado(conn_app, atd):
 
 
 def test_passo_grava_turno_fase_e_ordem_crescente(conn_app, atd):
-    p1 = gravar_passo(conn_app, atd, ctx=CtxPasso(turno=2, fase="E3"), dados=criar("erro", peca="fila"), agora=AGORA)
-    p2 = gravar_passo(conn_app, atd, ctx=CtxPasso(turno=2, fase="E4"), dados=criar("opt_out"), agora=AGORA)
+    p1 = gravar_passo(conn_app, atd, ctx=CtxPasso(turno=2, fase="E3"), dados=criar("erro", peca="fila"))
+    p2 = gravar_passo(conn_app, atd, ctx=CtxPasso(turno=2, fase="E4"), dados=criar("opt_out"))
     assert (p1.ordem, p2.ordem) == (1, 2)
-    linhas = conn_app.execute("SELECT ordem, turno, fase, tipo, ocorrido_em FROM ia.passo ORDER BY ordem").fetchall()
-    assert linhas == [(1, 2, "E3", "erro", AGORA), (2, 2, "E4", "opt_out", AGORA)]
+    linhas = conn_app.execute(
+        "SELECT ordem, turno, fase, tipo, abs(extract(epoch FROM now() - ocorrido_em)) < 10 FROM ia.passo ORDER BY ordem"
+    ).fetchall()
+    assert linhas == [(1, 2, "E3", "erro", True), (2, 2, "E4", "opt_out", True)]  # a hora é a do BANCO (M1), não a do chamador
 
 
 def test_envio_sem_verif_det_e_recusado(conn_app, atd):
@@ -276,8 +287,8 @@ def test_os_13_tipos_gravam_no_banco_sem_violar_check(conn_app, atd):
 
 
 def test_dedupe_permanente_mesma_chave_mesmo_fingerprint_e_noop(conn_app, atd):
-    primeira = gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES, agora=AGORA)
-    segunda = gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES, agora=AGORA)
+    primeira = gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
+    segunda = gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
     assert isinstance(primeira, Gravada) and isinstance(segunda, Duplicada)
     assert segunda.ordem == primeira.ordem
     assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE tipo = 'mensagem_recebida'").fetchone() == (1,)
@@ -285,10 +296,11 @@ def test_dedupe_permanente_mesma_chave_mesmo_fingerprint_e_noop(conn_app, atd):
 
 def test_dedupe_permanente_vale_mesmo_depois_de_o_atendimento_encerrar_e_outro_abrir(conn_app, atd):
     """«Permanente»: o índice é global (não por atendimento); o reenvio do ChatGuru depois de 3 dias continua sendo duplicata."""
-    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES, agora=AGORA)
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
     outro = novo_atendimento(conn_app, chat=OUTRO_CHAT)
-    de_novo = gravar_mensagem_recebida(conn_app, outro, evento=_evento(), chaves=CHAVES, agora=AGORA)
-    assert isinstance(de_novo, Duplicada) and de_novo.atendimento_id == atd
+    de_novo = gravar_mensagem_recebida(conn_app, outro, evento=_evento(), chaves=CHAVES)
+    assert isinstance(de_novo, Duplicada) and de_novo.mesmo_atendimento is False
+    assert de_novo.ordem is None, "B2: não devolve ordem de outro atendimento"
     assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE atendimento_id = %s", (outro,)).fetchone() == (0,)
 
 
@@ -308,14 +320,14 @@ def test_mesma_chave_outro_fingerprint_e_conflito(conn_app, atd, monkeypatch):
     """Colisão de chave com conteúdo diferente (os 16 hex do HMAC colidiram): nada é gravado e o chamador é avisado."""
     gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
     real = identidade(_evento(), CHAVES)
-    monkeypatch.setattr("ia_atendimento.linha_tempo.identidade", lambda ev, ch, nomes=(): replace(real, msg_fingerprint="f" * 64))
+    monkeypatch.setattr("ia_atendimento.linha_tempo.identidade", lambda ev, ch, **kw: replace(real, msg_fingerprint="f" * 64))
     resultado = gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto="outro texto"), chaves=CHAVES)
     assert isinstance(resultado, Conflito)
     assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE tipo = 'mensagem_recebida'").fetchone() == (1,)
 
 
 def test_mensagem_recebida_grava_turno_mais_um_fase_atual_e_so_codigos(conn_app, atd):
-    gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto=f"{MARCADOR} {CPF_SINTETICO}"), chaves=CHAVES, agora=AGORA)
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(texto=f"{MARCADOR} {CPF_SINTETICO}"), chaves=CHAVES)
     linha = conn_app.execute(
         "SELECT turno, fase, texto, msg_tipo, msg_tamanho, origem_evento, msg_enviada_em, passo::text FROM ia.passo WHERE tipo = 'mensagem_recebida'"
     ).fetchone()
@@ -344,7 +356,7 @@ def test_tres_pendentes_sao_consumidas_juntas_e_turnos_sobe_uma_vez(conn_app, at
     assert [p.ordem for p in pendentes] == [1, 2, 3]
     assert {p.msg_tipo for p in pendentes} == {"texto"}
     versao = conn_app.execute("SELECT versao FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone()[0]
-    nova = consumir(conn_app, atd, versao=versao, ate_ordem=3, agora=AGORA)
+    nova = consumir(conn_app, atd, versao=versao, ate_ordem=3)
     assert nova == versao + 1
     assert mensagens_pendentes(conn_app, atd) == []
     atendimento = conn_app.execute(
@@ -372,3 +384,121 @@ def test_consumir_recusa_ordem_que_nao_e_mensagem_ou_que_nao_avanca(conn_app, at
     for ate in (0, 2, 7):
         with pytest.raises(ValueError, match="ate_ordem"):
             consumir(conn_app, atd, versao=versao, ate_ordem=ate)
+
+
+# --- correções da revisão 1 (A1–A3, M4, M6, B1, B2) -------------------------------------------------------------------------------
+
+
+def test_motivo_de_texto_livre_nunca_chega_ao_banco_a1(banco, conn_app, atd):
+    with pytest.raises(EntradaInvalida):
+        criar("decisao", motor="regra", motivo=f"cliente disse {MARCADOR} sobre juros")
+    gravar_passo(conn_app, atd, ctx=CTX, dados=criar("decisao", motor="regra", motivo="oferta_aceita"))
+    with banco.sessao() as admin:
+        dump = " ".join(r[0] for r in admin.execute("SELECT t::text FROM ia.passo t").fetchall())
+    assert MARCADOR not in dump
+
+
+def test_violacao_de_check_nao_imprime_a_linha_a1(conn_app, atd):
+    """O `DETAIL` do CheckViolation traz «Failing row contains (…)»: o erro do módulo sai só com o nome da restrição."""
+    sujo = criar("erro", peca="fila").model_copy(update={"trace_id": "SEGREDO-ZZZ-fora-do-padrao"})  # contorna o Pydantic
+    with pytest.raises(PassoRecusadoPeloBanco) as erro:
+        gravar_passo(conn_app, atd, ctx=CTX, dados=sujo)
+    assert "SEGREDO" not in str(erro.value) + repr(erro.value)
+    assert erro.value.restricao == "passo_valores_check"
+    assert erro.value.__cause__ is None and erro.value.__context__ is None
+
+
+def test_repr_e_errors_do_evento_nao_vazam_o_texto_a2():
+    ev = _evento(texto=f"zebra {MARCADOR}", url_arquivo=f"https://exemplo.invalid/a?token={MARCADOR}")
+    assert MARCADOR not in repr(ev) + str(ev)
+    with pytest.raises(EntradaInvalida) as erro:  # construtor DIRETO, reconciliação sem rpa_id
+        EventoMensagem(chat_id=CHAT, phone_id=PHONE, tipo="texto", texto=f"   {MARCADOR} ", origem_evento="reconciliacao")
+    saida = json.dumps([str(erro.value), repr(erro.value), list(erro.value.detalhes), list(map(str, erro.value.args))])
+    assert MARCADOR not in saida
+    assert erro.value.__context__ is None
+
+
+def test_sem_datetime_post_nunca_colapsa_mensagens_iguais_a3(conn_app, atd):
+    """«sim» é a confirmação de T4/T7: dois «sim» legítimos não podem virar um só, nem em outro atendimento do mesmo chat."""
+    outro = novo_atendimento(conn_app, chat=OUTRO_CHAT)
+    sim = _evento(texto="sim", datetime_post=None)
+    t0 = datetime(2026, 11, 24, 13, 0, tzinfo=UTC)
+    with pytest.raises(ValueError, match="recebido_em"):
+        identidade(sim, CHAVES)
+    r = [
+        gravar_mensagem_recebida(conn_app, a, evento=sim, chaves=CHAVES, recebido_em=t0 + timedelta(seconds=s))
+        for a, s in ((atd, 0), (atd, 5), (outro, 90))
+    ]
+    assert all(isinstance(x, Gravada) for x in r)
+    assert len({x.msg_chave for x in r}) == 3
+
+
+def test_mensagem_id_e_fracao_de_segundo_e_query_da_url_distinguem_mensagens_a3():
+    base = identidade(_evento(texto="sim"), CHAVES).msg_chave
+    com_id = identidade(_evento(texto="sim", mensagem_id="wamid.HBgN-1="), CHAVES)
+    outro_id = identidade(_evento(texto="sim", mensagem_id="wamid.HBgN-2="), CHAVES)
+    assert com_id.msg_chave == "cgid:wamid.HBgN-1=" and com_id.msg_chave != outro_id.msg_chave != base
+    meio = identidade(_evento(texto="sim", datetime_post="2026-11-24T10:15:30.500000-03:00"), CHAVES).msg_chave
+    assert meio != base
+    img1 = identidade(_evento(texto=None, tipo="imagem", url_arquivo="https://exemplo.invalid/f?id=1"), CHAVES).msg_chave
+    img2 = identidade(_evento(texto=None, tipo="imagem", url_arquivo="https://exemplo.invalid/f?id=2"), CHAVES).msg_chave
+    assert img1 != img2
+    # o fingerprint segue o contrato (URL sem query): a query só pesa na chave
+    f1 = identidade(_evento(texto=None, tipo="imagem", url_arquivo="https://exemplo.invalid/f?id=1"), CHAVES).msg_fingerprint
+    f2 = identidade(_evento(texto=None, tipo="imagem", url_arquivo="https://exemplo.invalid/f?id=2"), CHAVES).msg_fingerprint
+    assert f1 == f2
+
+
+def test_espaco_nas_pontas_nao_muda_a_identidade():
+    assert identidade(_evento(texto="  sim\n"), CHAVES) == identidade(_evento(texto="sim"), CHAVES)
+
+
+def test_corrida_entre_atendimentos_cai_no_on_conflict_e_vira_duplicada(conn_app, atd, monkeypatch):
+    """O SELECT prévio não viu a linha (outra transação a gravou entre o SELECT e o INSERT): `ON CONFLICT DO NOTHING` + releitura."""
+    outro = novo_atendimento(conn_app, chat=OUTRO_CHAT)
+    assert isinstance(gravar_mensagem_recebida(conn_app, outro, evento=_evento(), chaves=CHAVES), Gravada)
+    real = linha_tempo._existente
+    chamadas = []
+
+    def cego_na_primeira(*args, **kw):
+        chamadas.append(1)
+        return None if len(chamadas) == 1 else real(*args, **kw)
+
+    monkeypatch.setattr(linha_tempo, "_existente", cego_na_primeira)
+    resultado = gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
+    assert isinstance(resultado, Duplicada) and len(chamadas) == 2
+    assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE atendimento_id = %s", (atd,)).fetchone() == (0,)
+
+
+def test_gancho_de_casamento_webhook_x_rpa_roda_sob_o_lock_m4(conn_app, atd):
+    visto = {}
+
+    def casar(conn, atendimento_id, evento, ident):
+        visto["travado"] = conn.execute(  # a linha do atendimento está bloqueada por NÓS: outra conexão não a pega com NOWAIT
+            "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation WHERE c.relname = 'atendimento' AND l.mode = 'RowShareLock' AND l.pid = pg_backend_pid()"
+        ).fetchone()
+        return 1 if evento.origem_evento == "reconciliacao" else None
+
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES, casar=casar)
+    rpa = _evento(origem_evento="reconciliacao", rpa_id="65f1c2a9b8d7e6f5a4b3c2d1", datetime_post="2026-11-24T10:15:33-03:00")
+    resultado = gravar_mensagem_recebida(conn_app, atd, evento=rpa, chaves=CHAVES, casar=casar)
+    assert isinstance(resultado, Casada) and resultado.ordem == 1
+    assert conn_app.execute("SELECT count(*) FROM ia.passo WHERE tipo = 'mensagem_recebida'").fetchone() == (1,)
+    assert visto["travado"][0] >= 1
+
+
+@pytest.mark.xfail(
+    reason="casamento webhook × RPA (contrato 08 §5.3 passo 7) é da B1.5: sem `casar` o mesmo evento vira 2 passos", strict=True
+)
+def test_webhook_e_rpa_colapsam(conn_app, atd):
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
+    rpa = _evento(origem_evento="reconciliacao", rpa_id="65f1c2a9b8d7e6f5a4b3c2d1")
+    assert not isinstance(gravar_mensagem_recebida(conn_app, atd, evento=rpa, chaves=CHAVES), Gravada)
+
+
+def test_consumir_perdedor_da_corrida_recebe_conflito_de_versao_m6(conn_app, atd):
+    gravar_mensagem_recebida(conn_app, atd, evento=_evento(), chaves=CHAVES)
+    versao = conn_app.execute("SELECT versao FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone()[0]
+    consumir(conn_app, atd, versao=versao, ate_ordem=1)
+    with pytest.raises(ConflitoDeVersao):  # mesma versão velha, ordem já consumida: perdeu a corrida, não é erro de argumento
+        consumir(conn_app, atd, versao=versao, ate_ordem=1)

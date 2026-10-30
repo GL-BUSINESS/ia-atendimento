@@ -25,6 +25,18 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 - **S2 (MÉDIO):** `msg_fingerprint` era `sha256` puro de texto curto (p50 de 11 caracteres): reversível por dicionário. Agora HMAC-SHA256 com
   `CHAVE_FINGERPRINT` (e `h16` com `CHAVE_H16`), as duas obrigatórias no boot, ≥ 32 caracteres e diferentes; os nomes da conversa são
   mascarados antes do hash. **O vetor do fingerprint do contrato 08 §5.1 (`924ee977…`) deixa de valer** (novo: `d91e6bf4…` com a chave de teste).
+### Correções da revisão 1 (`docs/REVISAO-B1.2-3010.md`)
+- **A1** `passo.motivo` da decisão é CÓDIGO (`^[a-z0-9_]{1,40}$`, padrão `nao_informado`), nunca texto; o `CheckViolation` do banco sai como
+  `PassoRecusadoPeloBanco` só com o nome da restrição (o `DETAIL` imprimia a linha inteira). **A2** `EventoMensagem`/`Troca`/`Conversa` sem texto no
+  `repr`; todos os modelos de passo e o evento herdam `ModeloSemEco` (o construtor direto levanta `EntradaInvalida`, não `ValidationError`).
+  **A3** `msg_chave` por `cgid:{mensagem_id}` quando há id, fração de segundo e query da URL no `h16`, e sem `datetime_post` a chave exige
+  `recebido_em` (a mensagem nunca colapsa). **A4** `ultimo_cliente_em` no futuro (> 5 min) fecha a janela; o `xfail` da coluna agora é `strict=True`.
+- **M1** hora, TTL e retenção são do `now()` do banco (cofre e conversa; reguardar não renova além de 7 d); **M2** `chave_id` vigente conferido com o mês
+  (`ChaveForaDoMes`); **M3** `nomes` obrigatório (`None` recusa); **M4** gancho `casar` sob o `FOR UPDATE` + `xfail(strict)` do casamento (B1.5);
+  **M5** fingerprint sobre o texto mascarado SEM nomes (reverte a parte «nomes» do S2: dava `Conflito` falso; o HMAC já resolve o dicionário);
+  **M6** `consumir` confere a `versao` antes de validar (`ConflitoDeVersao` ao perdedor); **M7** `LIMITE_NOTA = 240` (40 + 240 cabe nos 300 do CHECK).
+- **B1/B2/B3/B7** testes dos 3 mutantes sobreviventes (`ON CONFLICT`, `.strip()`, vencimento do cofre); `Duplicada` não devolve `ordem` de outro
+  atendimento; `expirar` e `ler` usam só o relógio do banco; `agora` dos passos saiu.
 ### Notas
 - `ultimo_cliente_em` chega na migração 0003 da B1.1; até lá `texto_livre_permitido` recebe o valor por parâmetro e um teste `xfail` nomeado
   (`test_coluna_ultimo_cliente_em_existe_no_atendimento`) guarda a coluna. `registrar()` (passo + contadores no mesmo CAS) depende do `aplicar` da B1.1.

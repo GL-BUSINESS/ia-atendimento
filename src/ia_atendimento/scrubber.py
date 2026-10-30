@@ -18,7 +18,7 @@ from collections.abc import Callable
 from types import TracebackType
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ia_atendimento.mascara import mascarar
 
@@ -46,6 +46,22 @@ def validar[T](nome_do_modelo: str, construir: Callable[[], T]) -> T:
     except ValidationError as erro:
         detalhes = erros_sem_input(erro)
     raise EntradaInvalida(nome_do_modelo, detalhes)  # fora do `except`: `__context__` fica vazio
+
+
+class ModeloSemEco(BaseModel):
+    """Base dos modelos que tocam texto: `hide_input_in_errors` e construtor que NÃO deixa o `ValidationError` (cujo `.errors()`/`.json()`
+    guardam o dict de entrada) escapar: levanta `EntradaInvalida` sem o valor e sem causa encadeada (achado A2)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    def __init__(self, /, **dados: Any) -> None:
+        detalhes: tuple[str, ...] | None = None
+        try:
+            super().__init__(**dados)
+        except ValidationError as erro:
+            detalhes = erros_sem_input(erro)
+        if detalhes is not None:
+            raise EntradaInvalida(type(self).__name__, detalhes)
 
 
 def formatar_sem_pii(erro: BaseException) -> str:

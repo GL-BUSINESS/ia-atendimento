@@ -73,3 +73,12 @@ def chaveiro_com(tmp_path: Path, chaves: dict[int, str], vigente: int, nome: str
 
 def chave_aleatoria() -> str:
     return _b64()
+
+
+@pytest.fixture
+def chaveiro_do_mes_atual(tmp_path: Path) -> Chaveiro:
+    """Chaveiro cuja vigente é a do mês REAL de hoje (para provar que a hora gravada é a do banco, sem relógio falso)."""
+    from ia_atendimento.conversa import chave_id_do_mes
+
+    atual = chave_id_do_mes(datetime.now(UTC))
+    return chaveiro_com(tmp_path, {atual: _b64(), atual + 1: _b64()}, vigente=atual, nome="chaves_mes_atual.json")

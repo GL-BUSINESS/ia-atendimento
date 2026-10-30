@@ -12,9 +12,9 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Final, Self
 
 import psycopg
@@ -44,6 +44,14 @@ class EnvioSemVerificacao(LinhaDoTempoErro):
 
 class PassoComPii(LinhaDoTempoErro):
     """O texto do passo mudaria sob a máscara de PII (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos ou nome da conversa)."""
+
+
+class PassoRecusadoPeloBanco(LinhaDoTempoErro):
+    """O banco recusou o INSERT (CHECK, unicidade ou FK). Só o NOME da restrição sai: o `DETAIL` do Postgres imprime a linha inteira."""
+
+    def __init__(self, restricao: str | None) -> None:
+        self.restricao = restricao
+        super().__init__(f"o banco recusou o passo (restrição: {restricao or 'desconhecida'})")
 
 
 class AtendimentoInexistente(LinhaDoTempoErro):
@@ -81,9 +89,18 @@ class Gravada:
 
 @dataclass(frozen=True)
 class Duplicada:
-    """Mesma `msg_chave` e mesmo fingerprint já gravados (neste ou em outro atendimento): nada foi escrito."""
+    """Mesma `msg_chave` e mesmo fingerprint já gravados: nada foi escrito. `ordem` só vem se a duplicata é deste atendimento (B2:
+    o índice é global e permanente, e a ordem de outro atendimento não é assunto de quem chama)."""
 
-    atendimento_id: uuid.UUID
+    msg_chave: str
+    mesmo_atendimento: bool
+    ordem: int | None
+
+
+@dataclass(frozen=True)
+class Casada:
+    """O gancho `casar` (webhook × RPA, contrato 08 §5.3) achou a mesma mensagem já gravada: nada foi escrito."""
+
     ordem: int
     msg_chave: str
 
@@ -93,6 +110,9 @@ class Conflito:
     """Mesma `msg_chave`, outro fingerprint: nada foi escrito; o chamador registra o passo `erro` (peça `receptor`) e alerta."""
 
     msg_chave: str
+
+
+Casador = Callable[[psycopg.Connection, uuid.UUID, EventoMensagem, Identidade], int | None]
 
 
 @dataclass(frozen=True)
@@ -140,10 +160,17 @@ def _inserir(
 ) -> int | None:
     """INSERT em `ia.passo`; os nomes de coluna vêm das nossas classes e de `extras` (nunca de entrada externa)."""
     colunas = {"atendimento_id": atendimento_id, "ordem": ordem, "tipo": dados.tipo, "texto": texto, **extras}
-    linha = conn.execute(
-        f"INSERT INTO ia.passo ({', '.join(colunas)}) VALUES ({', '.join(['%s'] * len(colunas))}) {conflito} RETURNING ordem",  # noqa: S608
-        list(colunas.values()),
-    ).fetchone()
+    restricao: str | None = None
+    recusado = False
+    try:
+        linha = conn.execute(
+            f"INSERT INTO ia.passo ({', '.join(colunas)}) VALUES ({', '.join(['%s'] * len(colunas))}) {conflito} RETURNING ordem",  # noqa: S608
+            list(colunas.values()),
+        ).fetchone()
+    except psycopg.errors.IntegrityError as erro:
+        restricao, recusado = erro.diag.constraint_name, True
+    if recusado:  # fora do `except`: a causa (com o DETAIL e a linha inteira) não fica encadeada
+        raise PassoRecusadoPeloBanco(restricao)
     return linha[0] if linha else None
 
 
@@ -164,12 +191,11 @@ def gravar_passo(
     *,
     ctx: CtxPasso | None,
     dados: DadosPasso,
-    agora: datetime | None = None,
     nomes: Collection[str] | None = None,
 ) -> Passo:
-    """Grava um passo. `nomes` = nome do cliente e variantes (achado S1): mascara o motivo do modelo e valida o texto livre."""
+    """Grava um passo; a hora (`ocorrido_em`) é a do BANCO. `nomes` = nome do cliente e variantes (S1): valida o texto livre do operador."""
     _exigir_ctx(ctx, dados)
-    colunas = dados.colunas(nomes)
+    colunas = dados.colunas()
     if dados.tipo in TIPOS_DE_ENVIO and colunas.get("verif_det") is None:
         raise EnvioSemVerificacao("envio sem verif_det (use [] para «limpo»)")
     texto = texto_passo(dados)
@@ -177,8 +203,6 @@ def gravar_passo(
     extras: dict[str, Any] = dict(colunas)
     if ctx is not None:
         extras.update(turno=ctx.turno, fase=ctx.fase)
-    if agora is not None:
-        extras["ocorrido_em"] = agora
     with conn.transaction():
         travar_atendimento(conn, atendimento_id)
         ordem = _proxima_ordem(conn, atendimento_id)
@@ -199,11 +223,12 @@ def _existente(conn: psycopg.Connection, ident: Identidade, rpa_id: str | None) 
     return (linha[0], linha[1], linha[2]) if linha else None
 
 
-def _comparar(existente: tuple[uuid.UUID, int, str], ident: Identidade) -> Duplicada | Conflito:
+def _comparar(existente: tuple[uuid.UUID, int, str], ident: Identidade, atendimento_id: uuid.UUID) -> Duplicada | Conflito:
     atendimento, ordem, fingerprint = existente
-    if fingerprint == ident.msg_fingerprint:
-        return Duplicada(atendimento, ordem, ident.msg_chave)
-    return Conflito(ident.msg_chave)
+    if fingerprint != ident.msg_fingerprint:
+        return Conflito(ident.msg_chave)
+    mesmo = atendimento == atendimento_id
+    return Duplicada(ident.msg_chave, mesmo, ordem if mesmo else None)
 
 
 def gravar_mensagem_recebida(
@@ -212,13 +237,16 @@ def gravar_mensagem_recebida(
     *,
     evento: EventoMensagem,
     chaves: ChavesDeMensagem,
-    nomes: Collection[str] = (),
-    agora: datetime | None = None,
-) -> Gravada | Duplicada | Conflito:
+    recebido_em: datetime | None = None,
+    casar: Casador | None = None,
+) -> Gravada | Duplicada | Casada | Conflito:
     """Grava a mensagem como passo `mensagem_recebida` (só códigos e tamanho: o texto vai, mascarado e cifrado, a `conversa`).
 
-    `turno` = rodada + 1 (a mensagem pertence ao próximo turno) e `fase` = a atual. Dedupe permanente por `msg_chave`."""
-    ident = identidade(evento, chaves, nomes)
+    `turno` = rodada + 1 (a mensagem pertence ao próximo turno) e `fase` = a atual. Dedupe permanente por `msg_chave` (ver
+    `evento_mensagem.identidade`; `recebido_em` só pesa quando o evento não traz hora nem id). Sem esta etapa o RPA e o webhook do MESMO
+    evento viram dois passos: `casar` é o gancho do casamento (contrato 08 §5.3 passo 7, B1.5); roda DENTRO do `FOR UPDATE` do
+    atendimento, depois da busca exata e antes do INSERT, e devolve a `ordem` do passo já gravado (ou `None`)."""
+    ident = identidade(evento, chaves, recebido_em=recebido_em or datetime.now(UTC))
     dados = MensagemRecebida(
         msg_chave=ident.msg_chave,
         msg_fingerprint=ident.msg_fingerprint,
@@ -232,10 +260,11 @@ def gravar_mensagem_recebida(
         fase, rodada = travar_atendimento(conn, atendimento_id)
         anterior = _existente(conn, ident, evento.rpa_id)
         if anterior is not None:
-            return _comparar(anterior, ident)
+            return _comparar(anterior, ident, atendimento_id)
+        casada = casar(conn, atendimento_id, evento, ident) if casar is not None else None
+        if casada is not None:
+            return Casada(casada, ident.msg_chave)
         extras: dict[str, Any] = {**dados.colunas(), "turno": rodada + 1, "fase": fase}
-        if agora is not None:
-            extras["ocorrido_em"] = agora
         ordem = _inserir(
             conn,
             atendimento_id,
@@ -249,7 +278,7 @@ def gravar_mensagem_recebida(
             concorrente = _existente(conn, ident, evento.rpa_id)
             if concorrente is None:
                 raise LinhaDoTempoErro("INSERT não gravou e a chave não existe: estado impossível")
-            return _comparar(concorrente, ident)
+            return _comparar(concorrente, ident, atendimento_id)
         return Gravada(ordem, ident.msg_chave)
 
 
@@ -264,28 +293,31 @@ def mensagens_pendentes(conn: psycopg.Connection, atendimento_id: uuid.UUID) -> 
     return [Pendente(*linha) for linha in linhas]
 
 
-def consumir(conn: psycopg.Connection, atendimento_id: uuid.UUID, *, versao: int, ate_ordem: int, agora: datetime | None = None) -> int:
-    """Consome as pendentes até `ate_ordem` (inclusive): um turno por lote. CAS por `versao`; devolve a versão nova."""
+def consumir(conn: psycopg.Connection, atendimento_id: uuid.UUID, *, versao: int, ate_ordem: int) -> int:
+    """Consome as pendentes até `ate_ordem` (inclusive): um turno por lote. CAS por `versao`; devolve a versão nova.
+
+    A versão é conferida PRIMEIRO, sob o lock: quem perde a corrida recebe `ConflitoDeVersao` (e repete o turno), não `ValueError`."""
     with conn.transaction():
         travar_atendimento(conn, atendimento_id)
-        consumida, ultima = _uma_linha(
+        atual, consumida, ultima = _uma_linha(
             conn,
-            "SELECT a.ordem_consumida, (SELECT max(p.ordem) FROM ia.passo p WHERE p.atendimento_id = a.atendimento_id"
+            "SELECT a.versao, a.ordem_consumida, (SELECT max(p.ordem) FROM ia.passo p WHERE p.atendimento_id = a.atendimento_id"
             " AND p.tipo = 'mensagem_recebida') FROM ia.atendimento a WHERE a.atendimento_id = %s",
             (atendimento_id,),
         )
+        if atual != versao:
+            raise ConflitoDeVersao("a versão do atendimento mudou (CAS perdido)")
         eh_mensagem = conn.execute(
             "SELECT 1 FROM ia.passo WHERE atendimento_id = %s AND ordem = %s AND tipo = 'mensagem_recebida'", (atendimento_id, ate_ordem)
         ).fetchone()
         if ate_ordem <= consumida or ultima is None or ate_ordem > ultima or eh_mensagem is None:
             raise ValueError("ate_ordem deve ser uma mensagem recebida, posterior ao que já foi consumido")
         atualizada = conn.execute(
-            "UPDATE ia.atendimento SET ordem_consumida = %s, turnos = turnos + 1, versao = versao + 1,"
-            " atualizado_em = coalesce(%s, now()),"
+            "UPDATE ia.atendimento SET ordem_consumida = %s, turnos = turnos + 1, versao = versao + 1, atualizado_em = now(),"
             " estado_conversa = jsonb_set(estado_conversa, '{contadores}', coalesce(estado_conversa -> 'contadores', '{}'::jsonb)"
             " || jsonb_build_object('rodada', coalesce((estado_conversa #>> '{contadores,rodada}')::int, 0) + 1))"
             " WHERE atendimento_id = %s AND versao = %s RETURNING versao",
-            (ate_ordem, agora, atendimento_id, versao),
+            (ate_ordem, atendimento_id, versao),
         ).fetchone()
     if atualizada is None:
         raise ConflitoDeVersao("a versão do atendimento mudou (CAS perdido)")

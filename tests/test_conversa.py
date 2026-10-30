@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from ia_atendimento.cifra import ChaveDesconhecida, FalhaAoDecifrar
 from ia_atendimento.conversa import (
     LIMITE_TROCA,
+    ChaveForaDoMes,
+    NomesIndisponiveis,
     ResumoInvalido,
     TextoVazio,
     chave_id_do_mes,
@@ -33,7 +35,7 @@ def atd(conn_app):
 
 
 def _troca(conn, atd, chaveiro, texto, remetente="cliente", **kw):
-    return gravar_troca(conn, atd, remetente=remetente, texto=texto, agora=AGORA, chaveiro=chaveiro, **kw)
+    return gravar_troca(conn, atd, remetente=remetente, texto=texto, chaveiro=chaveiro, **{"nomes": (), "agora": AGORA, **kw})
 
 
 def test_cifra_ida_e_volta_e_o_texto_sai_mascarado(conn_app, atd, chaveiro):
@@ -113,12 +115,11 @@ def test_nonce_nunca_repete(conn_app, atd, chaveiro):
 def test_chave_id_gravado_e_o_mensal_e_a_linha_guarda_criada_e_apagar_em(conn_app, atd, chaveiro):
     assert chave_id_do_mes(AGORA) == chaveiro.vigente == 2  # 1 = out/2026, 2 = nov/2026
     _troca(conn_app, atd, chaveiro, "oi")
-    linha = conn_app.execute("SELECT chave_id, criada_em, apagar_em, mascarado, tipo FROM ia.conversa_cifrada").fetchone()
-    assert linha == (2, AGORA, AGORA + timedelta(days=30), True, "mensagem")
+    linha = conn_app.execute("SELECT chave_id, apagar_em - criada_em, mascarado, tipo FROM ia.conversa_cifrada").fetchone()
+    assert linha == (2, timedelta(days=30), True, "mensagem")
 
 
 def test_chave_id_do_mes_sequencial_a_partir_de_out_2026():
-    from datetime import UTC, datetime
 
     assert chave_id_do_mes(datetime(2026, 10, 1, tzinfo=UTC)) == 1
     assert chave_id_do_mes(datetime(2026, 12, 31, 23, tzinfo=UTC)) == 3
@@ -132,7 +133,7 @@ def test_chave_id_descartado_omite_a_linha_e_nao_derruba_o_turno(conn_app, atd, 
     velho = chaveiro_com(tmp_path, {1: k1, 2: k2}, vigente=1, nome="velho.json")
     novo = chaveiro_com(tmp_path, {1: k1, 2: k2}, vigente=2, nome="novo.json")
     so_novo = chaveiro_com(tmp_path, {2: k2}, vigente=2, nome="so_novo.json")  # a chave de out/2026 foi descartada
-    _troca(conn_app, atd, velho, "mensagem de outubro")
+    _troca(conn_app, atd, velho, "mensagem de outubro", agora=datetime(2026, 10, 15, tzinfo=UTC))
     _troca(conn_app, atd, novo, "mensagem de novembro")
     completa = ler_trocas(conn_app, atd, chaveiro=novo)
     assert [t.texto for t in completa.mensagens] == ["mensagem de outubro", "mensagem de novembro"] and completa.omitidas == 0
@@ -146,7 +147,13 @@ def test_ler_conversa_devolve_resumo_mais_ultimas_3_trocas(conn_app, atd, chavei
     for i in range(1, 9):
         _troca(conn_app, atd, chaveiro, f"fala {i} " + "x" * 400, remetente="cliente" if i % 2 else "ia")
     gravar_resumo(
-        conn_app, atd, texto="cliente quer reduzir a parcela e prefere falar de manha", cobre_ate_seq=4, agora=AGORA, chaveiro=chaveiro
+        conn_app,
+        atd,
+        texto="cliente quer reduzir a parcela e prefere falar de manha",
+        cobre_ate_seq=4,
+        agora=AGORA,
+        chaveiro=chaveiro,
+        nomes=(),
     )
     conversa = ler_trocas(conn_app, atd, chaveiro=chaveiro)
     assert conversa.resumo == "cliente quer reduzir a parcela e prefere falar de manha"
@@ -157,10 +164,10 @@ def test_ler_conversa_devolve_resumo_mais_ultimas_3_trocas(conn_app, atd, chavei
 
 def test_resumo_com_digito_e_rejeitado_e_mantem_o_anterior(conn_app, atd, chaveiro):
     _troca(conn_app, atd, chaveiro, "oi")
-    gravar_resumo(conn_app, atd, texto="prefere contato de manha", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro)
+    gravar_resumo(conn_app, atd, texto="prefere contato de manha", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro, nomes=())
     for ruim in ("quer parcela de 300 reais", "ligar às ① hora", "ligar depois do dia ٣", "x" + "palavra " * 61):
         with pytest.raises(ResumoInvalido) as erro:
-            gravar_resumo(conn_app, atd, texto=ruim, cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro)
+            gravar_resumo(conn_app, atd, texto=ruim, cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro, nomes=())
         assert "300" not in str(erro.value)
     assert ler_trocas(conn_app, atd, chaveiro=chaveiro).resumo == "prefere contato de manha"
     assert conn_app.execute("SELECT count(*) FROM ia.conversa_cifrada WHERE tipo = 'resumo'").fetchone() == (1,)
@@ -173,12 +180,12 @@ def test_resumo_nao_leva_nome_nem_pii_e_o_vigente_e_o_de_maior_seq(conn_app, atd
             conn_app, atd, texto="Maria Souza prefere manha", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro, nomes=("Maria Souza",)
         )
     with pytest.raises(ResumoInvalido):
-        gravar_resumo(conn_app, atd, texto=f"escreve para {EMAIL}", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro)
+        gravar_resumo(conn_app, atd, texto=f"escreve para {EMAIL}", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro, nomes=())
     with pytest.raises(ResumoInvalido):  # cobre_ate_seq além do que existe
-        gravar_resumo(conn_app, atd, texto="prefere manha", cobre_ate_seq=5, agora=AGORA, chaveiro=chaveiro)
-    gravar_resumo(conn_app, atd, texto="prefere manha", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro)
+        gravar_resumo(conn_app, atd, texto="prefere manha", cobre_ate_seq=5, agora=AGORA, chaveiro=chaveiro, nomes=())
+    gravar_resumo(conn_app, atd, texto="prefere manha", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro, nomes=())
     _troca(conn_app, atd, chaveiro, "ola", remetente="ia")
-    gravar_resumo(conn_app, atd, texto="prefere tarde", cobre_ate_seq=3, agora=AGORA, chaveiro=chaveiro)
+    gravar_resumo(conn_app, atd, texto="prefere tarde", cobre_ate_seq=3, agora=AGORA, chaveiro=chaveiro, nomes=())
     assert ler_trocas(conn_app, atd, chaveiro=chaveiro).resumo == "prefere tarde"
     linha = conn_app.execute("SELECT remetente, passo_ordem, cobre_ate_seq FROM ia.conversa_cifrada WHERE seq = 4").fetchone()
     assert linha == ("ia", None, 3)
@@ -220,8 +227,16 @@ def test_texto_livre_bloqueado_com_24h_ou_mais():
         texto_livre_permitido(AGORA.replace(tzinfo=None), ultimo)
 
 
+def test_ultimo_cliente_em_no_futuro_nao_abre_a_janela_a4():
+    """Relógio do cliente adiantado (ou dado corrompido) não pode manter a janela aberta para sempre: tolera 5 min, não 30 dias."""
+    assert texto_livre_permitido(AGORA, AGORA + timedelta(minutes=4)) is True
+    assert texto_livre_permitido(AGORA, AGORA + timedelta(minutes=6)) is False
+    assert texto_livre_permitido(AGORA, AGORA + timedelta(days=30)) is False
+
+
 @pytest.mark.xfail(
-    reason="ultimo_cliente_em chega na migração 0003 da B1.1 (feat/b1-1-estado); tirar a marca quando ela for integrada", strict=False
+    reason="ultimo_cliente_em chega na migração 0003 da B1.1 (feat/b1-1-estado); dono: quem integrar a B1.1 (feat/b1-1-estado) remove esta marca; strict=True o lembra",
+    strict=True,
 )
 def test_coluna_ultimo_cliente_em_existe_no_atendimento(conn_app):
     colunas = {
@@ -231,3 +246,51 @@ def test_coluna_ultimo_cliente_em_existe_no_atendimento(conn_app):
         ).fetchall()
     }
     assert "ultimo_cliente_em" in colunas
+
+
+# --- correções da revisão 1 (A2, M1, M2, M3) -------------------------------------------------------------------------------------
+
+
+def test_repr_de_troca_e_conversa_nao_vaza_o_texto_decifrado_a2(conn_app, atd, chaveiro):
+    _troca(conn_app, atd, chaveiro, f"quero a {MARCADOR}")
+    gravar_resumo(conn_app, atd, texto="prefere manha", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro, nomes=())
+    conversa = ler_trocas(conn_app, atd, chaveiro=chaveiro)
+    assert conversa.mensagens[0].texto.count(MARCADOR) == 1
+    assert MARCADOR not in repr(conversa) + str(conversa) + repr(conversa.mensagens[0])
+    assert "prefere manha" not in repr(conversa)
+
+
+def test_sem_nomes_nao_grava_texto_de_cliente_nem_resumo_m3(conn_app, atd, chaveiro):
+    with pytest.raises(TypeError):  # `nomes` não tem default: esquecer é erro, não «ninguém tem nome»
+        gravar_resumo(conn_app, atd, texto="o João quer parcela menor", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        gravar_troca(conn_app, atd, remetente="cliente", texto="oi", agora=AGORA, chaveiro=chaveiro)  # type: ignore[call-arg]
+    with pytest.raises(NomesIndisponiveis) as erro:
+        gravar_troca(conn_app, atd, remetente="cliente", texto="o João Carlos mora na Rua X", agora=AGORA, chaveiro=chaveiro, nomes=None)
+    assert "João" not in str(erro.value)
+    _troca(conn_app, atd, chaveiro, "oi")
+    with pytest.raises(NomesIndisponiveis):
+        gravar_resumo(conn_app, atd, texto="prefere manha", cobre_ate_seq=1, agora=AGORA, chaveiro=chaveiro, nomes=None)
+    assert conn_app.execute("SELECT count(*) FROM ia.conversa_cifrada").fetchone() == (1,)
+
+
+def test_chave_do_mes_diferente_da_vigente_recusa_gravar_m2(conn_app, atd, chaveiro):
+
+    dezembro = datetime(2026, 12, 15, tzinfo=UTC)  # chave_id 3; o chaveiro está na 2 (esqueceram de virar CHAVE_AES_ID)
+    with pytest.raises(ChaveForaDoMes) as erro:
+        gravar_troca(conn_app, atd, remetente="cliente", texto="oi", agora=dezembro, chaveiro=chaveiro, nomes=())
+    assert "3" in str(erro.value) and "2" in str(erro.value)
+    with pytest.raises(ChaveForaDoMes):
+        gravar_resumo(conn_app, atd, texto="x", cobre_ate_seq=1, agora=dezembro, chaveiro=chaveiro, nomes=())
+    assert conn_app.execute("SELECT count(*) FROM ia.conversa_cifrada").fetchone() == (0,)
+
+
+def test_retencao_da_linha_e_contada_pelo_relogio_do_banco_m1(conn_app, atd, chaveiro_do_mes_atual):
+    """Sem `agora` do chamador: `criada_em`/`apagar_em` saem de `now()` do SQL, então nenhum relógio errado alonga a vida real do texto."""
+    gravar_troca(conn_app, atd, remetente="cliente", texto="oi", chaveiro=chaveiro_do_mes_atual, nomes=())
+    dentro = conn_app.execute(
+        "SELECT abs(extract(epoch FROM now() - criada_em)) < 10 AND apagar_em - criada_em = interval '30 days' FROM ia.conversa_cifrada"
+    ).fetchone()
+    assert dentro == (True,)
+    with pytest.raises(TypeError):  # o relógio do chamador não escolhe mais a data da linha
+        gravar_troca(conn_app, atd, remetente="cliente", texto="oi", chaveiro=chaveiro_do_mes_atual, nomes=(), criada_em=AGORA)  # type: ignore[call-arg]

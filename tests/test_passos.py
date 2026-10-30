@@ -57,10 +57,10 @@ def test_texto_dos_13_tipos_bate_com_o_arquivo_dourado(caso):
 
 
 def _preencher_livres(caso: dict) -> dict:
-    """Põe o marcador e um CPF sintético em todo campo de texto livre que o tipo aceita (só `motivo`: o modelo escreve)."""
+    """Nenhum tipo aceita mais texto livre do modelo (A1): o `motivo` da decisão é CÓDIGO de catálogo."""
     dados = dict(caso["dados"])
     if caso["tipo"] == "decisao":
-        dados["motivo"] = f"o cliente disse {MARCADOR} e informou {CPF_SINTETICO}"
+        dados["motivo"] = "motivo_de_catalogo"
     return dados
 
 
@@ -70,23 +70,35 @@ def test_13_tipos_de_passo_sem_citar_o_cliente(caso):
     texto = texto_passo(dados)
     assert MARCADOR not in texto
     assert CPF_SINTETICO not in texto
-    colunas = {k: str(v) for k, v in dados.colunas(NOMES).items()}
-    assert CPF_SINTETICO not in " ".join(colunas.values()), "o motivo do modelo é mascarado antes de ir à coluna"
+    colunas = {k: str(v) for k, v in dados.colunas().items()}
+    assert MARCADOR not in " ".join(colunas.values()) + texto
 
 
-def test_motivo_da_decisao_e_mascarado_e_tem_padrao():
-    assert criar("decisao", motor="regra").colunas(NOMES)["motivo"] == "(não informado)"
-    com_cpf = criar("decisao", motor="regra", motivo=f"cpf {CPF_SINTETICO}")
-    assert com_cpf.colunas(NOMES)["motivo"] == "cpf [CPF]"
+def test_motivo_da_decisao_e_codigo_de_catalogo_e_tem_padrao():
+    assert criar("decisao", motor="regra").colunas()["motivo"] == "nao_informado"
+    assert criar("decisao", motor="regra", motivo="oferta_aceita").colunas()["motivo"] == "oferta_aceita"
 
 
-def test_motivo_da_decisao_nao_leva_o_nome_do_cliente_s1():
-    """Achado S1: `mascarar` sozinho não pega nome. Com os nomes da conversa o nome vira [NOME]; sem eles o texto é redigido."""
-    dados = criar("decisao", motor="regra", motivo="Maria Souza aceitou a oferta")
-    assert dados.colunas(NOMES)["motivo"] == "[NOME] aceitou a oferta"
-    assert dados.colunas(())["motivo"] == "Maria Souza aceitou a oferta"  # conferido: não há nome a esconder
-    assert "Maria" not in dados.colunas()["motivo"], "nomes indisponíveis: nada de texto livre"
-    assert dados.colunas()["motivo"] == "(texto redigido)"
+@pytest.mark.parametrize(
+    "texto",
+    [
+        f"cliente disse {MARCADOR} sobre juros",
+        f"cpf {CPF_SINTETICO}",
+        "Joãozinho quer parcela menor",
+        "Com Espaço",
+        "x" * 41,
+        "(não informado)",
+    ],
+)
+def test_motivo_com_texto_livre_e_recusado_a1(texto):
+    """A1: `passo` vive 365 d e é lido por `ia_leitura`; o `motivo` não pode carregar palavras do cliente, nem apelido, nem PII."""
+    for motor, extra in (
+        ("modelo", {"intencao": "duvida", "confianca": "alta", "modelo": "deepseek-v4p1-flash-1017", "provedor": "fireworks-us"}),
+        ("regra", {}),
+    ):
+        with pytest.raises(EntradaInvalida) as erro:
+            criar("decisao", motor=motor, motivo=texto, **extra)
+        assert MARCADOR not in str(erro.value) + repr(erro.value) and CPF_SINTETICO not in str(erro.value)
 
 
 def test_anotacao_com_nome_do_cliente_e_recusada_s1():
@@ -181,7 +193,7 @@ def test_validation_error_nao_vaza_input():
         (DecisaoModelo, {"motor": "modelo", "intencao": pii, "confianca": "alta", "modelo": "m", "provedor": "p"}),
         (AnotacaoOperador, {"operador": "op@exemplo.invalid", "resultado": pii, "nota": "x"}),
     ):
-        with pytest.raises(ValidationError) as cru:
+        with pytest.raises((ValidationError, EntradaInvalida)) as cru:
             modelo(**campos)
         assert MARCADOR not in str(cru.value)
         assert CPF_SINTETICO not in str(cru.value)
@@ -241,3 +253,18 @@ def test_todo_modelo_pydantic_que_toca_texto_esconde_o_input_nos_erros():
     assert len(modelos) >= 17
     sem = [m.__name__ for m in modelos if m.model_config.get("hide_input_in_errors") is not True]
     assert sem == []
+
+
+def test_anotacao_com_categoria_de_40_e_nota_maxima_cabe_nos_300_do_check_m7():
+    dados = criar("anotacao_operador", nomes=NOMES, operador="op@exemplo.invalid", resultado="r" * 40, nota="n" * 240)
+    assert len(texto_passo(dados)) <= 300
+    with pytest.raises(EntradaInvalida):
+        criar("anotacao_operador", nomes=NOMES, operador="op@exemplo.invalid", resultado="r" * 40, nota="n" * 250)
+
+
+def test_construtor_direto_tambem_nao_vaza_o_input_em_errors_a2():
+    """A2: `ValidationError.errors()` guarda o dict de entrada; o construtor direto passa a levantar `EntradaInvalida` (sem input)."""
+    with pytest.raises(EntradaInvalida) as erro:
+        Erro(peca=f"{MARCADOR} {CPF_SINTETICO}")
+    saida = json.dumps([str(erro.value), repr(erro.value), list(erro.value.detalhes), list(map(str, erro.value.args))])
+    assert MARCADOR not in saida and CPF_SINTETICO not in saida

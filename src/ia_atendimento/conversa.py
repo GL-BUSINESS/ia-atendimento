@@ -18,8 +18,8 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Collection
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 import psycopg
@@ -31,8 +31,9 @@ from ia_atendimento.mascara import mascarar
 LIMITE_TROCA: Final = 4000
 LIMITE_LEITURA: Final = 280
 TROCAS_PADRAO: Final = 3
-RETENCAO_LINHA: Final = timedelta(days=30)  # teto absoluto da linha (CHECK `apagar_em <= criada_em + 30 d`)
+RETENCAO_LINHA: Final = timedelta(days=30)  # teto absoluto da linha (CHECK `apagar_em <= criada_em + 30 d`); contado pelo `now()` do banco
 JANELA_SERVICO: Final = timedelta(hours=24)
+TOLERANCIA_FUTURO: Final = timedelta(minutes=5)  # relógio do cliente/ChatGuru adiantado; além disso o dado é suspeito e a janela fecha
 MAX_PALAVRAS_RESUMO: Final = 60
 PRIMEIRO_MES: Final = (2026, 10)  # chave_id 1
 SUBSTITUTO: Final = re.compile(r"^\[dado:[a-z0-9_]{1,20}\]$")
@@ -46,6 +47,14 @@ class TextoVazio(ConversaErro):
     pass
 
 
+class NomesIndisponiveis(ConversaErro):
+    """`nomes=None`: sem os nomes da conversa não há como mascarar o texto livre, então ele não é gravado (fail-closed, achado M3)."""
+
+
+class ChaveForaDoMes(ConversaErro):
+    """A chave vigente não é a do mês de `agora`: esquecer de virar `CHAVE_AES_ID` faria o texto morrer com a chave velha (M2)."""
+
+
 class ResumoInvalido(ConversaErro):
     """Resumo com dígito, nome, PII, longo demais ou cobrindo o que não existe. O anterior continua valendo."""
 
@@ -54,14 +63,14 @@ class ResumoInvalido(ConversaErro):
 class Troca:
     seq: int
     remetente: str
-    texto: str
+    texto: str = field(repr=False)
     mensagem_em: datetime | None
 
 
 @dataclass(frozen=True)
 class Conversa:
-    resumo: str | None
-    mensagens: tuple[Troca, ...]
+    resumo: str | None = field(repr=False)
+    mensagens: tuple[Troca, ...] = field(repr=False)
     omitidas: int  # linhas cuja chave mensal foi descartada
 
 
@@ -81,7 +90,21 @@ def texto_livre_permitido(agora: datetime, ultimo_cliente_em: datetime | None) -
         return False
     if ultimo_cliente_em.tzinfo is None:
         raise ValueError("ultimo_cliente_em precisa de fuso")
+    if ultimo_cliente_em - agora > TOLERANCIA_FUTURO:
+        return False
     return agora - ultimo_cliente_em < JANELA_SERVICO
+
+
+def exigir_chave_do_mes(chaveiro: Chaveiro, agora: datetime | None) -> None:
+    esperado = chave_id_do_mes(agora or datetime.now(UTC))
+    if chaveiro.vigente != esperado:
+        raise ChaveForaDoMes(f"a chave vigente é a {chaveiro.vigente} e o mês de hoje pede a {esperado}: vire CHAVE_AES_ID e reinicie")
+
+
+def _exigir_nomes(nomes: Collection[str] | None) -> Collection[str]:
+    if nomes is None:
+        raise NomesIndisponiveis("nomes da conversa não informados; passe () só se já conferiu que não há nome a esconder")
+    return nomes
 
 
 def _texto_a_gravar(texto: str, nomes: Collection[str], substituto: str | None) -> str:
@@ -99,7 +122,7 @@ def _inserir(conn: psycopg.Connection, atendimento_id: uuid.UUID, **c: Any) -> N
     conn.execute(
         "INSERT INTO ia.conversa_cifrada (atendimento_id, seq, passo_ordem, remetente, tipo, cobre_ate_seq, mensagem_em,"
         " chave_id, nonce, cifra, criada_em, apagar_em) VALUES (%(a)s, %(seq)s, %(passo)s, %(rem)s, %(tipo)s, %(cobre)s, %(em)s,"
-        " %(chave)s, %(nonce)s, %(cifra)s, %(criada)s, %(apagar)s)",
+        " %(chave)s, %(nonce)s, %(cifra)s, now(), now() + %(retencao)s)",
         {"a": atendimento_id, **c},
     )
 
@@ -111,12 +134,13 @@ def _gravar(
     remetente: str,
     tipo: str,
     texto: str,
-    agora: datetime,
+    agora: datetime | None,
     chaveiro: Chaveiro,
     passo_ordem: int | None = None,
     cobre_ate_seq: int | None = None,
     mensagem_em: datetime | None = None,
 ) -> int:
+    exigir_chave_do_mes(chaveiro, agora)
     with conn.transaction():
         travar_atendimento(conn, atendimento_id)
         linha = conn.execute(
@@ -128,7 +152,7 @@ def _gravar(
         cifrado = chaveiro.cifrar(texto, atendimento_id, seq=seq, remetente=remetente, tipo=tipo)
         _inserir(
             conn, atendimento_id, seq=seq, passo=passo_ordem, rem=remetente, tipo=tipo, cobre=cobre_ate_seq, em=mensagem_em,
-            chave=cifrado.chave_id, nonce=cifrado.nonce, cifra=cifrado.ct, criada=agora, apagar=agora + RETENCAO_LINHA,
+            chave=cifrado.chave_id, nonce=cifrado.nonce, cifra=cifrado.ct, retencao=RETENCAO_LINHA,
         )  # fmt: skip
     return seq
 
@@ -139,17 +163,20 @@ def gravar_troca(
     *,
     remetente: str,
     texto: str,
-    agora: datetime,
     chaveiro: Chaveiro,
+    nomes: Collection[str] | None,
+    agora: datetime | None = None,
     passo_ordem: int | None = None,
     mensagem_em: datetime | None = None,
-    nomes: Collection[str] = (),
     substituto: str | None = None,
 ) -> int:
-    """Mascara, cifra e grava uma mensagem; devolve o `seq`. `substituto` (`[dado:pix]`) grava só o rótulo: o valor nem é lido."""
+    """Mascara, cifra e grava uma mensagem; devolve o `seq`. `substituto` (`[dado:pix]`) grava só o rótulo: o valor nem é lido.
+
+    `nomes` é obrigatório (`None` recusa). `agora` só serve para conferir a chave mensal (default: relógio real); `criada_em` e
+    `apagar_em` são do banco (M1)."""
     if remetente not in REMETENTES:
         raise ValueError(f"remetente deve ser um de {sorted(REMETENTES)}")
-    final = _texto_a_gravar(texto, nomes, substituto)
+    final = _texto_a_gravar(texto, _exigir_nomes(nomes), substituto)
     return _gravar(
         conn, atendimento_id, remetente=remetente, tipo="mensagem", texto=final, agora=agora, chaveiro=chaveiro,
         passo_ordem=passo_ordem, mensagem_em=mensagem_em,
@@ -173,12 +200,12 @@ def gravar_resumo(
     *,
     texto: str,
     cobre_ate_seq: int,
-    agora: datetime,
     chaveiro: Chaveiro,
-    nomes: Collection[str] = (),
+    nomes: Collection[str] | None,
+    agora: datetime | None = None,
 ) -> int:
     """Resumo compacto (`tipo='resumo'`, remetente `ia`, sem passo). Sem dígito, sem nome, ≤ 60 palavras; senão `ResumoInvalido`."""
-    limpo = _validar_resumo(texto, nomes)
+    limpo = _validar_resumo(texto, _exigir_nomes(nomes))
     return _gravar(
         conn, atendimento_id, remetente="ia", tipo="resumo", texto=limpo, agora=agora, chaveiro=chaveiro, cobre_ate_seq=cobre_ate_seq
     )

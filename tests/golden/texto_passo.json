@@ -30,7 +30,7 @@
       "objecao": "preco",
       "modelo": "deepseek-v4p1-flash-1017",
       "provedor": "fireworks-us",
-      "motivo": "cliente concordou"
+      "motivo": "cliente_concordou"
     },
     "texto": "Modelo classificou a intenção como aceita_oferta (confiança alta); objeção: preco."
   },
