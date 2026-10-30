@@ -293,6 +293,22 @@ def test_mascara_roda_em_tempo_linear_no_tamanho_do_texto(texto):
 
 
 @pytest.mark.parametrize(
+    "entrada",
+    [
+        "jo\u200bao@exemplo.test",
+        "jo\u00adao@exemplo.test",
+        "\ufeffjoao@exemplo.test",
+        "joao@ex\u200bemplo.test",
+        "joao@exemplo.\u2060test",
+        "o'brien@exemplo.test",
+        "a!b#c@exemplo.test",
+    ],
+)
+def test_email_com_caractere_invisivel_ou_simbolo_legal_na_parte_local_nao_vaza_pedaco(entrada):
+    assert mascarar(entrada) == "[EMAIL]"
+
+
+@pytest.mark.parametrize(
     ("entrada", "esperado"),
     [
         ("a@b.test+joao@exemplo.test", "[EMAIL][EMAIL]"),  # o `+` é caractere de parte-local: o 2º e-mail não pode ficar em claro

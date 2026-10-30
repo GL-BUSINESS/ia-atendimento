@@ -261,6 +261,37 @@ def test_database_url_exige_login_ia_app_efetivo_pelo_libpq(monkeypatch, url):
     assert "database_url" in str(boot.value)
 
 
+@pytest.mark.parametrize(
+    "opcoes", ["-c%20role%3Dia_owner", "-c%20ROLE%3Dia_owner", "--role%3Dia_owner", "-c%20session_authorization%3Dpostgres"]
+)
+def test_database_url_recusa_options_que_trocam_de_papel(monkeypatch, opcoes):
+    url = f"postgresql://ia_app_a:segredo-do-super@127.0.0.1:5434/ia_atendimento?options={opcoes}"
+    _definir(monkeypatch, {**BASE, "DATABASE_URL": url})
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_database_url_aceita_options_de_search_path_da_fila(monkeypatch):
+    url = "postgresql://ia_app_a:senha@127.0.0.1:5434/ia_atendimento?options=-c%20search_path%3Dprocrastinate,public"
+    _definir(monkeypatch, {**BASE, "DATABASE_URL": url})
+    assert "search_path" in Settings().database_url.get_secret_value()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        " https://us.api.fireworks.ai/inference/v1",
+        "https://us.api.fireworks.ai/inference/v1\n",
+        "https://us.api.fireworks.ai/\n@evil",
+        "http://localhost\t.evil",
+    ],
+)
+def test_url_do_modelo_recusa_espaco_e_controle(monkeypatch, url):
+    _definir(monkeypatch, {**BASE, "MODELO_BASE_URL_1": url})
+    with pytest.raises(ValidationError):
+        Settings()
+
+
 @pytest.mark.parametrize("login", ["ia_app_a", "ia_app_b"])
 def test_database_url_aceita_os_dois_logins_do_runtime(monkeypatch, login):
     _definir(monkeypatch, {**BASE, "DATABASE_URL": f"postgresql://{login}:senha@127.0.0.1:5434/ia_atendimento"})

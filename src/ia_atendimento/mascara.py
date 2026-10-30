@@ -32,9 +32,12 @@ MIN_DIGITOS = 8
 # 100 mil letras seguidas não são quadráticas (um padrão único `local@dominio` varria a corrida inteira a cada posição: ~9 s), e um
 # segundo e-mail colado ao primeiro (`a@b.test+joao@exemplo.test`) não fica em claro: o início da parte-local nunca recua para antes do fim
 # do e-mail anterior.
-_LOCAL = r"[\w\u0300-\u036f.%+\-]"
+# Caracteres de formato invisíveis (zero-width, soft-hyphen, BOM, controles de direção) não quebram a corrida: `jo\u200bao@x.test` e
+# `joao@ex\u200bemplo.test` seguem sendo um e-mail para quem lê. A parte-local também aceita os símbolos legais do RFC 5322 (`o'brien@`).
+_INVISIVEL = r"\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff"
+_LOCAL = rf"[\w\u0300-\u036f.%+\-'!#$&*=?^`{{|}}~{_INVISIVEL}]"
 _CORRIDA_LOCAL = re.compile(_LOCAL + "+")
-_DOMINIO = re.compile(r"[\w\u0300-\u036f\-]+(?:\.[\w\u0300-\u036f\-]+)+")
+_DOMINIO = re.compile(rf"[\w\u0300-\u036f\-{_INVISIVEL}]+(?:\.[\w\u0300-\u036f\-{_INVISIVEL}]+)+")
 _UUID = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9A-Za-z])")
 # Isenções do [NUMERO] (data e dinheiro têm 8+ dígitos): data com ano 19xx/20xx e valor em reais com centavos, até 3 grupos de milhar.
 _ISENTO = re.compile(

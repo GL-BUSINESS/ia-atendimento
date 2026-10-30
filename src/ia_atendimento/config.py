@@ -32,6 +32,8 @@ TERMOS_PROIBIDOS_NO_MODELO = ("anthropic", "claude", "opus", "sonnet", "haiku")
 # Login do runtime: ia_app_a/ia_app_b (e só eles na prática). Nem o grupo `ia_app` (NOLOGIN), nem outro grupo, nem dono ou superusuário.
 PADRAO_LOGIN_RUNTIME = re.compile(r"^ia_app_[a-z0-9]{1,16}$")
 TAMANHO_MIN_SEGREDO = 16  # `.env.example` traz os segredos vazios: esquecer de preencher não pode subir com API aberta
+# `options=-c role=…`/`session_authorization=…` trocariam a identidade após o login; `-c search_path=…` (OPERACAO.md §4) segue valendo
+OPCOES_PROIBIDAS = re.compile(r"\b(?:role|session_authorization)\b", re.IGNORECASE)
 CHAVE_ID_MAX = 32767  # coluna smallint (conversa_cifrada.chave_id, cofre.chave_id)
 
 
@@ -67,6 +69,8 @@ class Settings(BaseSettings):
         for login in (unquote(partes.username or ""), efetiva.get("user", "")):
             if not PADRAO_LOGIN_RUNTIME.fullmatch(login):
                 raise ValueError("database_url deve usar o login ia_app_a ou ia_app_b (nunca ia_owner, s4_super, postgres ou outro grupo)")
+        if OPCOES_PROIBIDAS.search(efetiva.get("options", "")):
+            raise ValueError("database_url não pode trocar de papel por options (role, session_authorization)")
         return valor
 
     @field_validator("modelo_nome")
@@ -80,6 +84,8 @@ class Settings(BaseSettings):
     @classmethod
     def _url_do_modelo(cls, valor: str) -> str:
         """Lista positiva: o provedor aprovado (https) ou loopback (dublê do modelo, http ou https). Sem credencial, query nem porta."""
+        if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in valor):  # urlsplit e httpx divergem em branco/controle: nem tenta
+            raise ValueError("modelo_base_url_1 não pode conter espaço nem caractere de controle")
         try:
             partes = urlsplit(valor)
             host, porta = (partes.hostname or ""), partes.port
