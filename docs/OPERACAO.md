@@ -137,8 +137,10 @@ uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90
   token duplicado, `RESPONSAVEL_IA` que não é e-mail, preço ≤ 0, chave AES que não é a do mês. A mensagem diz o campo e a regra, **nunca o valor**.
 - **Rotação da chave do gateway:** acrescente a chave nova como 2ª linha de `gateway-hmac.keys` e reinicie a API; só depois troque a do gateway; depois tire a velha
   (01 §3.2). Reiniciar também ao virar o mês da chave AES (seção 2).
+- **Migrações no `/readyz`:** a pasta das migrações viaja no wheel (`ia_atendimento/migrations`) ou vem de `IA_MIGRACOES_DIR`; se não achar nenhuma a API **não sobe**, e o `/readyz` sem a pasta dá 503 `migracoes_nao_conferidas`
+  (nunca 200 sem conferir checksum e pendência).
 - **Conferir:** `GET /healthz` (sem token) devolve `version`/`git_sha`; `GET /readyz` e `GET /saude` com qualquer token válido (`ia_ativa=false` e `modo="duble"` no seed).
-  Sem `/docs` nem `/openapi.json` (o esquema não é público). O log traz só `trace_id`, rota (molde), status, código e duração: **nenhum corpo, texto, token nem assinatura**.
+  Sem `/docs` nem `/openapi.json` (o esquema não é público). O access log do uvicorn é desligado pela própria fábrica (grava caminho e query). O log traz só `trace_id`, rota (molde), status, código e duração: **nenhum corpo, texto, token nem assinatura**.
 - **Conexão:** o pool usa a `DATABASE_URL` (login `ia_app_a/_b`) com `search_path=procrastinate,public` nas `options`, para o job entrar **na mesma transação** da gravação;
   conexão direta ao Postgres (nunca por pooler em modo transação).
 - **Parada leve:** `PUT /config/ia_ativa` com `false` agenda um `encerrar_por_chave` por atendimento aberto, aguardando ou pausado (até 19 min). O serviço que executa o job

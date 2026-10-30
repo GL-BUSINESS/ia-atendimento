@@ -21,9 +21,9 @@ Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este re
 
 | Extrator determinístico de horário do agendamento (B5.7a, puro) | `src/ia_atendimento/agenda_extrator.py`, `tests/corpus/` | `tests/test_agenda_extrator.py` (EM1) |
 | Migração 0004: `ia.fn_anexar_rpa` (SECURITY DEFINER) e a outbox `ia.espelho_evento` — B1.5 | `migrations/0004_anexo_rpa_e_espelho.up.sql` | `tests/test_migracao_0004.py` |
-| API de entrada: 13 rotas do contrato 08, auth por token e HMAC do gateway, erros sem eco — B1.5 | `src/ia_atendimento/api/` | `tests/test_api.py`, `tests/test_contrato_api.py` |
+| API de entrada: 13 rotas do contrato 08, auth por token e HMAC do gateway, erros sem eco — B1.5 | `src/ia_atendimento/api/` | `tests/test_api*.py`, `tests/test_contrato_api.py`, `tests/test_corrida.py` |
 | Mensagem recebida (uma função para webhook e RPA) e casamento webhook × RPA — B1.5 | `src/ia_atendimento/mensagens.py` | `tests/test_contrato_api.py`, `tests/test_mensagens.py` |
-| Agendamento («Vou fazer depois»), faixa de esforço, `pessoas_teste`, enfileirador e segredos em arquivo 0600 — B1.5 | `agendamento.py`, `esforco.py`, `pessoas_teste.py`, `enfileirador.py`, `segredos.py` | `tests/test_api.py`, `tests/test_enfileirador.py`, `tests/test_segredos.py`, `tests/test_ambiente_api.py` |
+| Agendamento («Vou fazer depois»), faixa de esforço, `pessoas_teste`, enfileirador e segredos em arquivo 0600 — B1.5 | `agendamento.py`, `esforco.py`, `pessoas_teste.py`, `enfileirador.py`, `segredos.py` | `tests/test_api*.py`, `tests/test_enfileirador.py`, `tests/test_segredos.py`, `tests/test_ambiente_api.py` |
 
 ## Como rodar
 
@@ -57,6 +57,7 @@ URL do modelo em https (http só em localhost) e **nunca** `deepseek.com` nem `a
 | `GATEWAY_HMAC_ARQUIVO` | arquivo **0600** montado `:ro` com 1 ou 2 chaves HMAC do gateway (uma por linha; duas só na virada de rotação) — contrato 01 §3.2 |
 | `SEGREDOS_SAIDA_ARQUIVO` | arquivo **0600** montado `:ro`, JSON com `ia_orquestrador_bearer`, `chatguru_token_ia`, `c360_client_id`, `c360_client_secret` (só validados no boot; usados a partir da B1.6/B6.8) |
 | `RESPONSAVEL_IA` | e-mail do Amado no ChatGuru: `responsavel_email` diferente dele no evento marca `delegacao_externa` |
+| `IA_MIGRACOES_DIR` | (opcional) pasta das migrações que o `/readyz` confere; padrão: `migrations/` do checkout ou a que o wheel leva dentro do pacote; não achar derruba a subida |
 | `PESSOAS_TESTE_ARQUIVO` | fixtures de `pessoas_teste` (B2.4), JSON `{"pessoas": [uuid], "chats": {chat_id: uuid}}`; vazio = ninguém é de teste |
 | `CASAMENTO_JANELA_S`, `CASAMENTO_JANELA_SEM_HORA_S` | janelas do casamento webhook × RPA (padrão 10 s e 30 s) |
 | `PRECO_IN_USD`, `PRECO_CACHE_USD`, `PRECO_OUT_USD`, `CAMBIO`, `PRECO_TEMPLATE_BRL` | preços do custo (padrão do plano: 0,45 / 0,009 / 1,80 por 1M de tokens e câmbio 5,3346; ≤ 0 recusa o boot) |
