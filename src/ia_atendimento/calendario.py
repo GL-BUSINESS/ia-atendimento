@@ -3,7 +3,7 @@
 - A **fonte** é a config (`janela_mensagem`, `calendario_bloqueio`); o código só **valida** (`validar_*`) e aplica. A validação é um piso:
   a janela nunca passa de 08:00–20:00 nem inclui domingo; o calendário sempre bloqueia domingo, os feriados de 02/11 e 20/11/2026 e a
   janela da DATAPREV (20/11 22:00 → 23/11 06:00). A config pode ACRESCENTAR feriados e janelas, nunca tirar esses.
-- A hora local é calculada AQUI (zoneinfo), nunca pelo fuso do banco (o cluster é UTC) e nunca pelo `datetime.now()`: toda função recebe o
+- A hora local é calculada AQUI (zoneinfo), nunca pelo fuso do banco (o cluster é UTC) e nunca pelo relógio do sistema: toda função recebe o
   instante (ciente de fuso) de um `Relogio` injetado.
 - Imutável: `Calendario` é um dataclass congelado; carregar de novo = chamar `carregar_calendario` com a config vigente.
 """

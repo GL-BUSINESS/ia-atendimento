@@ -11,6 +11,10 @@ fundação**, sem agente, sem ferramentas, sem API de negócio, sem n8n e sem na
 | `Settings` por env (`SecretStr`, sem segredo no `repr`) | `src/ia_atendimento/config.py` | `tests/test_config.py` |
 | AES-256-GCM com AAD, chaves em arquivo 0600 | `src/ia_atendimento/cifra.py` | `tests/test_cifra.py` |
 | Máscara determinística de PII | `src/ia_atendimento/mascara.py` | `tests/test_mascara.py` |
+| Calendário de mensagem (08–20 seg–sáb SP, feriados, DATAPREV) | `src/ia_atendimento/calendario.py` | `tests/test_calendario.py` |
+| Config versionada, registro validado e recusas de entrada | `src/ia_atendimento/chave.py`, `chave_registro.py` | `tests/test_chave.py` |
+| Fila Procrastinate (rajada de 3 s, trava por chat), jobs e bloqueio das 20:15 | `src/ia_atendimento/fila.py`, `jobs.py` | `tests/test_fila.py`, `tests/test_jobs.py` |
+| Prontidão (`readyz`, LISTEN/NOTIFY) | `src/ia_atendimento/prontidao.py` | `tests/test_prontidao.py` |
 
 ## Como rodar
 

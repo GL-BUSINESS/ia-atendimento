@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 
 import procrastinate
@@ -32,7 +32,7 @@ NAMESPACE = "ia"
 POOL_MIN = 1
 POOL_MAX = 8
 # 03:30 em São Paulo: fim da madrugada, longe do horário de atendimento
-HORA_PODA_LOCAL = (3, 30)
+HORA_PODA_LOCAL = time(3, 30)
 
 
 def conninfo_da_fila(database_url: str) -> str:
@@ -117,7 +117,7 @@ def _registrar_periodicas(
 ) -> None:
     """Horários de negócio são de São Paulo; o cron do Procrastinate é UTC, então vêm de `cron_utc` a partir da hora local."""
     referencia = date(2026, 11, 12)
-    hora_poda = cron_utc(_hora(*HORA_PODA_LOCAL), referencia)
+    hora_poda = cron_utc(HORA_PODA_LOCAL, referencia)
     for tarefa, cron in (
         (reaper_lease, "* * * * *"),
         (expirar_parados, "*/30 * * * *"),
@@ -126,12 +126,6 @@ def _registrar_periodicas(
         (bloqueio_2015, cron_utc(HORA_BLOQUEIO_ENTRADA, referencia)),  # B6.7: 20:15 -> "15 23 * * *"
     ):
         bp.periodic(cron=cron)(tarefa)
-
-
-def _hora(hora: int, minuto: int):
-    from datetime import time
-
-    return time(hora, minuto)
 
 
 # --- enfileiramento ----------------------------------------------------------------------------------------------------------------------
