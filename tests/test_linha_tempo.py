@@ -97,7 +97,7 @@ def test_hora_com_fusos_diferentes_do_mesmo_instante_da_a_mesma_chave():
 
 
 def test_evento_recusa_forma_invalida_sem_vazar_o_valor():
-    with pytest.raises(Exception) as erro:  # noqa: PT011 (ValidationError do Pydantic, sem input)
+    with pytest.raises(Exception) as erro:
         EventoMensagem(chat_id=f"{CPF_SINTETICO}", phone_id=PHONE, tipo="texto", texto="x", origem_evento="webhook")
     assert CPF_SINTETICO not in str(erro.value)
     with pytest.raises(EntradaInvalida):  # reconciliação sem rpa_id
@@ -176,10 +176,13 @@ def test_gravar_passo_ordem_e_for_update_funciona_com_ia_app(banco, atd, conn_ap
         with banco.sessao("ia_app_a") as outra:
             try:
                 resultado["passo"] = gravar_passo(outra, atd, ctx=CTX, dados=criar("opt_out"))
-            except Exception as erro:  # noqa: BLE001
+            except Exception as erro:
                 resultado["erro"] = erro
 
     with banco.conectar("ia_app_a", autocommit=False) as primeira:
+        primeira.execute(
+            "SELECT 1"
+        )  # abre a transação externa: o `transaction()` do gravar_passo vira savepoint e o lock fica até o commit
         p1 = gravar_passo(primeira, atd, ctx=CTX, dados=criar("erro", peca="fila"))
         fio = threading.Thread(target=segunda)
         fio.start()
@@ -302,7 +305,8 @@ def test_tres_pendentes_sao_consumidas_juntas_e_turnos_sobe_uma_vez(conn_app, at
     assert nova == versao + 1
     assert mensagens_pendentes(conn_app, atd) == []
     atendimento = conn_app.execute(
-        "SELECT ordem_consumida, turnos, estado_conversa #>> '{contadores,rodada}', versao FROM ia.atendimento WHERE atendimento_id = %s", (atd,)
+        "SELECT ordem_consumida, turnos, estado_conversa #>> '{contadores,rodada}', versao FROM ia.atendimento WHERE atendimento_id = %s",
+        (atd,),
     ).fetchone()
     assert atendimento == (3, 1, "1", versao + 1)
     # a próxima mensagem já cai no turno seguinte (rodada 1 + 1)
