@@ -399,3 +399,91 @@ def test_propriedades_em_entradas_aleatorias_com_hora():
             assert all(c.confianca != "alta" for c in r.candidatos), texto
         for c in r.candidatos:
             assert c.origem in texto and c.quando.tzinfo is not None
+
+
+# ------------------------------------------------------------------ revisão adversarial 1 (docs/REVISAO-B5.7a-3010.md)
+def _horas(r) -> list[str]:
+    return [c.quando.strftime("%d/%m %H:%M") for c in r.candidatos]
+
+
+def test_r1_data_explicita_invalida_nao_vira_hoje():
+    for texto in ("31/11 às 15h", "29/02/2027 às 15h", "30/02 às 15h", "dia 31 de abril às 10"):
+        r = _ex(texto)
+        assert r.candidatos == () and r.motivo_recusa == "data_invalida", texto
+
+
+@pytest.mark.parametrize(
+    "texto",
+    ["hoje às 19:01:00", "às 15:99", "às 15 e trinta e cinco", "às dozentas parcelas", "às 15:30:45", "15.30", "às 15,30"],
+)
+def test_r2_reconhecimento_parcial_nao_apaga_minutos_nem_atravessa_fronteira(texto):
+    assert _ex(texto).candidatos == (), texto
+
+
+def test_r2_construcoes_compostas_mantem_os_minutos():
+    assert _horas(_ex("às 15h e meia")) == ["05/11 15:30"]
+    assert _horas(_ex("daqui a uma hora e quinze minutos")) == ["05/11 11:15"]
+    assert _horas(_ex("daqui a 2 horas e meia")) == ["05/11 12:30"]
+
+
+def test_r3_alternativa_preserva_os_minutos_de_cada_lado():
+    assert _horas(_ex("às 15h ou 16:30")) == ["05/11 15:00", "05/11 16:30"]
+    assert _horas(_ex("15:30 ou 16h45")) == ["05/11 15:30", "05/11 16:45"]
+    assert _horas(_ex("entre 14h30 e 15h")) == ["05/11 14:30", "05/11 15:00"]
+    assert _ex("às 15h ou 16:99").candidatos == ()  # lado inválido: recusa tudo, não oferece só o outro
+
+
+def test_r4_aproximacao_nao_vira_alta_com_periodo():
+    for texto in ("umas 3 da tarde", "umas 10 da manhã", "depois das 3 da tarde", "umas 7 da noite"):
+        assert all(c.confianca != "alta" for c in _ex(texto).candidatos), texto
+
+
+def test_r5_hora_relativa_respeita_o_dia_explicito():
+    r = _ex("hoje ou amanhã daqui a 1 hora")
+    assert r.candidatos and all(c.confianca != "alta" for c in r.candidatos)
+    for texto in ("amanhã daqui a 1 hora", "sexta daqui a 2 horas"):
+        r = _ex(texto)
+        assert r.candidatos == () and r.motivo_recusa == "dia_contraditorio", texto
+    assert _horas(_ex("hoje daqui a 1 hora")) == ["05/11 11:00"]
+    assert _ex("hoje daqui a 1 hora").candidatos[0].confianca == "alta"
+
+
+def test_r6_segundos_de_agora_contam_na_antecedencia_e_no_arredondamento():
+    agora = QUI10.replace(second=59)
+    assert "antecedencia" in _ex("hoje às 10:10", agora).candidatos[0].razoes  # 541 s < 600 s
+    assert _ex("hoje às 10:11", agora).motivo_recusa is None
+    assert _horas(_ex("daqui a 1 hora", agora)) == ["05/11 11:05"]
+    assert _horas(_ex("daqui a 1 hora")) == ["05/11 11:00"]  # sem segundos, a grade não muda
+
+
+@pytest.mark.parametrize(
+    "texto",
+    ["tenho entre 15 e 16 parcelas", "12 parcelas", "R$ 15", "2 contratos", "entre 12 e 24 meses", "as 2 contratos", "umas 12 parcelas",
+     "quero 15 ou 20 mil", "pagar em 12x", "são 3 propostas", "as 5 pessoas", "R$ 15 por mês", "entre 2 e 3 contratos"],
+)  # fmt: skip
+def test_r7_quantidade_nunca_vira_hora(texto):
+    r = _ex(texto)
+    assert r.candidatos == () and r.motivo_recusa == "sem_hora_explicita", texto
+
+
+def test_r8_ano_bissexto_ao_avancar_o_ano_nao_lanca():
+    r = _ex("29/02 às 15h", datetime(2028, 12, 5, 10, tzinfo=BRT))
+    assert r.candidatos == () and r.motivo_recusa == "data_invalida"
+    assert isinstance(_ex("29/02 às 15h", datetime(2027, 12, 5, 10, tzinfo=BRT)), agenda_extrator.Resultado)
+
+
+def test_r9_meio_dia_e_media():
+    for texto in ("meio-dia", "meio dia e meia", "meia-noite"):
+        assert _ex(texto).candidatos[0].confianca == "media", texto
+
+
+def test_r10_meia_noite_e_meia_usa_os_minutos():
+    c = _ex("meia-noite e meia").candidatos[0]
+    assert c.quando == datetime(2026, 11, 6, 0, 30, tzinfo=BRT)
+
+
+def test_r11_holdout_nao_reutiliza_caso_que_ensinou_correcao():
+    assert not [f for f in HOLDOUT if f["tag"] == "regressao"]
+    textos_regressao = {f["texto"] for f in FRASES if f["tag"] == "regressao"}
+    assert not [f for f in HOLDOUT if f["texto"] in textos_regressao]
+    assert len(HOLDOUT) >= 90  # 52 da rodada 1 + 43 novos congelados antes da revisão

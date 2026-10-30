@@ -81,8 +81,8 @@ for t, q, c in [
     ("às 3 da tarde", "15:00", "a"),
     ("3 da tarde", "15:00", "a"),
     ("às 4 da tarde", "16:00", "a"),
-    ("meio-dia", "12:00", "a"),
-    ("meio dia e meia", "12:30", "a"),
+    ("meio-dia", "12:00", "m"),
+    ("meio dia e meia", "12:30", "m"),
     ("as 14 horas", "14:00", "a"),
     ("umas 3", "15:00", "m"),
     ("3 e meia", "15:30", "m"),
@@ -120,7 +120,7 @@ for t, q, c in [
 fora("às 19:01", QUI10, f"{HOJE} 19:01", "depois_da_janela", tag="janela")
 fora("às 21h", QUI10, f"{HOJE} 21:00", "depois_da_janela", tag="janela")
 fora("10 da noite", QUI10, f"{HOJE} 22:00", "depois_da_janela", tag="janela")
-fora("meia-noite", QUI10, f"{AMANHA} 00:00", "antes_da_janela", tag="janela")
+fora("meia-noite", QUI10, f"{AMANHA} 00:00", "antes_da_janela", "m", tag="janela")
 fora("às 8", QUI10, f"{AMANHA} 08:00", "antes_da_janela", "m", tag="janela")
 # 10:00 já é agora: o dia inferido rola para sexta, que passa do teto (sexta 09:00)
 fora("umas 10 da manhã", QUI10, f"{AMANHA} 10:00", "acima_do_teto", "m", tag="hora_passada")
@@ -350,8 +350,8 @@ valido("daqui a 20 min", QUI10, f"{HOJE} 10:20", tag="relativo")
 valido("em 45 minutos", R, f"{HOJE} 10:55", tag="relativo")
 valido("daqui a 4 horas", R, f"{HOJE} 14:10", tag="relativo")
 valido("daqui a duas horas", QUI10, f"{HOJE} 12:00", tag="relativo")
-valido("meio dia", QUI10, f"{HOJE} 12:00", tag="hora_hoje")
-valido("meio-dia e meia", QUI10, f"{HOJE} 12:30", tag="hora_hoje")
+valido("meio dia", QUI10, f"{HOJE} 12:00", "m", tag="hora_hoje")
+valido("meio-dia e meia", QUI10, f"{HOJE} 12:30", "m", tag="hora_hoje")
 valido("tô livre à 1 da tarde", QUI10, f"{HOJE} 13:00", tag="ruido")
 fora("pode ser as 9 da noite", QUI10, f"{HOJE} 21:00", "depois_da_janela", tag="janela")
 valido("hoje as 18h", QUI10, f"{HOJE} 18:00", tag="hora_hoje")
@@ -359,9 +359,7 @@ valido("umas 2 e meia", QUI10, f"{HOJE} 14:30", "m", tag="giria")
 valido("umas 5h", QUI10, f"{HOJE} 17:00", "m", tag="giria")
 valido("mais tarde às 3", QUI10, f"{HOJE} 15:00", "m", tag="giria")
 valido("15hrs pode ser", QUI10, f"{HOJE} 15:00", tag="ruido")
-valido("às 10h30 da manhã", QUI10, f"{HOJE} 10:30", tag="hora_hoje")
 valido("11h da manhã", QUI10, f"{HOJE} 11:00", tag="hora_hoje")
-valido("dps das 4 eu falo", QUI10, f"{HOJE} 16:15", "m", tag="giria")
 valido("hoje as 19h", QUI18, f"{HOJE} 19:00", tag="janela")
 valido("hoje mesmo as 18h30", QUI18, f"{HOJE} 18:30", tag="hoje")
 valido("hoje às 10:30", SAB, "2026-11-07 10:30", tag="sabado")
@@ -385,11 +383,88 @@ caso("quinta-feira 15h", QUI10, [f"{HOJE} 15:00", "2026-11-12 15:00"], None, "mm
 for t in ["vou ver e te falo", "semana que vem eu consigo", "talvez amanhã", "acho que de tarde", "só tenho 3 parcelas pra pagar"]:
     vazio(t, tag="sem_hora")
 
+# hold-out v2 (revisão 1, item 11): 40 casos novos, escritos e CONGELADOS antes de corrigir R1-R10; 1ª rodada registrada no README
+MODO["holdout"] = True
+valido("pode ligar 13h30", QUI10, f"{HOJE} 13:30", tag="hora_hoje")
+valido("to disponivel as 12h", QUI10, f"{HOJE} 12:00", tag="ruido")
+valido("me liga a tarde, as 4", QUI10, f"{HOJE} 16:00", tag="hora_hoje")
+fora("as 9h da noite", QUI10, f"{HOJE} 21:00", "depois_da_janela", tag="janela")
+valido("hoje as 11:15", QUI10, f"{HOJE} 11:15", tag="hora_hoje")
+valido("daqui a 90 min", QUI10, f"{HOJE} 11:30", tag="relativo")
+valido("daqui 3h", QUI10, f"{HOJE} 13:00", tag="relativo")
+valido("dentro de 2 horas", QUI10, f"{HOJE} 12:00", tag="relativo")
+caso("pode ser 14h ou 15h", QUI10, [f"{HOJE} 14:00", f"{HOJE} 15:00"], None, "mm", tag="ambiguo")
+caso("as 13 ou 14", QUI10, [f"{HOJE} 13:00", f"{HOJE} 14:00"], None, "mm", tag="ambiguo")
+valido("às 2 da tarde", QUI10, f"{HOJE} 14:00", tag="hora_hoje")
+valido("umas 4h", QUI10, f"{HOJE} 16:00", "m", tag="giria")
+valido("seis e meia", QUI10, f"{HOJE} 18:30", "m", tag="giria")
+valido("depois das 3", QUI10, f"{HOJE} 15:15", "m", tag="giria")
+valido("hoje as 16h", QUI10, f"{HOJE} 16:00", tag="hoje")
+caso("quinta as 17", QUI10, [f"{HOJE} 17:00", "2026-11-12 17:00"], None, "mm", tag="mesmo_dia_semana")
+fora("sabado as 11", QUI10, "2026-11-07 11:00", "acima_do_teto", tag="semana")
+fora("domingo 14h", QUI10, "2026-11-08 14:00", "domingo", tag="domingo")
+valido("dia 6 as 8:30", QUI10, f"{AMANHA} 08:30", tag="data")
+valido("06/11 as 9h", QUI10, f"{AMANHA} 09:00", tag="data")
+fora("6 de novembro 9h30", QUI10, f"{AMANHA} 09:30", "acima_do_teto", tag="data")
+fora("02/11 as 10h", QUI10, "2026-11-02 10:00", "feriado", tag="feriado")
+fora("dia 22 as 10h", QUI10, "2026-11-22 10:00", "bloqueio_dataprev", tag="dataprev")
+fora("dia 21 as 8h", QUI10, "2026-11-21 08:00", "bloqueio_dataprev", tag="dataprev")
+fora("dia 23 as 5 da manha", QUI10, "2026-11-23 05:00", "bloqueio_dataprev", tag="dataprev")
+valido("amanhã às 9h", QUI18, f"{AMANHA} 09:00", tag="amanha")
+valido("amanha 16:45", QUI18, f"{AMANHA} 16:45", tag="amanha")
+valido("hoje 18h30", QUI18, f"{HOJE} 18:30", tag="hoje")
+fora("pode ser amanha 8h", QUI18, f"{AMANHA} 08:00", "antes_da_janela", tag="janela")
+valido("sexta 15h30", QUI18, f"{AMANHA} 15:30", tag="semana")
+fora("hoje as 20h", U1, f"{HOJE} 20:00", "depois_da_janela", tag="utc")
+valido("amanhã 9:45", U2, f"{AMANHA} 09:45", tag="utc")
+valido("hoje as 11h30", SAB, "2026-11-07 11:30", tag="sabado")
+fora("daqui a 3 horas", SAB, "2026-11-07 12:30", "depois_da_janela", tag="sabado")
+valido("segunda 8h45", DOM, "2026-11-09 08:45", tag="domingo")
+valido("às 15h, pode?", QUI10, f"{HOJE} 15:00", tag="ruido")
+valido("15h30 pode ser?", QUI10, f"{HOJE} 15:30", tag="ruido")
+for t in [
+    "pode ser outro horario",
+    "hoje nao da",
+    "sexta",
+    "amanha de manha",
+    "queria uns dois contratos",
+    "ok, as 3 parcelas de 15 reais",
+]:
+    vazio(t, tag="sem_hora")
+
 # regressões achadas no 1º rodar do hold-out (52/54): «10h30 da manhã» perdia os minutos e «dps» não era reconhecido
 MODO["holdout"] = False
 valido("amanhã 9h30 da manhã", QUI18, f"{AMANHA} 09:30", tag="regressao")
 valido("às 15h30 da tarde", QUI10, f"{HOJE} 15:30", tag="regressao")
 valido("dps das 6", QUI10, f"{HOJE} 18:15", "m", tag="regressao")
+
+# regressões da revisão adversarial 1 (docs/REVISAO-B5.7a-3010.md): cada item R1-R10 tem o caso que reprovava
+valido("às 10h30 da manhã", QUI10, f"{HOJE} 10:30", tag="regressao")  # era hold-out e ensinou a correção: saiu do hold-out
+valido("dps das 4 eu falo", QUI10, f"{HOJE} 16:15", "m", tag="regressao")  # idem
+vazio("31/11 às 15h", QUI10, "data_invalida", tag="regressao")  # R1
+vazio("29/02/2027 às 15h", QUI10, "data_invalida", tag="regressao")  # R1
+vazio("hoje às 19:01:00", QUI10, "sem_hora_explicita", tag="regressao")  # R2
+vazio("às 15:99", QUI10, "sem_hora_explicita", tag="regressao")  # R2
+valido("às 15h e meia", QUI10, f"{HOJE} 15:30", tag="regressao")  # R2
+vazio("às 15 e trinta e cinco", QUI10, "sem_hora_explicita", tag="regressao")  # R2
+vazio("às dozentas parcelas", QUI10, "sem_hora_explicita", tag="regressao")  # R2
+valido("daqui a uma hora e quinze minutos", "2026-11-05 10:00", f"{HOJE} 11:15", tag="regressao")  # R2
+caso("às 15h ou 16:30", QUI10, [f"{HOJE} 15:00", f"{HOJE} 16:30"], None, "mm", tag="regressao")  # R3
+caso("umas 3 da tarde", QUI10, [f"{HOJE} 15:00"], None, "m", tag="regressao")  # R4
+caso("hoje ou amanhã daqui a 1 hora", QUI10, [f"{HOJE} 11:00"], None, "m", tag="regressao")  # R5
+vazio("amanhã daqui a 1 hora", QUI10, "dia_contraditorio", tag="regressao")  # R5
+vazio("tenho entre 15 e 16 parcelas", QUI10, "sem_hora_explicita", tag="regressao")  # R7
+for t in [
+    "tenho 12 parcelas",
+    "R$ 15",
+    "preciso de 2 contratos",
+    "entre 12 e 24 meses",
+    "as 2 contratos",
+    "umas 12 parcelas",
+    "me paga em 12 vezes",
+]:
+    vazio(t, tag="regressao")  # R7: quantidade nunca vira hora
+fora("meia-noite e meia", QUI10, "2026-11-06 00:30", "antes_da_janela", "m", tag="regressao")  # R10
 
 for i, c in enumerate(CASOS, 1):
     c["id"] = f"{'ho' if c['holdout'] else 'dev'}-{i:03d}"

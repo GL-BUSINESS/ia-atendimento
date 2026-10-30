@@ -175,36 +175,47 @@ _MESES = dict(
 _DIAS_SEMANA = {"segunda": 0, "terca": 1, "quarta": 2, "quinta": 3, "sexta": 4, "sabado": 5, "domingo": 6, "seg": 0, "sex": 4, "sab": 5}
 
 _W = "|".join(sorted((w for w in _NUMW if w not in ("um", "uma")), key=len, reverse=True))  # número por extenso sem «um/uma» (ambíguos)
-_NUM = rf"(?:\d{{1,2}}|{_W})"
-_NUM_UMA = rf"(?:\d{{1,2}}|uma|um|{_W})"
+_FIMNUM = r"(?!\d|[:.,/]\d)"  # «19:01:00», «15,30», «15:99» não são «19», «15»
+_NUM = rf"(?:\d{{1,2}}{_FIMNUM}|(?:{_W})\b)"  # número por extenso precisa de fronteira: «dozentas» não é «doze»
+_NUM_UMA = rf"(?:\d{{1,2}}(?!\d|[.,/]\d)|(?:uma|um|{_W})\b)"  # aceita «3:30 da tarde»
 _MINW = "|".join(sorted(_MIN, key=len, reverse=True))
+_MN = rf"(?P<mn>{_MINW})\b(?!\s+e\s+(?:{_MINW}\b|\d))"  # «e trinta e cinco» não vira «e trinta»
 _UNID = r"(?:horas?|hrs?|hs|h)"
+_SEM_RESTO = rf"(?!\s+e\s+(?:{_MINW}\b|\d)|\s+ou\s+(?:as\s+)?\d)"  # «15 e trinta e cinco», «15h ou 16:99»: expressão incompleta, recusa
 _ANTES = r"(?<![\d:/.,])"
-_NAO_HORA = (
-    r"(?!\s*(?:(?:parcelas?|reais|real|vezes|vez|mil|dias?|anos?|mes|meses|filhos?|contos?)\b|%|r\$))"  # «as 3 parcelas», «3 e meia mil»
+# quantidade, não horário: «as 3 parcelas», «entre 15 e 16 parcelas», «2 contratos», «R$ 15», «12x»
+_QUANTIDADE = (
+    r"(?:parcelas?|prestacoes?|reais|real|vezes|vez|mil|dias?|semanas?|anos?|mes|meses|filhos?|contos?|contratos?|propostas?|pessoas?"
+    r"|clientes?|ofertas?|bancos?|x|k)\b|%|r\$"
 )
+_NAO_HORA = rf"(?!\s*(?:{_QUANTIDADE}))"
 _QUAL = r"(?:da|de|a|na|pela)\s+(?P<q>manha|tarde|noite|madrugada)"
-_R_MEIODIA = re.compile(rf"\b(?:meio[\s-]*dia|(?P<mnoite>meia[\s-]*noite))(?:\s+e\s+(?P<mn>{_MINW}))?\b")
-_R_ENTRE = re.compile(
-    rf"\bentre\s+(?:as\s+)?(?P<a>\d{{1,2}})(?:\s*{_UNID}\b)?\s+e\s+(?:as\s+)?(?P<b>\d{{1,2}})(?:\s*{_UNID}\b)?(?:\s+{_QUAL})?(?!\d)"
-)
-_R_OU = re.compile(
-    rf"{_ANTES}(?:as\s+)?(?P<a>\d{{1,2}})(?:\s*{_UNID}\b)?\s+ou\s+(?:as\s+)?(?P<b>\d{{1,2}})(?:\s*{_UNID}\b)?(?:\s+{_QUAL})?(?!\d){_NAO_HORA}"
-)
+_R_MEIODIA = re.compile(rf"\b(?:meio[\s-]*dia|(?P<mnoite>meia[\s-]*noite))(?:\s+e\s+{_MN})?\b")
+
+
+def _lado(n: str) -> str:
+    """Um lado de «15h ou 16:30»: a hora COMPLETA (com minutos), para não oferecer um horário que o cliente não disse."""
+    return rf"(?:as\s+)?(?P<{n}>\d{{1,2}})(?::(?P<{n}m>\d{{2}})|\s*{_UNID}(?P<{n}n>[0-5]\d)?)?(?![\w:])"
+
+
+_R_ENTRE = re.compile(rf"\bentre\s+{_lado('a')}\s+e\s+{_lado('b')}(?:\s+{_QUAL})?{_NAO_HORA}")
+_R_OU = re.compile(rf"{_ANTES}{_lado('a')}\s+ou\s+{_lado('b')}(?:\s+{_QUAL})?{_NAO_HORA}")
 _R_QUAL = re.compile(
-    rf"{_ANTES}(?P<pre>(?:umas?|as?)\s+)?(?P<h>{_NUM_UMA})(?::(?P<m>\d{{2}}))?\s*(?:{_UNID}\b)?\s*(?:e\s+(?P<mn>{_MINW})\s+)?{_QUAL}\b"
+    rf"{_ANTES}(?P<pre>(?:umas?|as?)\s+)?(?P<h>{_NUM_UMA})(?::(?P<m>\d{{2}}))?\s*(?:{_UNID}\b)?\s*(?:e\s+{_MN}\s+)?{_QUAL}\b"
 )
-_R_UMAS = re.compile(rf"\bumas?\s+(?P<h>{_NUM})(?:\s*{_UNID}\b)?(?:\s+e\s+(?P<mn>{_MINW})\b)?(?!\d){_NAO_HORA}")
-_R_DEPOIS = re.compile(rf"\b(?:depois|dps)\s+d[aeo]s?\s+(?P<h>\d{{1,2}})(?:\s*{_UNID}\b)?(?!\d)")
-_R_HXM = re.compile(rf"{_ANTES}(?P<h>\d{{1,2}})\s*{_UNID}(?P<m>[0-5]\d)(?:\s*min(?:utos?)?\b)?(?!\d)")
-_R_HM = re.compile(rf"{_ANTES}(?P<h>\d{{1,2}}):(?P<m>\d{{2}})(?![\d:])(?:\s*{_UNID}\b)?")
-_R_H = re.compile(rf"{_ANTES}(?P<h>\d{{1,2}})\s*{_UNID}\b(?!\s*\d)")
-_R_AS = re.compile(rf"\bas\s+(?P<h>{_NUM})(?!\d)(?:\s+e\s+(?P<mn>{_MINW})\b)?{_NAO_HORA}")
-_R_EMEIA = re.compile(rf"{_ANTES}(?P<h>{_NUM})\s+e\s+(?P<mn>{_MINW})\b{_NAO_HORA}")
+_R_UMAS = re.compile(rf"\bumas?\s+(?P<h>{_NUM})(?:\s*{_UNID}\b)?(?:\s+e\s+{_MN})?{_NAO_HORA}{_SEM_RESTO}")
+_R_DEPOIS = re.compile(rf"\b(?:depois|dps)\s+d[aeo]s?\s+(?P<h>{_NUM})(?:\s*{_UNID}\b)?{_SEM_RESTO}")
+_R_HXM = re.compile(rf"{_ANTES}(?P<h>\d{{1,2}})\s*{_UNID}(?P<m>[0-5]\d)(?:\s*min(?:utos?)?\b)?(?!\d){_SEM_RESTO}")
+_R_HM = re.compile(rf"{_ANTES}(?P<h>\d{{1,2}}):(?P<m>\d{{2}})(?![\d:])(?:\s*{_UNID}\b)?{_SEM_RESTO}")
+_R_H = re.compile(rf"{_ANTES}(?P<h>\d{{1,2}})\s*{_UNID}\b(?:\s+e\s+{_MN})?(?!\s*\d){_SEM_RESTO}")
+_R_AS = re.compile(rf"\bas\s+(?P<h>{_NUM})(?!\s*{_UNID}\b)(?:\s+e\s+{_MN})?{_NAO_HORA}{_SEM_RESTO}")
+_R_EMEIA = re.compile(rf"{_ANTES}(?P<h>{_NUM})\s+e\s+{_MN}{_NAO_HORA}{_SEM_RESTO}")
 _QTD = r"(?:(?P<n>\d{1,3})|(?P<w>uma|um|duas|dois|tres|quatro|cinco|meia))"
+# «uma hora e quinze minutos», «2 horas e meia»: a expressão inteira ou nada
+_RESTO_REL = rf"(?:\s+e\s+(?:(?P<mm>{_MINW})\b(?:\s*min(?:utos?)?\b)?|(?P<md>\d{{1,2}})\s*min(?:utos?)?\b))?(?!\s+e\s+(?:{_MINW}\b|\d))"
 # «em 15h» é horário (às 15h), não «daqui a 15 horas»: com «em» só vale a unidade por extenso
-_R_REL_DAQUI = re.compile(rf"\b(?:daqui(?:\s+a)?|dentro\s+de)\s+{_QTD}\s*(?P<u>horas?|hrs?|hs|h|min(?:utos?)?)\b(?P<mm>\s+e\s+meia\b)?")
-_R_REL_EM = re.compile(rf"\bem\s+{_QTD}\s*(?P<u>horas?|min(?:utos?)?)\b(?P<mm>\s+e\s+meia\b)?")
+_R_REL_DAQUI = re.compile(rf"\b(?:daqui(?:\s+a)?|dentro\s+de)\s+{_QTD}\s*(?P<u>horas?|hrs?|hs|h|min(?:utos?)?)\b{_RESTO_REL}")
+_R_REL_EM = re.compile(rf"\bem\s+{_QTD}\s*(?P<u>horas?|min(?:utos?)?)\b{_RESTO_REL}")
 _R_LIMITE = re.compile(r"\b(?:antes\s+d[aeo]s?|ate\s+(?:a|as|o|os)?)\s*$")  # «antes das 18h», «até as 17»: limite, não horário
 
 _R_HOJE = re.compile(r"\b(?:hoje|hj)\b")
@@ -264,6 +275,7 @@ class _Varredura:
     ocupado: list[bool] = field(init=False)
     horas: list[_Hora] = field(default_factory=list)
     dias: list[_Dia] = field(default_factory=list)
+    data_invalida: bool = False  # o cliente DISSE um dia que não existe («31/11»): nunca cair em «hoje»
 
     def __post_init__(self) -> None:
         self.ocupado = [False] * len(self.n)
@@ -311,36 +323,77 @@ def _resolver(h: int, m: int, qual: str | None, literal24: bool, forte: bool, gl
     return hh, m, forte and not assumido
 
 
-def _registrar(
-    v: _Varredura, m: re.Match[str], h: int, mi: int, qual: str | None, *, literal24: bool = False, forte: bool = True, extra: int = 0
-) -> None:
+def _fora_de_contexto(v: _Varredura, m: re.Match[str]) -> bool:
+    antes = v.n[max(0, m.start() - 14) : m.start()]
+    return bool(re.search(r"r\$\s*$", antes))  # «R$ 15»: dinheiro, não hora
+
+
+def _depois_de_alternativa_recusada(v: _Varredura, m: re.Match[str]) -> bool:
+    """«16:99 ou 15h»: o lado de trás não virou hora, então o «15h» sozinho seria uma alternativa que o cliente não ofereceu."""
+    base = max(0, m.start() - 14)
+    prev = re.search(r"(\d[\w:]*)\s+ou\s+(?:as\s+)?$", v.n[base : m.start()])
+    return bool(prev) and not v.ocupado[base + prev.end(1) - 1]
+
+
+def _registrar_lote(
+    v: _Varredura, m: re.Match[str], itens: list[tuple[int, int]], qual: str | None, *, aprox: bool = False, literal24: bool = False,
+    forte: bool = True, extra: int = 0,
+) -> None:  # fmt: skip
+    """Registra todas as horas do achado ou nenhuma: um lado inválido de «15h ou 16:99» derruba a alternativa inteira."""
+    if _fora_de_contexto(v, m):
+        return
     if _R_LIMITE.search(v.n[max(0, m.start() - 14) : m.start()]):
         v.ocupar(m.start(), m.end())  # «antes das 18h»: limite, não horário marcado (e ninguém mais pega esse trecho)
         return
-    r = _resolver(h, mi, qual, literal24, forte, _periodo_unico(v.n))
-    if r is None:
+    if _depois_de_alternativa_recusada(v, m):
         return
-    hh, mm, alta = r
-    total = hh * 60 + mm + extra
+    unico = _periodo_unico(v.n)
+    resolvidas = [_resolver(h, mi, qual, literal24, forte, unico) for h, mi in itens]
+    if any(r is None for r in resolvidas):
+        return
     v.ocupar(m.start(), m.end())
-    v.horas.append(_Hora(m.start(), m.end(), total // 60, total % 60, alta and extra == 0))
+    for r in resolvidas:
+        hh, mm, alta = r  # type: ignore[misc]
+        total = hh * 60 + mm + extra
+        v.horas.append(_Hora(m.start(), m.end(), total // 60, total % 60, alta and extra == 0 and not aprox))
+
+
+def _registrar(v: _Varredura, m: re.Match[str], h: int, mi: int, qual: str | None, **kw) -> None:
+    _registrar_lote(v, m, [(h, mi)], qual, **kw)
 
 
 def _minutos(grupo: str | None) -> int:
     return _MIN[grupo] if grupo else 0
 
 
+def _arredondar(alvo: datetime) -> datetime:
+    """Sobe para o próximo múltiplo de 5 min (segundos contam: 11:00:01 vai a 11:05)."""
+    if alvo.second or alvo.microsecond:
+        alvo = alvo.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return alvo + timedelta(minutes=(-alvo.minute) % PASSO_RELATIVO_MIN)
+
+
 def _escanear_relativo(v: _Varredura, agora: datetime) -> None:
     for rx in (_R_REL_DAQUI, _R_REL_EM):
-        for m in v.achados(rx):
+        for m in v.achados(rx, consome=False):
             w, horas = m["w"], m["u"].startswith("h")
-            if w == "meia" and not horas:
-                continue  # «daqui meia min» não existe
+            resto = _MIN[m["mm"]] if m["mm"] else int(m["md"] or 0)
+            if (w == "meia" and not horas) or (resto and (not horas or w == "meia")):
+                continue  # «daqui meia min», «5 min e meia»: não existem; recusa em vez de aproximar
             minutos = 30 if w == "meia" else (int(m["n"]) if m["n"] else _NUMW[w]) * (60 if horas else 1)
-            minutos += 30 if m["mm"] and horas and w != "meia" else 0
-            alvo = agora + timedelta(minutes=minutos)
-            alvo += timedelta(minutes=(-alvo.minute) % PASSO_RELATIVO_MIN)
-            v.horas.append(_Hora(m.start(), m.end(), alta=True, fixo=alvo))
+            v.ocupar(m.start(), m.end())
+            v.horas.append(_Hora(m.start(), m.end(), alta=True, fixo=_arredondar(agora + timedelta(minutes=minutos + resto))))
+
+
+def _literal24(texto_h: str) -> bool:
+    return len(texto_h) == 2 and texto_h[0] == "0"
+
+
+def _escanear_alternativas(v: _Varredura) -> None:
+    for rx in (_R_ENTRE, _R_OU):
+        for m in v.achados(rx, consome=False):
+            itens = [(int(m[x]), int(m[f"{x}m"] or m[f"{x}n"] or 0)) for x in ("a", "b")]
+            _registrar_lote(v, m, itens, m["q"], aprox=True, forte=False)
 
 
 def _escanear_horas(v: _Varredura, agora: datetime) -> None:
@@ -348,25 +401,22 @@ def _escanear_horas(v: _Varredura, agora: datetime) -> None:
     for m in v.achados(_R_MEIODIA, consome=False):
         if m["mnoite"]:
             v.ocupar(m.start(), m.end())
-            v.horas.append(_Hora(m.start(), m.end(), 24, 0, alta=True))
+            v.horas.append(_Hora(m.start(), m.end(), 24, _minutos(m["mn"])))  # só a hora cheia do estudo M é «media»: nunca alta
         else:
-            _registrar(v, m, 12, _minutos(m["mn"]), None, literal24=True)
-    for rx in (_R_ENTRE, _R_OU):
-        for m in v.achados(rx, consome=False):
-            for par in (m["a"], m["b"]):
-                _registrar(v, m, int(par), 0, m["q"], forte=False)
-    for m in v.achados(_R_QUAL, consome=False):
-        _registrar(v, m, _val(m["h"]), int(m["m"] or 0) + _minutos(m["mn"]), m["q"], forte=not (m["pre"] or "").startswith("um"))
-    for m in v.achados(_R_UMAS, consome=False):
-        _registrar(v, m, _val(m["h"]), _minutos(m["mn"]), None, forte=False)
+            _registrar(v, m, 12, _minutos(m["mn"]), None, literal24=True, forte=False)
+    _escanear_alternativas(v)
     for m in v.achados(_R_DEPOIS, consome=False):
-        _registrar(v, m, int(m["h"]), 0, None, forte=False, extra=15)
+        _registrar(v, m, _val(m["h"]), 0, None, forte=False, aprox=True, extra=15)
+    for m in v.achados(_R_QUAL, consome=False):
+        aprox = (m["pre"] or "").startswith("um")
+        _registrar(v, m, _val(m["h"]), int(m["m"] or 0) + _minutos(m["mn"]), m["q"], aprox=aprox)
+    for m in v.achados(_R_UMAS, consome=False):
+        _registrar(v, m, _val(m["h"]), _minutos(m["mn"]), None, forte=False, aprox=True)
     for rx in (_R_HXM, _R_HM):
         for m in v.achados(rx, consome=False):
-            texto_h = m["h"]
-            _registrar(v, m, int(texto_h), int(m["m"]), None, literal24=len(texto_h) == 2 and texto_h[0] == "0")
+            _registrar(v, m, int(m["h"]), int(m["m"]), None, literal24=_literal24(m["h"]))
     for m in v.achados(_R_H, consome=False):
-        _registrar(v, m, int(m["h"]), 0, None, literal24=len(m["h"]) == 2 and m["h"][0] == "0")
+        _registrar(v, m, int(m["h"]), _minutos(m["mn"]), None, literal24=_literal24(m["h"]))
     for m in v.achados(_R_AS, consome=False):
         _registrar(v, m, _val(m["h"]), _minutos(m["mn"]), None)
     for m in v.achados(_R_EMEIA, consome=False):
@@ -394,7 +444,10 @@ def _data_com_mes(hoje: date, dia: int, mes: int, ano: int | None) -> date | Non
     except ValueError:
         return None
     if ano is None and (hoje - d).days > 90:  # «03/01» dito em dezembro é janeiro do ano que vem
-        d = d.replace(year=d.year + 1)
+        try:
+            d = d.replace(year=d.year + 1)
+        except ValueError:  # 29/02 e o ano seguinte não é bissexto
+            return None
     return d
 
 
@@ -423,14 +476,20 @@ def _escanear_dias(v: _Varredura, hoje: date) -> None:
         d = _data_com_mes(hoje, int(m["d"]), int(m["m"]), ano)
         if d:
             v.dias.append(_Dia(m.start(), m.end(), d, tipo="data"))
+        else:
+            v.data_invalida = True
     for m in v.achados(_R_DIA_MES):
         d = _data_com_mes(hoje, int(m["d"]), _MESES[m["m"]], int(m["a"]) if m["a"] else None)
         if d:
             v.dias.append(_Dia(m.start(), m.end(), d, tipo="data"))
+        else:
+            v.data_invalida = True
     for m in v.achados(_R_DIA_N):
         d = _proxima_data(hoje, int(m["d"])) if 1 <= int(m["d"]) <= 31 else None
         if d:
             v.dias.append(_Dia(m.start(), m.end(), d, tipo="dia_n"))
+        else:
+            v.data_invalida = True
     for rx, passo in ((_R_DEPOIS_AMANHA, 2), (_R_AMANHA, 1), (_R_HOJE, 0)):
         for m in v.achados(rx):
             v.dias.append(_Dia(m.start(), m.end(), hoje + timedelta(days=passo)))
@@ -484,8 +543,6 @@ def _instante(dia: date, hora: _Hora) -> datetime:
 
 def _par(agora: datetime, dia: _Dia | None, hora: _Hora) -> tuple[datetime, Confianca, int, int]:
     """(instante, confiança, início, fim do trecho de origem)."""
-    if hora.fixo is not None:
-        return hora.fixo, "alta", hora.ini, hora.fim
     conf: Confianca = "alta" if hora.alta else "media"
     if dia is not None:
         return _instante(dia.data, hora), ("media" if dia.ambigua else conf), min(dia.ini, hora.ini), max(dia.fim, hora.fim)
@@ -504,12 +561,35 @@ def _escanear_periodos(v: _Varredura, cfg: ConfigAgenda) -> list[tuple[int, int,
     return achados
 
 
+def _par_fixo(v: _Varredura, hora: _Hora) -> list[tuple[datetime, Confianca, int, int]] | str:
+    """«daqui a 1 hora» já é um instante: se o cliente também disse um dia, o instante tem de cair nele."""
+    if not v.dias:
+        return [(hora.fixo, "alta", hora.ini, hora.fim)]  # type: ignore[list-item]
+    iguais = [d for d in v.dias if d.data == hora.fixo.date()]  # type: ignore[union-attr]
+    if not iguais:
+        return "dia_contraditorio"
+    conf: Confianca = "alta" if len(iguais) == len(v.dias) else "media"  # «hoje ou amanhã daqui a 1 hora» continua ambíguo
+    return [(hora.fixo, conf, min([hora.ini, *(d.ini for d in iguais)]), max([hora.fim, *(d.fim for d in iguais)]))]  # type: ignore[list-item]
+
+
 def _combinar(v: _Varredura, agora: datetime, cfg: ConfigAgenda) -> list[tuple[datetime, Confianca, int, int]] | str:
     periodos = _escanear_periodos(v, cfg) if cfg.usa_periodos and not v.horas else []
+    if v.data_invalida and (v.horas or periodos):
+        return "data_invalida"
     if _R_VAGO.search(v.n) and (not v.dias or any(d.tipo == "dia_n" for d in v.dias)):  # «semana que vem às 15»: não adivinha o dia
         return "dia_nao_resolvido" if (v.horas or periodos) else "sem_hora_explicita"
     if v.horas:
-        return [_par(agora, d, h) for h in v.horas for d in (v.dias or [None])]
+        saida, recusa = [], None
+        for h in v.horas:
+            if h.fixo is not None:
+                achado = _par_fixo(v, h)
+                if isinstance(achado, str):
+                    recusa = achado
+                else:
+                    saida += achado
+            else:
+                saida += [_par(agora, d, h) for d in (v.dias or [None])]
+        return saida or recusa or "sem_hora_explicita"
     saida = []
     for ini, fim, hhmm in periodos:
         for d in v.dias or [None]:
@@ -528,7 +608,7 @@ def extrair(texto: str, agora: datetime, ultima_msg_cliente_em: datetime, config
     """Extrai candidatos de horário de `texto`. Veja o docstring do módulo para o contrato."""
     if not isinstance(texto, str):
         raise TypeError("texto precisa ser str")
-    agora_l = _local(agora, "agora").replace(second=0, microsecond=0)
+    agora_l = _local(agora, "agora")  # com segundos: a antecedência de 10 min é medida no instante real
     ultima_l = _local(ultima_msg_cliente_em, "ultima_msg_cliente_em")
     if len(texto) > MAX_TEXTO:
         return Resultado((), "texto_longo")

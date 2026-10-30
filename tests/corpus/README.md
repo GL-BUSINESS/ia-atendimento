@@ -38,8 +38,12 @@ Para acrescentar um caso, edite `gerar_agenda_frases.py` (helpers `valido`, `for
 
 ## Hold-out
 
-Os casos `holdout: true` (blocos «hold-out» do gerador) foram escritos **depois** de a gramática estar pronta e passando no conjunto de
-desenvolvimento. O critério de aceite é acerto >= 95% neles (`test_holdout_acerto_minimo_de_95_por_cento`, que imprime o número).
-Primeira rodada (antes de qualquer ajuste): 52/54 = 96,3%. As duas falhas eram bugs reais (minutos perdidos em «10h30 da manhã»; «dps das 4»
-não reconhecido); foram corrigidas e viraram casos `regressao` no conjunto de desenvolvimento. A rodada seguinte (54/54) **já não é cega**:
-para medir de novo com honestidade, acrescente casos novos de hold-out em vez de reaproveitar os antigos.
+Critério de aceite: acerto >= 95% nos casos `holdout: true` (`test_holdout_acerto_minimo_de_95_por_cento`, que imprime o número). Casos que
+ensinaram uma correção saem do hold-out e viram `regressao` (o teste `test_r11_...` garante que nenhum `regressao` fica no hold-out).
+
+- **Hold-out v1 (52 casos).** 1ª rodada, cega: 52/54 = 96,3% (54 então; 2 bugs reais, «10h30 da manhã» e «dps das 4», saíram do hold-out e
+  viraram `regressao`). Na revisão 1 o gabarito de «meio-dia», «meio dia», «meio-dia e meia» passou de `alta` para `media` (M §2.3).
+- **Hold-out v2 (43 casos novos, revisão 1 item 11).** Escritos e congelados ANTES das correções R1-R10; 1ª rodada contra o código da
+  revisão (HEAD `065c03f`): **43/43 = 100%**. Nota honesta: eles não exercitam os mecanismos que a revisão achou (data inválida, minutos
+  perdidos, relativo com dia), por isso 100% aqui não substitui os testes `regressao`/`test_r*`. Os 52 do v1 seguem em 52/52 após os ajustes.
+- Para medir de novo com honestidade, acrescente casos novos de hold-out; não reaproveite os que já viram o código.
