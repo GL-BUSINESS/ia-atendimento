@@ -27,7 +27,9 @@ from collections.abc import Callable, Iterable
 CPF, TELEFONE, EMAIL, CEP, UUID, NUMERO, NOME = (f"[{r}]" for r in ("CPF", "TELEFONE", "EMAIL", "CEP", "UUID", "NUMERO", "NOME"))
 
 MIN_DIGITOS = 8
-_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
+# Letras Unicode (`\w`) e acentos combinantes: «joão@...» e domínios IDN. O lookbehind faz a busca começar só no começo de cada corrida
+# de caracteres de usuário; sem ele cada posição varria a corrida inteira e 100 mil letras seguidas levavam ~9 s (quadrático).
+_EMAIL = re.compile(r"(?<![\w\u0300-\u036f.%+\-])[\w\u0300-\u036f.%+\-]+@[\w\u0300-\u036f\-]+(?:\.[\w\u0300-\u036f\-]+)+")
 _UUID = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9A-Za-z])")
 # Isenções do [NUMERO] (data e dinheiro têm 8+ dígitos): data com ano 19xx/20xx e valor em reais com centavos, até 3 grupos de milhar.
 _ISENTO = re.compile(
@@ -58,9 +60,14 @@ def _cpf_valido(onze: str) -> bool:
     return True
 
 
+# Arroba e pontos de largura total/ideográficos: o leitor humano (e o cliente de e-mail) os trata como `@` e `.`.
+_PONTUACAO_EQUIVALENTE = str.maketrans({"\uff20": "@", "\ufe6b": "@", "\uff0e": ".", "\u3002": ".", "\uff61": "."})
+
+
 def _vista_ascii(texto: str) -> str:
-    """Todo dígito Unicode vira ASCII; os demais caracteres ficam. SEMPRE o mesmo comprimento do original."""
-    return "".join(str(unicodedata.decimal(c)) if c.isdecimal() else c for c in texto)
+    """Todo dígito Unicode (decimal, sobrescrito, circulado) vira ASCII e a pontuação de largura total vira `@` e `.`; os demais
+    caracteres ficam. SEMPRE o mesmo comprimento do original (os índices valem nos dois textos)."""
+    return "".join(str(unicodedata.digit(c)) if c.isdigit() else c for c in texto).translate(_PONTUACAO_EQUIVALENTE)
 
 
 def _aplicar(texto: str, trocas: list[Troca]) -> str:

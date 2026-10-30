@@ -245,3 +245,45 @@ def test_classe_forte_vem_antes_da_isencao_de_data():
     # 11 dígitos de CPF válido escritos com cara de data não ganham isenção
     assert mascarar("52/99/822472 5") != "52/99/822472 5"
     assert mascarar("529-982-247-25") == "[CPF]"
+
+
+# --- revisão 29/10: e-mail com letras Unicode, dígitos «de enfeite» e tempo linear --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("entrada", "esperado"),
+    [
+        ("joão@exemplo.test", "[EMAIL]"),  # «joã[EMAIL]» deixava o começo do nome para trás
+        ("jõao@exemplo.test", "[EMAIL]"),  # «õ» decomposto (o + til combinante)
+        ("contato: maria@exémplo.test.", "contato: [EMAIL]."),  # domínio com letra acentuada passava inteiro
+        ("fulano＠exemplo.test", "[EMAIL]"),  # arroba de largura total
+        ("fulano@exemplo．test", "[EMAIL]"),  # ponto de largura total
+        ("fulano@exemplo。test", "[EMAIL]"),  # ponto ideográfico (o navegador/cliente de e-mail o trata como ponto)
+        ("Fulano.De.Tal@EXEMPLO.TEST", "[EMAIL]"),
+    ],
+)
+def test_email_com_letra_unicode_e_pontuacao_de_largura_total(entrada, esperado):
+    assert mascarar(entrada) == esperado
+
+
+@pytest.mark.parametrize(
+    "entrada",
+    [
+        "⁵²⁹⁹⁸²²⁴⁷²⁵",  # sobrescritos: str.isdigit() sim, str.isdecimal() não, e a vista só trocava isdecimal
+        "⑤②⑨⑨⑧②②④⑦②⑤",
+        "₅₂₉₉₈₂₂₄₇₂₅",
+        "⁵²⁹.⁹⁸².²⁴⁷-²⁵",
+    ],
+)
+def test_cpf_com_digitos_sobrescritos_ou_circulados_e_mascarado(entrada):
+    assert mascarar(entrada) == "[CPF]"
+
+
+@pytest.mark.parametrize("texto", ["a" * 100_000, "a." * 50_000, "x@" * 50_000, "1-" * 50_000, "joão " * 20_000])
+def test_mascara_roda_em_tempo_linear_no_tamanho_do_texto(texto):
+    """O padrão de e-mail varria o resto da corrida de letras a cada posição: 100 mil letras levavam ~9 s (quadrático)."""
+    import time
+
+    inicio = time.perf_counter()
+    mascarar(texto)
+    assert time.perf_counter() - inicio < 2.0, "máscara não é linear: 100 mil caracteres não podem levar segundos"
