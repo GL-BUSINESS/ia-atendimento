@@ -223,3 +223,21 @@ def test_excepthook_nao_imprime_pii(capsys):
     erro_padrao = capsys.readouterr().err
     assert CPF_SINTETICO not in erro_padrao
     assert "[CPF]" in erro_padrao
+
+
+def test_todo_modelo_pydantic_que_toca_texto_esconde_o_input_nos_erros():
+    import inspect
+
+    from pydantic import BaseModel
+
+    from ia_atendimento import config, evento_mensagem, linha_tempo, passos
+
+    modelos = [
+        classe
+        for modulo in (passos, evento_mensagem, linha_tempo, config)
+        for _, classe in inspect.getmembers(modulo, inspect.isclass)
+        if issubclass(classe, BaseModel) and classe.__module__ == modulo.__name__ and classe is not passos.DadosPasso
+    ]
+    assert len(modelos) >= 17
+    sem = [m.__name__ for m in modelos if m.model_config.get("hide_input_in_errors") is not True]
+    assert sem == []
