@@ -143,5 +143,5 @@ uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90
   Sem `/docs` nem `/openapi.json` (o esquema não é público). O access log do uvicorn é desligado pela própria fábrica (grava caminho e query). O log traz só `trace_id`, rota (molde), status, código e duração: **nenhum corpo, texto, token nem assinatura**.
 - **Conexão:** o pool usa a `DATABASE_URL` (login `ia_app_a/_b`) com `search_path=procrastinate,public` nas `options`, para o job entrar **na mesma transação** da gravação;
   conexão direta ao Postgres (nunca por pooler em modo transação).
-- **Parada leve:** `PUT /config/ia_ativa` com `false` agenda um `encerrar_por_chave` por atendimento aberto, aguardando ou pausado (até 19 min). O serviço que executa o job
+- **Parada leve:** `PUT /config/ia_ativa` com `false` agenda um alarme (`alarme_encerrar_por_chave`, sem lock do chat) por atendimento aberto, aguardando ou pausado (até 19 min); ao disparar ele enfileira o `encerrar_por_chave` com o lock do chat, então o cliente que responde nesse intervalo não fica preso. O serviço que executa o job
   é da B1.6: até lá o job falha alto (`ServicoNaoConfigurado`) e a vigia alerta; a chave desligada já recusa entrada nova.
