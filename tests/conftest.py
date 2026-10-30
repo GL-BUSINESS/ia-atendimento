@@ -7,6 +7,7 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
+import psycopg
 import pytest
 
 from tests.banco import (
@@ -76,3 +77,38 @@ def so_0001(tmp_path: Path) -> Path:
     destino.mkdir()
     shutil.copy(MIGRACOES / "0001_esquema.up.sql", destino / "0001_esquema.up.sql")
     return destino
+
+
+@pytest.fixture
+def db_conn(banco: Banco) -> Iterator[psycopg.Connection]:
+    """Conexão do runtime (`ia_app_a`, sem DDL nem DELETE) num banco novo com 0001+0002+0003; autocommit, como as transições esperam."""
+    with banco.sessao("ia_app_a") as conn:
+        yield conn
+
+
+@pytest.fixture
+def relogio():
+    from tests.estado_apoio import RelogioFalso
+
+    return RelogioFalso()
+
+
+@pytest.fixture
+def versoes(db_conn: psycopg.Connection):
+    """Artefatos semeados (roteiro 3, regras 2, catálogo 1, motor 4); devolve o que `versoes_vigentes` deve ler."""
+    from ia_atendimento.estado import Versoes
+    from tests.estado_apoio import semear_versoes
+
+    semear_versoes(db_conn, roteiro=3, regras=2, catalogo=1, motor=4)
+    return Versoes(roteiro=3, regras=2, catalogo=1, motor=4)
+
+
+@pytest.fixture
+def versoes_semeadas_no_banco(banco: Banco):
+    """Como `versoes`, para testes que abrem as próprias conexões (corridas entre threads)."""
+    from ia_atendimento.estado import Versoes
+    from tests.estado_apoio import semear_versoes
+
+    with banco.sessao("ia_app_a") as conn:
+        semear_versoes(conn, roteiro=3, regras=2, catalogo=1, motor=4)
+    return Versoes(roteiro=3, regras=2, catalogo=1, motor=4)
