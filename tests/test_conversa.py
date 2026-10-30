@@ -234,10 +234,6 @@ def test_ultimo_cliente_em_no_futuro_nao_abre_a_janela_a4():
     assert texto_livre_permitido(AGORA, AGORA + timedelta(days=30)) is False
 
 
-@pytest.mark.xfail(
-    reason="ultimo_cliente_em chega na migração 0003 da B1.1 (feat/b1-1-estado); dono: quem integrar a B1.1 (feat/b1-1-estado) remove esta marca; strict=True o lembra",
-    strict=True,
-)
 def test_coluna_ultimo_cliente_em_existe_no_atendimento(conn_app):
     colunas = {
         r[0]

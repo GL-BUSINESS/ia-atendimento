@@ -1,7 +1,7 @@
 # ia-atendimento
 
-Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este repositório está na fase **A6 do roteiro: só a
-fundação**, sem agente, sem ferramentas, sem API de negócio, sem n8n e sem nada em produção. O que existe e está provado:
+Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este repositório tem a **fundação (A6)** e o
+**ciclo de vida do atendimento (B1.1)**: ainda sem agente, sem ferramentas, sem API de negócio, sem n8n e sem nada em produção. O que existe e está provado:
 
 | Peça | Onde | Prova |
 |---|---|---|
@@ -11,6 +11,9 @@ fundação**, sem agente, sem ferramentas, sem API de negócio, sem n8n e sem na
 | `Settings` por env (`SecretStr`, sem segredo no `repr`) | `src/ia_atendimento/config.py` | `tests/test_config.py` |
 | AES-256-GCM com AAD, chaves em arquivo 0600 | `src/ia_atendimento/cifra.py` | `tests/test_cifra.py` |
 | Máscara determinística de PII | `src/ia_atendimento/mascara.py` | `tests/test_mascara.py` |
+| Migração 0003 aditiva (`ultimo_cliente_em`, `chats_teste` ≤ 20 ids de 24 hex, `chat_id` de 24 hex) | `migrations/0003_estado_aditivo.up.sql` | `tests/test_migracao_0003.py` |
+| Ciclo de vida do atendimento (CAS por `versao`, lease, idempotência, trava por chat) — B1.1 | `src/ia_atendimento/estado.py` | `tests/test_estado.py`, `tests/test_estado_entrada.py` |
+| Estado da conversa (JSON ≤ 2 KB, só códigos) e `ultimo_cliente_em` — B1.1 | `src/ia_atendimento/estado_conversa.py` | `tests/test_estado_conversa.py` |
 
 ## Como rodar
 
@@ -48,7 +51,7 @@ URL do modelo em https (http só em localhost) e **nunca** `deepseek.com` nem `a
 
 O esquema é do **estudo I** e não se edita aqui: `estudos/semana-1/i-esquema-reconciliado.md` (bloco `sql` do §4; rodadas até
 a 3c, §12) e a visão geral em `MONITORAMENTO-DESIGN.md` §5 («Base comum de dados»), ambos em `docs/planejamento-ia/` do
-repositório de documentação da empresa (fora deste repo). Mudou o desenho = **nova migração 0003+**, nunca edição da 0001
+repositório de documentação da empresa (fora deste repo). Mudou o desenho = **nova migração** (a 0003 já existe: B1.1), nunca edição da 0001
 depois de aplicada. O teste `test_0001_igual_ao_bloco_do_estudo_i` compara o arquivo com o bloco do estudo (quando o estudo
 está na máquina) e `test_checksum_0001` com `migrations/0001.sha256`.
 
