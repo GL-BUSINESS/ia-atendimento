@@ -106,3 +106,74 @@ def test_pessoas_teste_de_arquivo_e_sem_arquivo_ninguem_e_de_teste(tmp_path):
             carregar_pessoas(arquivo)
     with pytest.raises(PessoasTesteInvalidas):
         carregar_pessoas(tmp_path / "nao-existe.json")
+
+
+# --- revisão 2: dialeto na URL (R2-04) e pool com tempos-limite e check (R2-08) ------------------------------------------------------------------
+
+
+def _settings_do_mes(banco, arquivos, **mudar):
+    return settings_de_teste(banco, arquivos, chave_aes_id=chave_id_do_mes(datetime.now(UTC)), **mudar)
+
+
+def test_subida_recusa_o_dialeto_psycopg_na_url_sem_citar_a_url(banco, arquivos):
+    from ia_atendimento.config import ConfiguracaoInvalida
+
+    s = banco.servidor
+    url = f"postgresql+psycopg://ia_app_a:senha-descartavel-xyz@{s.host}:{s.port}/{banco.nome}"
+    with pytest.raises(ConfiguracaoInvalida) as erro:
+        _montar(_settings_do_mes(banco, arquivos, database_url=url))
+    assert "database_url" in str(erro.value) and "senha-descartavel-xyz" not in str(erro.value) and s.host not in str(erro.value)
+
+
+def test_conninfo_do_pool_leva_search_path_da_fila_e_os_tempos_limite():
+    from psycopg.conninfo import conninfo_to_dict
+
+    from ia_atendimento.api.ambiente import conninfo_do_pool
+
+    opcoes = conninfo_to_dict(conninfo_do_pool("postgresql://ia_app_a:x@127.0.0.1:5432/ia?options=-c%20application_name%3Dapi"))["options"]
+    for esperado in (
+        "application_name=api", "search_path=procrastinate,public", "lock_timeout=2000", "statement_timeout=5000",
+        "idle_in_transaction_session_timeout=10000",
+    ):  # fmt: skip
+        assert esperado in opcoes
+
+
+def test_pool_e_criado_com_check_de_conexao(banco, arquivos, monkeypatch):
+    from psycopg_pool import ConnectionPool
+
+    from ia_atendimento.api import ambiente
+
+    capturado: dict = {}
+    original = ConnectionPool
+
+    def espiao(*args, **kwargs):
+        capturado.update(kwargs)
+        return original(*args, **kwargs)
+
+    espiao.check_connection = original.check_connection  # type: ignore[attr-defined]
+    monkeypatch.setattr(ambiente, "ConnectionPool", espiao)
+    _montar(_settings_do_mes(banco, arquivos))
+    assert capturado["check"] is original.check_connection and capturado["kwargs"] == {"autocommit": True}
+
+
+def test_conexao_do_pool_tem_lock_timeout_e_uma_espera_por_lock_vira_erro_de_503_em_vez_de_pendurar(banco, arquivos):
+    import time
+
+    import psycopg
+
+    app = _montar(_settings_do_mes(banco, arquivos))
+    with TestClient(app, raise_server_exceptions=False):  # abre o pool
+        conexao = app.state.ctx.conexao
+        with conexao() as conn:
+            assert conn.execute("SHOW lock_timeout").fetchone() == ("2s",)
+            assert conn.execute("SHOW statement_timeout").fetchone() == ("5s",)
+            assert conn.execute("SHOW idle_in_transaction_session_timeout").fetchone() == ("10s",)
+        with ff.abrir(banco, "postgres") as dono:  # alguém segura a trava advisory
+            dono.execute("BEGIN")
+            dono.execute("SELECT pg_advisory_xact_lock(hashtextextended('ia_atendimento.abrir', 0))")
+            inicio = time.monotonic()
+            with conexao() as conn, pytest.raises(psycopg.errors.LockNotAvailable), conn.transaction():
+                conn.execute("SELECT pg_advisory_xact_lock(hashtextextended('ia_atendimento.abrir', 0))")
+            assert time.monotonic() - inicio < 4, "a espera acabou no lock_timeout, não ficou presa"
+            dono.execute("ROLLBACK")
+    assert issubclass(psycopg.errors.LockNotAvailable, psycopg.OperationalError), "OperationalError ⇒ 503 nao_pronto"

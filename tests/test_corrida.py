@@ -297,3 +297,37 @@ def test_atendimento_em_repassando_entre_a_leitura_e_o_lock_grava_sem_enfileirar
     _, corpo = eventos.evento_chatguru(ambiente.ctx, Identidade("gateway_chatguru", "chatguru-ia"), mensagem_nativa())
     assert corpo["resultado"] == "gravado" and corpo["turno_enfileirado"] is False
     assert ambiente.fila.turnos == []
+
+
+def test_atendimento_fica_travado_desde_a_releitura_ate_o_fim_do_registro(ambiente, monkeypatch):
+    """R2-06: a janela entre a releitura e `travar_atendimento` só fecha com o `FOR UPDATE` da releitura. Outra conexão tenta encerrar o atendimento no meio
+    do registro: com a releitura simples ela passaria e a mensagem entraria num atendimento `encerrado`."""
+    import psycopg
+
+    from ia_atendimento import mensagens
+
+    atd = abrir_ativo(ambiente)
+    original = mensagens.gravar_mensagem_recebida
+    visto: dict[str, bool] = {}
+
+    def gancho(conn, atendimento_id, **kwargs):
+        with ambiente.super() as outro:
+            outro.execute("SET lock_timeout = '300ms'")
+            try:
+                outro.execute(
+                    "UPDATE ia.atendimento SET estado = 'encerrado', desfecho = 'sem_venda', encerrado_em = now(), lease_ate = NULL,"
+                    ' estado_conversa = \'{"fase": "E9"}\' WHERE atendimento_id = %s',
+                    (atd,),
+                )
+                visto["bloqueado"] = False
+            except psycopg.errors.LockNotAvailable:
+                visto["bloqueado"] = True
+        return original(conn, atendimento_id, **kwargs)
+
+    monkeypatch.setattr(mensagens, "gravar_mensagem_recebida", gancho)
+    _, corpo = eventos.evento_chatguru(ambiente.ctx, Identidade("gateway_chatguru", "chatguru-ia"), mensagem_nativa())
+    assert visto["bloqueado"] is True, "o atendimento ficou livre entre a releitura e o registro"
+    assert (
+        corpo["resultado"] == "gravado"
+        and ambiente.escalar("SELECT estado FROM ia.atendimento WHERE atendimento_id = %s", (atd,)) == "aberto"
+    )

@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg_pool import ConnectionPool
 
 from ia_atendimento import fila, migracoes
@@ -28,6 +29,7 @@ from ia_atendimento.segredos import carregar_gateway_hmac, carregar_segredos_de_
 RAIZ = Path(__file__).resolve().parents[3]
 POOL_MIN = 1
 POOL_MAX = 8
+TEMPOS_DE_SESSAO = "-c lock_timeout=2000 -c statement_timeout=5000 -c idle_in_transaction_session_timeout=10000"
 POOL_ESPERA_S = 5.0  # sem conexão livre em 5 s ⇒ PoolTimeout ⇒ 503 `nao_pronto` (o gateway/ChatGuru repete)
 
 
@@ -37,13 +39,33 @@ def criar_app_de_ambiente() -> FastAPI:
     return _montar(settings)
 
 
+def conninfo_do_pool(database_url: str) -> str:
+    """Conninfo do pool da API: o `search_path` da fila mais os tempos-limite de sessão (R2-08).
+
+    Sem `lock_timeout`, uma espera por `FOR UPDATE` ou pela trava advisory segurava uma das 8 conexões sem limite; vencido, vira
+    `LockNotAvailable` (OperationalError ⇒ 503 `nao_pronto`, e o n8n repete)."""
+    base = fila.conninfo_da_fila(database_url)
+    options = conninfo_to_dict(base).get("options", "")
+    return make_conninfo(base, options=f"{options} {TEMPOS_DE_SESSAO}".strip())
+
+
+def _exigir_url_pura(database_url: str) -> None:
+    """`postgresql+psycopg://` (dialeto do SQLAlchemy) passa no `Settings`, mas o `/readyz` entrega a URL crua ao libpq e ficaria em 503
+    `erro_de_consulta` para sempre enquanto o resto funciona (R2-04). Falha na subida, sem citar a URL."""
+    esquema = database_url.split("://", 1)[0]
+    if "+" in esquema:
+        raise ConfiguracaoInvalida("database_url: a API exige o esquema puro postgresql:// (sem +dialeto, como +psycopg)")
+
+
 def _montar(settings: Settings) -> FastAPI:
     relogio = RelogioReal()
-    dsn = fila.conninfo_da_fila(
-        settings.database_url.get_secret_value()
-    )  # search_path da fila: o defer na transação da API usa as funções do Procrastinate
-    pool = ConnectionPool(dsn, min_size=POOL_MIN, max_size=POOL_MAX, timeout=POOL_ESPERA_S, kwargs={"autocommit": True}, open=False)
-    app_fila = fila.criar_app(settings.database_url.get_secret_value(), com_periodicas=False)
+    url = settings.database_url.get_secret_value()
+    _exigir_url_pura(url)
+    pool = ConnectionPool(
+        conninfo_do_pool(url), min_size=POOL_MIN, max_size=POOL_MAX, timeout=POOL_ESPERA_S, kwargs={"autocommit": True},
+        check=ConnectionPool.check_connection, open=False,
+    )  # fmt: skip
+    app_fila = fila.criar_app(url, com_periodicas=False)
     contexto = ContextoApi(
         settings=settings, relogio=relogio, conexao=pool.connection, leitor=LeitorConfig(relogio),
         chaveiro=Chaveiro.de_arquivo(settings.chave_aes_arquivo, settings.chave_aes_id),

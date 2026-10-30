@@ -56,3 +56,14 @@ em aberto, escolhi a opção **mais restritiva**. `§` = seção do `contratos/0
 - **Deixados (BAIXO, com motivo):** R1-18 `pg_temp` no `search_path` (o contrato 08 §11 fixa `pg_catalog, ia`); R1-21 truncar `texto_mensagem` > 4000 (decisão do dono: hoje é 422 definitivo, como o contrato); R1-22 limite de taxa/concorrência (ufw + `--limit-concurrency`, B1.7);
   R1-23 replay de requisição assinada capturada (01 §6.1; exige captura no túnel); R1-26 colapso de dois webhooks idênticos (limite aceito no §5.3; medir em V3); R1-28 `versao: 0` de chave nunca gravada (só antes do `garantir_defaults`);
   R1-29 vendorizar a tabela de erros do contrato (o instantâneo embutido já vale em CI); R1-31 `reservado`/`repassando` na parada leve e o serviço `encerrar_por_chave` (B1.6).
+
+## Revisão 2 (`REVISAO-B1.5-3010-r2.md`): 0 crítico/alto, 3 MÉDIO, 8 BAIXO
+
+- **R2-01 (MÉDIO):** o encerramento da parada leve é um **alarme sem lock** (`alarme_encerrar_por_chave`, padrão do lembrete); ao disparar enfileira o `encerrar_por_chave` com `lock=chat:` e sem atraso. Prova de ponta a ponta com a fila real.
+- **R2-02 (MÉDIO):** `datetime_post` > +5 min **não perde a mensagem**: vale como ausente (identidade e casamento pelo recebimento), `msg_enviada_em` = recebimento, `contexto_codigos` `relogio_futuro`, contador `datetime_post_adiantado` e alerta no log; 200 normal.
+  Substitui o 422 da primeira correção (D8). **O contrato 08 v2.2 §5.3 precisa dizer «grava limitado»** (a r1 já oferecia as duas saídas).
+- **R2-03 (MÉDIO):** `configurar_logging()` na fábrica (INFO em stderr, formato fixo, access log desligado, excepthook sem PII); 401 `assinatura_invalida`/`token_invalido` e 403 de origem somam contador com `alerta ti` em WARNING. Teste sobe o uvicorn `--factory` de verdade e lê o stderr.
+- **R2-04:** `DATABASE_URL` com `+dialeto` derruba a subida (mensagem sem a URL). **R2-05:** `DataHora` só aceita anos 2020–2999 (422, sem eco; antes 500 ou data lixo gravada). **R2-06:** testes do `FOR UPDATE` da releitura e do boot real. **R2-07:** `--no-server-header --limit-concurrency 64 --timeout-keep-alive 5` na OPERACAO e `HEAD /healthz` 200.
+  **R2-08:** pool com `lock_timeout=2s`, `statement_timeout=5s`, `idle_in_transaction_session_timeout=10s` e `check`. **R2-09:** segredos recusam FIFO/não-regular (`O_NONBLOCK`) e JSON profundo. **R2-10:** a normalização (URL inválida ⇒ 422) roda antes de procurar o atendimento.
+  **R2-11:** as duas revisões entram no repositório. **R1-24:** o parágrafo da OPERACAO sobre onde cada segredo mora foi reescrito sem a contradição.
+- **Ficam para a B1.6/B1.7 (do §6 da r2):** `encerrar_por_chave` relê `ia_ativa` ao executar; `iniciar` e `reservado` agendado recusam com `ia_ativa=false`; gasto Σ `passo.custo_brl` (xfail estrito); `lease_de_espera`; a linha do limite de taxa no plano da B1.7 (a flag já está no comando da OPERACAO).

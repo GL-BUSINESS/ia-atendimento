@@ -126,12 +126,12 @@ def _deps(ctx: ContextoApi) -> DepsMensagem:
 def _tratar(
     ctx: ContextoApi, identidade: Identidade, chat_id: str, montar: Any, delegacao_externa: bool, agora: datetime, relogio_futuro: bool
 ) -> tuple[int, dict[str, Any]]:
+    evento = montar()  # normaliza ANTES de olhar o atendimento (08 §5.3): a resposta de forma não depende do estado do chat (R2-10)
     with ctx.conexao() as conn:
         ativo = atendimento_ativo(conn, chat_id)
         _regra_do_canal_de_teste(ctx, conn, identidade, chat_id, None if ativo is None else ativo.modo)
         if ativo is None:
             return 200, RespostaMensagem("descartado", motivo="sem_atendimento").corpo()
-        evento = montar()
         if evento is None:
             return 200, RespostaMensagem("descartado", motivo="texto_vazio", atendimento_id=ativo.atendimento_id).corpo()
         resposta = registrar_mensagem(

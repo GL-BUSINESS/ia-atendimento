@@ -150,6 +150,12 @@ def _rotas_de_config_e_saude(app: FastAPI) -> None:
     async def get_healthz(request: Request) -> JSONResponse:
         return JSONResponse(saude.healthz(_ctx(request)))
 
+    @app.head(
+        "/healthz", include_in_schema=False
+    )  # sonda de healthcheck (`curl -I`): sem corpo, e a rota continua sendo uma só no contrato
+    async def head_healthz(request: Request) -> Response:
+        return Response(status_code=200)
+
     @app.get("/readyz")
     async def get_readyz(request: Request) -> JSONResponse:
         _token(request)

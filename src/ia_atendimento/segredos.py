@@ -37,7 +37,7 @@ class SegredosDeSaida:
 def ler_arquivo_privado(caminho: Path | str) -> bytes:
     """Conteúdo do arquivo, só se for comum, não-link e 0600. `O_NOFOLLOW` recusa o link simbólico no próprio `open`."""
     try:
-        fd = os.open(caminho, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(caminho, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)  # NONBLOCK: um FIFO no caminho não pode travar a subida (R2-09)
     except OSError:
         raise SegredoInvalido("arquivo de segredo ausente, ilegível ou é um link simbólico") from None
     try:
@@ -76,7 +76,7 @@ def carregar_segredos_de_saida(caminho: Path | str) -> SegredosDeSaida:
     """JSON `{ia_orquestrador_bearer, chatguru_token_ia, c360_client_id, c360_client_secret}`: todos presentes e com >= 16 caracteres."""
     try:
         dados = json.loads(ler_arquivo_privado(caminho))
-    except ValueError:
+    except (ValueError, RecursionError):  # JSON de 100 mil `[` estoura a pilha do parser
         raise SegredoInvalido("segredos de saída: o arquivo não é JSON válido") from None
     if not isinstance(dados, dict) or set(dados) != set(CAMPOS_DE_SAIDA):
         raise SegredoInvalido(f"segredos de saída: o JSON deve ter exatamente os campos {', '.join(CAMPOS_DE_SAIDA)}")

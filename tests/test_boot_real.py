@@ -119,6 +119,30 @@ def test_a_linha_de_requisicao_e_os_alarmes_de_credencial_saem_em_producao(servi
     assert TOKENS["vigia"] not in texto and "token-errado" not in texto
 
 
+def test_subida_real_com_dialeto_psycopg_na_url_morre_com_mensagem_sem_a_senha(ambiente, tmp_path):
+    """R2-04 no processo de verdade: `postgresql+psycopg://` deixava o `/readyz` em 503 `erro_de_consulta` para sempre; agora o uvicorn não sobe."""
+    log = tmp_path / "dialeto.log"
+    with open(log, "w") as saida:
+        processo = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "--factory",
+                "ia_atendimento.api.ambiente:criar_app_de_ambiente",
+                "--port",
+                str(_porta_livre()),
+            ],
+            env=_env(ambiente, tmp_path, "+psycopg"),
+            stdout=saida,
+            stderr=subprocess.STDOUT,
+            cwd="/",
+        )
+    assert processo.wait(30) != 0
+    texto = log.read_text()
+    assert "database_url" in texto and "+psycopg" in texto and "ia_app_a:x@" not in texto, texto[-1500:]
+
+
 def test_configurar_logging_e_idempotente_e_nao_propaga(monkeypatch):
     import logging
     import sys

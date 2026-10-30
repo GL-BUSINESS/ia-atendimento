@@ -95,3 +95,31 @@ def test_segredos_de_saida_invalidos_recusam_sem_citar_valor(tmp_path, dados):
 def test_segredos_de_saida_que_nao_e_json_recusa(tmp_path):
     with pytest.raises(SegredoInvalido, match="JSON"):
         carregar_segredos_de_saida(_arquivo(tmp_path, "isto nao e json"))
+
+
+def test_fifo_no_caminho_do_segredo_e_recusado_sem_travar_a_subida(tmp_path):
+    """R2-09: `open` sem `O_NONBLOCK` num FIFO sem escritor trava para sempre. O teste roda numa thread com prazo para não pendurar a suíte numa regressão."""
+    import threading
+
+    fifo = tmp_path / "segredo.fifo"
+    os.mkfifo(fifo, 0o600)
+    resultado: list[object] = []
+
+    def tentar() -> None:
+        try:
+            ler_arquivo_privado(fifo)
+        except SegredoInvalido as erro:
+            resultado.append(erro)
+
+    fio = threading.Thread(target=tentar, daemon=True)
+    fio.start()
+    fio.join(5)
+    assert not fio.is_alive(), "o FIFO travou a leitura do segredo"
+    assert len(resultado) == 1 and "comum" in str(resultado[0])
+
+
+def test_json_profundo_demais_nos_segredos_de_saida_e_segredo_invalido_e_nao_recursion_error(tmp_path):
+    with pytest.raises(SegredoInvalido, match="JSON"):
+        carregar_segredos_de_saida(_arquivo(tmp_path, "[" * 100_000))
+    with pytest.raises(SegredoInvalido):
+        carregar_segredos_de_saida(_arquivo(tmp_path, '{"a":' * 100_000, nome="obj"))

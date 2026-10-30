@@ -22,13 +22,21 @@ _ID_NUMERICO: Final = re.compile(r"\d{1,9}")  # `oferta_id` bigint do 360: até 
 _VERSOES_DE_UUID: Final = (4, 7)  # os que o sistema gera: uuid4 (Python) e uuidv7 (`DEFAULT uuidv7()` do banco)
 
 
+ANO_MINIMO: Final = 2020
+ANO_MAXIMO: Final = 2999
 _RFC3339: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|z|[+-]\d{2}:\d{2})$")
 
 
 def _so_rfc3339(valor: object) -> object:
     """O Pydantic em modo *lax* lê inteiro, decimal e texto numérico como epoch: um número de 11 dígitos (CPF) viraria data gravada.
     Instante vindo de corpo é TEXTO RFC 3339 com fuso (`2026-11-24T10:15:30-03:00`, `...Z`); um `datetime` pronto (código) também passa."""
-    if isinstance(valor, datetime) or (isinstance(valor, str) and _RFC3339.fullmatch(valor)):
+    if isinstance(valor, datetime):
+        return valor
+    if isinstance(valor, str) and _RFC3339.fullmatch(valor):
+        if (
+            not ANO_MINIMO <= int(valor[:4]) <= ANO_MAXIMO
+        ):  # `0001-01-01…+05:00` estourava o `astimezone(UTC)` (500); o «tempo zero» de Go/.NET gravava lixo
+            raise ValueError(f"instante fora da faixa {ANO_MINIMO}–{ANO_MAXIMO}")
         return valor
     raise ValueError("instante deve ser texto RFC 3339 com fuso, ex.: 2026-11-24T10:15:30-03:00")
 

@@ -127,14 +127,21 @@ cat > /etc/ia-s4/saida.json <<'JSON'
 JSON
 chmod 600 /etc/ia-s4/gateway-hmac.keys /etc/ia-s4/saida.json
 
-# variáveis (só nomes e valores NÃO secretos no Coolify; os segredos de env — tokens, chaves HMAC, modelo, banco — vêm do cofre da plataforma)
+# Onde cada segredo mora (decisão R1-24, DECISOES-B1.5):
+#  - ARQUIVO 0600 montado :ro (nunca variável do Coolify): gateway-hmac.keys, saida.json e as chaves AES mensais (CHAVE_AES_ARQUIVO).
+#  - VARIÁVEL SECRETA da plataforma (campo mascarado do Coolify, nunca em compose versionado nem em log): API_TOKENS, CHAVE_H16, CHAVE_FINGERPRINT,
+#    CHAT_REF_CHAVE, MODELO_API_KEY_1 e DATABASE_URL. São permanentes (trocar quebra o dedupe ou o histórico), então não têm descarte mensal.
+#  - VARIÁVEL comum (não secreta): GATEWAY_HMAC_ARQUIVO, SEGREDOS_SAIDA_ARQUIVO, CHAVE_AES_ID, RESPONSAVEL_IA, GIT_SHA, BUILT_AT, IA_MIGRACOES_DIR.
 export GATEWAY_HMAC_ARQUIVO=/etc/ia-s4/gateway-hmac.keys SEGREDOS_SAIDA_ARQUIVO=/etc/ia-s4/saida.json
 export RESPONSAVEL_IA=<e-mail do Amado> GIT_SHA=<sha da tag> BUILT_AT=<AAAA-MM-DDTHH:MM:SSZ>
-uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90.0.5 --port 8000 --no-access-log
+uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90.0.5 --port 8000 \
+  --no-access-log --no-server-header --limit-concurrency 64 --timeout-keep-alive 5
 ```
 
+- **Limites do processo:** `--limit-concurrency 64` e `--timeout-keep-alive 5` seguram uma inundação vinda da S2 (única origem permitida); o pool tem 8 conexões, cada uma com
+  `lock_timeout=2s`, `statement_timeout=5s` e `idle_in_transaction_session_timeout=10s` (espera por lock vencida = 503 `nao_pronto`, o n8n repete) e `check` de conexão. `HEAD /healthz` responde 200 (sonda).
 - **Falha de subida (de propósito):** segredo obrigatório ausente, arquivo de segredo aberto (diferente de 0600), link simbólico, chave HMAC curta ou repetida,
-  token duplicado, `RESPONSAVEL_IA` que não é e-mail, preço ≤ 0, chave AES que não é a do mês. A mensagem diz o campo e a regra, **nunca o valor**.
+  token duplicado, `DATABASE_URL` com `+dialeto` (use `postgresql://` puro), `RESPONSAVEL_IA` que não é e-mail, preço ≤ 0, chave AES que não é a do mês. A mensagem diz o campo e a regra, **nunca o valor**.
 - **Rotação da chave do gateway:** acrescente a chave nova como 2ª linha de `gateway-hmac.keys` e reinicie a API; só depois troque a do gateway; depois tire a velha
   (01 §3.2). Reiniciar também ao virar o mês da chave AES (seção 2).
 - **Migrações no `/readyz`:** a pasta das migrações viaja no wheel (`ia_atendimento/migrations`) ou vem de `IA_MIGRACOES_DIR`; se não achar nenhuma a API **não sobe**, e o `/readyz` sem a pasta dá 503 `migracoes_nao_conferidas`
