@@ -99,6 +99,9 @@ def _reservar(
     try:
         with conn.transaction():
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (TRAVA_ABRIR,))
+            # a contagem de `_recusa` foi feita fora da trava: duas requisições concorrentes passariam. Repete AQUI, já serializado.
+            if ag.agendamentos_hoje(conn, agora) >= ctx.leitor.valor(conn, "agenda_max_dia"):
+                raise ErroApi("agenda_max_dia")
             reservado = ag.reservar(
                 conn, origem=origem, entrada=entrada, chave_logica=chave, hash_do_texto=hash_do_texto, quando=quando, confianca=confianca,
                 versoes=versoes, modo_global=ctx.leitor.valor(conn, "modo"), chats_teste=ctx.leitor.valor(conn, "chats_teste"),

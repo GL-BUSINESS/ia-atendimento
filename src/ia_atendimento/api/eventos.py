@@ -65,14 +65,14 @@ class MensagemNormalizada(BaseModel):
 
 
 def url_sem_query(url: str | None, campo: str) -> str | None:
-    """`esquema://host[:porta]/caminho`: sem query, fragmento nem credencial na URL. Só http/https (senão `422 validacao`)."""
+    """`esquema://host[:porta]/caminho`: sem query, fragmento nem credencial na URL. Só http/https (senão `422 validacao`, sem ecoar a URL)."""
     if not url:
         return None
     try:
         partes = urlsplit(url)
         host, porta = partes.hostname, partes.port
-    except ValueError:
-        host = porta = None
+    except ValueError:  # URL malformada (porta inválida, colchete sem fechar...): 422 direto, sem o texto do ValueError, que cita a URL
+        raise erro_de_validacao(((campo, "url_invalida"),)) from None
     if partes.scheme not in ("http", "https") or not host:
         raise erro_de_validacao(((campo, "url_invalida"),))
     return f"{partes.scheme}://{host}{f':{porta}' if porta else ''}{partes.path}"
