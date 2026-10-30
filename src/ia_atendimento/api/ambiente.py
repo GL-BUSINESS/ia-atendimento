@@ -6,7 +6,6 @@ Faltou segredo obrigatório, arquivo aberto demais, chave inválida ou fixture m
 
 from __future__ import annotations
 
-import logging
 import os
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from psycopg_pool import ConnectionPool
 from ia_atendimento import fila, migracoes
 from ia_atendimento.api.app import criar_app
 from ia_atendimento.api.contexto import ContextoApi, PreVooComCache, PreVooLivre
+from ia_atendimento.api.logs import configurar_logging
 from ia_atendimento.chave import LeitorConfig
 from ia_atendimento.cifra import Chaveiro
 from ia_atendimento.config import ConfiguracaoInvalida, Settings, get_settings
@@ -32,8 +32,7 @@ POOL_ESPERA_S = 5.0  # sem conexão livre em 5 s ⇒ PoolTimeout ⇒ 503 `nao_pr
 
 
 def criar_app_de_ambiente() -> FastAPI:
-    # o access log do uvicorn grava caminho e query (`/atendimentos/por-chave/{chave}`, `?historico=`): a API loga a sua linha sem eles
-    logging.getLogger("uvicorn.access").disabled = True
+    configurar_logging()  # o uvicorn não configura o logger da aplicação: sem isto a linha `req trace=…` e os alertas não saem (R2-03)
     settings = get_settings()
     return _montar(settings)
 

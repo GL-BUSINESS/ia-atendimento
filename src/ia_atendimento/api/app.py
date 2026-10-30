@@ -31,6 +31,7 @@ from ia_atendimento.api.validacao import erro_de_validacao, objeto_do_corpo
 from ia_atendimento.conversa import ChaveForaDoMes
 
 log = logging.getLogger("ia_atendimento.api")
+CODIGOS_DE_ALARME = frozenset({"assinatura_invalida", "token_invalido", "origem_nao_autorizada", "origem_teste_fora_da_lista"})
 LIMITE_EVENTO = 64 * 1024  # 413 acima disto (08 §1)
 LIMITE_CANDIDATOS = 1024 * 1024  # até 200 candidatos de perfil <= 2 KB
 LIMITE_PADRAO = 128 * 1024
@@ -164,6 +165,8 @@ def _registrar_tratadores(app: FastAPI) -> None:
     @app.exception_handler(ErroApi)
     async def _erro_api(request: Request, erro: ErroApi) -> JSONResponse:
         request.scope["codigo_de_erro"] = erro.codigo
+        if erro.codigo in CODIGOS_DE_ALARME:  # 01 §6.1 / 08 §5.3: o 401/403 de credencial é alarme do TI, não ruído
+            _ctx(request).metricas.somar(erro.codigo)
         return resposta_de_erro(erro, _trace_id(request))
 
     @app.exception_handler(estado.EntradaInvalida)
