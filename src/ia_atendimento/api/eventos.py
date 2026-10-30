@@ -132,9 +132,7 @@ def _tratar(
         evento = montar()
         if evento is None:
             return 200, RespostaMensagem("descartado", motivo="texto_vazio", atendimento_id=ativo.atendimento_id).corpo()
-        resposta = registrar_mensagem(
-            conn, ativo, evento, chat_id=chat_id, agora=agora, delegacao_externa=delegacao_externa, deps=_deps(ctx)
-        )
+        resposta = registrar_mensagem(conn, evento, chat_id=chat_id, agora=agora, delegacao_externa=delegacao_externa, deps=_deps(ctx))
         return 200, resposta.corpo()
 
 

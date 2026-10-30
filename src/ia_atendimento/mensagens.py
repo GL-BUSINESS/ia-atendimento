@@ -94,12 +94,13 @@ class DepsMensagem:
     casamento_janela_sem_hora_s: int
 
 
-def atendimento_ativo(conn: psycopg.Connection, chat_id: str) -> Ativo | None:
-    """O índice único parcial `atendimento_ativo_chat_uq` garante no máximo um."""
-    linha = conn.execute(
-        "SELECT atendimento_id, estado, modo, ultimo_cliente_em FROM ia.atendimento WHERE chat_id = %s AND estado <> 'encerrado'",
-        (chat_id,),
-    ).fetchone()
+def atendimento_ativo(conn: psycopg.Connection, chat_id: str, *, travar: bool = False) -> Ativo | None:
+    """O índice único parcial `atendimento_ativo_chat_uq` garante no máximo um.
+
+    `travar=True` lê com `FOR UPDATE` (dentro de uma transação): o estado vale até o commit, e um atendimento encerrado enquanto se
+    esperava o lock sai do filtro (READ COMMITTED reavalia o WHERE)."""
+    consulta = "SELECT atendimento_id, estado, modo, ultimo_cliente_em FROM ia.atendimento WHERE chat_id = %s AND estado <> 'encerrado'"
+    linha = conn.execute(consulta + (" FOR UPDATE" if travar else ""), (chat_id,)).fetchone()
     return None if linha is None else Ativo(*linha)
 
 
@@ -213,7 +214,6 @@ def _registrar_conflito(conn: psycopg.Connection, atendimento_id: uuid.UUID, ati
 
 def registrar_mensagem(
     conn: psycopg.Connection,
-    ativo: Ativo,
     evento: EventoMensagem,
     *,
     chat_id: str,
@@ -221,28 +221,27 @@ def registrar_mensagem(
     delegacao_externa: bool,
     deps: DepsMensagem,
 ) -> RespostaMensagem:
-    """Grava a mensagem do cliente no atendimento `ativo` (decide `gravado|repetido|anexado|conflito`). Quem chama já tratou
-    `sem_atendimento`, `texto_vazio` e a regra do canal de teste."""
-    fora_de_ordem = (
-        evento.datetime_post is not None and ativo.ultimo_cliente_em is not None and evento.datetime_post < ativo.ultimo_cliente_em
-    )
+    """Grava a mensagem do cliente no atendimento ativo do chat (decide `gravado|repetido|anexado|conflito|descartado`).
+
+    O atendimento é RELIDO sob o lock da própria transação (R1-04): a leitura sem trava de quem chama pode estar velha. Entre ela e o
+    lock ele pode ter encerrado (nada se grava: `descartado`) ou ido a `repassando` (grava, sem enfileirar turno). Quem chama já tratou
+    `texto_vazio` e a regra do canal de teste."""
     with conn.transaction():
+        ativo = atendimento_ativo(conn, chat_id, travar=True)
+        if ativo is None:
+            return RespostaMensagem("descartado", motivo="sem_atendimento")
+        fora_de_ordem = (
+            evento.datetime_post is not None and ativo.ultimo_cliente_em is not None and evento.datetime_post < ativo.ultimo_cliente_em
+        )
         decisao = gravar_mensagem_recebida(
             conn, ativo.atendimento_id, evento=evento, chaves=deps.chaves, recebido_em=agora, casar=criar_casador(deps),
             fora_de_ordem=fora_de_ordem,
         )  # fmt: skip
         if isinstance(decisao, Gravada):
             return _gravada(
-                conn,
-                ativo,
-                evento,
-                decisao,
-                chat_id=chat_id,
-                agora=agora,
-                delegacao_externa=delegacao_externa,
-                deps=deps,
+                conn, ativo, evento, decisao, chat_id=chat_id, agora=agora, delegacao_externa=delegacao_externa, deps=deps,
                 fora_de_ordem=fora_de_ordem,
-            )
+            )  # fmt: skip
     base = {"atendimento_id": ativo.atendimento_id}
     if isinstance(decisao, Duplicada):
         return RespostaMensagem("repetido", **base)

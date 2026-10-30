@@ -530,6 +530,12 @@ def test_evento_mensagem_normalizado_so_com_token_ti(ambiente):
     )
 
 
+def test_evento_corpo_chunked_acima_de_64kb_413_sem_content_length(ambiente):
+    pedacos = iter([b"x" * 40_000, b"x" * 40_000])  # sem Content-Length: o limite vale pelo que de fato chega
+    r = ambiente.cliente.post("/eventos/chatguru", content=pedacos, headers={"content-type": "application/json"})
+    assert r.status_code == 413 and _codigo(r) == "payload_grande"
+
+
 def test_evento_corpo_acima_de_64kb_413(ambiente):
     grande = json.dumps(mensagem_nativa("x" * 70_000)).encode()
     r = ambiente.cliente.post("/eventos/chatguru", content=grande, headers=ambiente.assinar(grande))
@@ -630,7 +636,7 @@ def test_desligar_a_chave_agenda_encerrar_por_chave_inclusive_pausado_e_bloqueio
     assert r.status_code == 200 and r.json()["efeitos"] == {"encerrar_por_chave_agendados": 3}
     assert {a for a, _, _ in ambiente.fila.encerramentos} == {aberto, aguardando, pausado}
     atrasos = sorted(s for _, _, s in ambiente.fila.encerramentos)
-    assert atrasos[0] == 0 and atrasos[-1] < 20 * 60, "escalonado, o último antes de 20 min"
+    assert atrasos == [0, 380, 760], "escalonado: um job por atendimento, o último antes de 20 min (19 min / 3)"
 
 
 # --- agendamentos -------------------------------------------------------------------------------------------------------------------------

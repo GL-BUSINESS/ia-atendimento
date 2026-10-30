@@ -474,6 +474,19 @@ def test_x_ia_token_nao_substitui_assinatura_quando_ela_vem(ambiente):
     assert ambiente.escalar("SELECT origem_evento FROM ia.passo") == "replay"
 
 
+@pytest.mark.parametrize("cabecalho", ["x-gl-origem", "x-gl-rota", "x-gl-timestamp", "x-gl-assinatura", "x-gl-foo"])
+def test_x_gl_parcial_mais_token_ti_continua_401(ambiente, cabecalho):
+    """Qualquer `x-gl-*`, mesmo sozinho, obriga a assinatura valer: o token `ti` não é a queda."""
+    abrir_ativo(ambiente)
+    r = ambiente.cliente.post(
+        "/eventos/chatguru",
+        content=_bruto(mensagem_nativa()),
+        headers={cabecalho: "valor", "x-ia-token": TOKENS["ti"], "content-type": "application/json"},
+    )
+    assert r.status_code == 401 and r.json()["erro"]["codigo"] == "assinatura_invalida"
+    assert ambiente.escalar("SELECT count(*) FROM ia.passo") == 0
+
+
 def test_origem_teste_fora_de_chats_teste_403_sem_gravar(ambiente):
     abrir_ativo(ambiente)
     r = ambiente.evento_chatguru(mensagem_nativa(), origem="chatguru-ia-teste")

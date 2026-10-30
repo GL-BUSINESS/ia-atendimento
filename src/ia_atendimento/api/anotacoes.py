@@ -104,28 +104,31 @@ def _igual(existente: tuple[Any, ...], c: Candidato, criterio: str) -> bool:
     )  # fmt: skip
 
 
+_INSERIR_CANDIDATO = (
+    "INSERT INTO ia.candidato (sessao_id, chat_ref, criterio_versao, posicao, perfil_versao, perfil, escolhido, atendimento_id, recusa)"
+    " VALUES (%(sessao)s, %(ref)s, %(criterio)s, %(posicao)s, %(perfil_versao)s, %(perfil)s, %(escolhido)s, %(atendimento)s, %(recusa)s)"
+    " ON CONFLICT (sessao_id, chat_ref) DO NOTHING RETURNING candidato_id"
+)
+
+
 def _gravar_um(conn: psycopg.Connection, sessao: uuid.UUID, criterio: str, ref: str, c: Candidato) -> bool:
-    """`True` = gravou; `False` = já existia igual. Diferente ⇒ `chave_reutilizada`. FK sem atendimento ⇒ 422 no campo."""
+    """`True` = gravou; `False` = já existia IGUAL (também se a gêmea concorrente acabou de gravar: o `ON CONFLICT` espera o commit dela).
+    Existente diferente ⇒ `chave_reutilizada`. FK sem atendimento ⇒ 422 no campo."""
+    try:
+        with conn.transaction():
+            gravada = conn.execute(_INSERIR_CANDIDATO, _registro(sessao, criterio, ref, c)).fetchone()
+    except psycopg.errors.ForeignKeyViolation:
+        raise erro_de_validacao((("candidatos.atendimento_id", "atendimento_inexistente"),)) from None
+    if gravada is not None:
+        return True
     existente = conn.execute(
         "SELECT criterio_versao, posicao, perfil_versao, perfil, escolhido, atendimento_id, recusa FROM ia.candidato"
         " WHERE sessao_id = %s AND chat_ref = %s",
         (sessao, ref),
     ).fetchone()
-    if existente is not None:
-        if not _igual(tuple(existente), c, criterio):
-            raise ErroApi("chave_reutilizada", campo="candidatos")
-        return False
-    try:
-        with conn.transaction():
-            conn.execute(
-                "INSERT INTO ia.candidato (sessao_id, chat_ref, criterio_versao, posicao, perfil_versao, perfil, escolhido,"
-                " atendimento_id, recusa) VALUES (%(sessao)s, %(ref)s, %(criterio)s, %(posicao)s, %(perfil_versao)s, %(perfil)s,"
-                " %(escolhido)s, %(atendimento)s, %(recusa)s)",
-                _registro(sessao, criterio, ref, c),
-            )
-    except psycopg.errors.ForeignKeyViolation:
-        raise erro_de_validacao((("candidatos.atendimento_id", "atendimento_inexistente"),)) from None
-    return True
+    if existente is None or not _igual(tuple(existente), c, criterio):
+        raise ErroApi("chave_reutilizada", campo="candidatos")
+    return False
 
 
 def gravar_candidatos(ctx: ContextoApi, sessao_id: str, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:

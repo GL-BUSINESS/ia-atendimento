@@ -9,16 +9,18 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
 
-from ia_atendimento.api import agendamentos, atendimentos, config_rotas, eventos
+from ia_atendimento.api import agendamentos, anotacoes, atendimentos, config_rotas, eventos
 from ia_atendimento.api.auth import Identidade
 from ia_atendimento.api.erros import ErroApi
 from tests import apoio_api
 from tests.apoio_api import (
+    CHAT,
     EspiaDeFila,
     abrir_ativo,
     corpo_de_agendamento,
@@ -178,6 +180,16 @@ def test_max_abertos_sob_corrida(ambiente):
     assert codigos.count(201) == 2 and ambiente.escalar("SELECT count(*) FROM ia.atendimento") == 2, codigos
 
 
+def test_max_disparos_dia_sob_corrida(ambiente):
+    ambiente.ligar()
+    ambiente.configurar("max_abertos", 50)
+    ambiente.configurar("agenda_max_dia", 1)  # o registro exige agenda_max_dia <= max_disparos_dia
+    ambiente.configurar("max_disparos_dia", 2)
+    codigos = _simultaneos(ambiente, 8, lambda c: _chamar(atendimentos.criar_atendimento, ambiente.ctx, "n8n_braco", entrada_para(c)))
+    assert codigos.count(201) == 2 and ambiente.escalar("SELECT count(*) FROM ia.atendimento") == 2, codigos
+    assert set(codigos) == {201, "disparos_dia"}
+
+
 def test_agenda_max_dia_sob_corrida(ambiente):
     ambiente.ligar()
     ambiente.configurar("agenda_max_dia", 2)
@@ -190,6 +202,27 @@ def test_agenda_max_dia_sob_corrida(ambiente):
 
 
 # --- R1-03: candidatos idênticos concorrentes ----------------------------------------------------------------------------------------
+
+
+def test_candidatos_identicos_concorrentes_um_grava_e_o_outro_repete(ambiente):
+    resultados: Counter[tuple[Any, ...]] = Counter()
+    for _ in range(25):
+        sessao = str(uuid.uuid4())
+        corpo = {
+            "criterio_versao": "c1.0",
+            "candidatos": [{"chat_id": CHAT, "posicao": 1, "perfil": {"banco": "FACTA"}, "escolhido": False}],
+        }
+        barreira = threading.Barrier(2)
+
+        def um(sessao=sessao, corpo=corpo, barreira=barreira):
+            barreira.wait()
+            return _chamar(anotacoes.gravar_candidatos, ambiente.ctx, sessao, corpo)
+
+        with ThreadPoolExecutor(2) as pool:
+            rs = [f.result() for f in [pool.submit(um), pool.submit(um)]]
+        resultados[tuple(sorted(str(r[1][1]) if r[0] == "ok" else f"{r[0]}:{r[1]}" for r in rs))] += 1
+        assert ambiente.escalar("SELECT count(*) FROM ia.candidato WHERE sessao_id = %s", (sessao,)) == 1
+    assert set(resultados) == {("{'gravados': 0, 'repetidos': 1}", "{'gravados': 1, 'repetidos': 0}")}, resultados
 
 
 # --- R1-13: PUT e eventos idênticos (regressão) ---------------------------------------------------------------------------------------
@@ -238,3 +271,29 @@ def _mudar_depois_da_leitura(ambiente, monkeypatch, atd, sql: str) -> None:
         return lido
 
     monkeypatch.setattr(eventos, "atendimento_ativo", espiao)
+
+
+def test_atendimento_encerrado_entre_a_leitura_e_o_lock_descarta_e_nao_grava(ambiente, monkeypatch):
+    atd = abrir_ativo(ambiente)
+    _mudar_depois_da_leitura(
+        ambiente, monkeypatch, atd,
+        "UPDATE ia.atendimento SET estado = 'encerrado', desfecho = 'sem_venda', encerrado_em = now(), lease_ate = NULL,"
+        " estado_conversa = '{\"fase\": \"E9\"}' WHERE atendimento_id = %s",
+    )  # fmt: skip
+    status, corpo = eventos.evento_chatguru(ambiente.ctx, Identidade("gateway_chatguru", "chatguru-ia"), mensagem_nativa())
+    assert (status, corpo["resultado"], corpo["motivo"]) == (200, "descartado", "sem_atendimento")
+    assert ambiente.escalar("SELECT count(*) FROM ia.passo") == 0 and ambiente.escalar("SELECT count(*) FROM ia.conversa_cifrada") == 0
+    assert ambiente.fila.turnos == []
+
+
+def test_atendimento_em_repassando_entre_a_leitura_e_o_lock_grava_sem_enfileirar_turno(ambiente, monkeypatch):
+    atd = abrir_ativo(ambiente)
+    _mudar_depois_da_leitura(
+        ambiente,
+        monkeypatch,
+        atd,
+        "UPDATE ia.atendimento SET estado = 'repassando', estado_conversa = '{\"fase\": \"E10\"}' WHERE atendimento_id = %s",
+    )
+    _, corpo = eventos.evento_chatguru(ambiente.ctx, Identidade("gateway_chatguru", "chatguru-ia"), mensagem_nativa())
+    assert corpo["resultado"] == "gravado" and corpo["turno_enfileirado"] is False
+    assert ambiente.fila.turnos == []

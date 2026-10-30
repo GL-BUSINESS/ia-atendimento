@@ -24,7 +24,7 @@ from ia_atendimento import cofre, estado
 from ia_atendimento.api.contexto import ContextoApi, PreVooFalhou
 from ia_atendimento.api.erros import ErroApi
 from ia_atendimento.api.validacao import erro_de_validacao, rejeitar_pii, validar
-from ia_atendimento.chave import abertos_agora, bloqueio_entrada
+from ia_atendimento.chave import abertos_agora, bloqueio_entrada, disparos_dia
 from ia_atendimento.esforco import faixa_por_comissao
 from ia_atendimento.estado import TOLERANCIA_RELOGIO, EntradaAtendimento, ModoInvalido, Resultado
 from ia_atendimento.estado_conversa import janela_24h_aberta
@@ -177,6 +177,8 @@ def _abrir(
             return _replay(conn, anterior)
         if abertos_agora(conn) >= ctx.leitor.valor(conn, "max_abertos"):
             raise ErroApi("abertos_max")
+        if disparos_dia(conn, agora) >= ctx.leitor.valor(conn, "max_disparos_dia"):  # a rampa do dono: conferida AQUI, já serializada
+            raise ErroApi("disparos_dia")
         try:
             aberto = estado.abrir(
                 conn, origem=origem, entrada=entrada, versoes=versoes, modo_global=ctx.leitor.valor(conn, "modo"),
