@@ -8,14 +8,18 @@ from ia_atendimento.config import ConfiguracaoInvalida, Settings, get_settings
 SEGREDOS = {
     "DATABASE_URL": "postgresql://ia_app_a:senha-do-banco-XYZ@127.0.0.1:5434/ia_atendimento",
     "MODELO_API_KEY_1": "fw_chave-do-modelo-ABC123",
-    "API_TOKEN": "token-da-api-QWERTY",
+    "API_TOKENS": '{"n8n_braco": "token-n8n-descartavel-QWERTY-0123456789", "ti": "token-ti-descartavel-ASDFGH-0123456789"}',
     "CHAVE_H16": "h16-chave-hmac-de-teste-descartavel-0123456789",
     "CHAVE_FINGERPRINT": "fp-chave-hmac-de-teste-descartavel-0123456789",
+    "CHAT_REF_CHAVE": "ref-chave-hmac-de-teste-descartavel-0123456789",
 }
 BASE = {
     **SEGREDOS,
     "CHAVE_AES_ID": "3",
     "CHAVE_AES_ARQUIVO": "/etc/ia-s4/chaves.json",
+    "GATEWAY_HMAC_ARQUIVO": "/etc/ia-s4/gateway-hmac.keys",
+    "SEGREDOS_SAIDA_ARQUIVO": "/etc/ia-s4/saida.json",
+    "RESPONSAVEL_IA": "amado.teste@glcapital.invalid",
 }
 
 
@@ -50,7 +54,7 @@ def test_le_env_com_padroes_do_estudo_g(monkeypatch):
 def test_chaves_sao_secretstr(monkeypatch):
     _definir(monkeypatch, BASE)
     s = Settings()
-    for campo in (s.database_url, s.modelo_api_key_1, s.api_token, s.chave_h16, s.chave_fingerprint):
+    for campo in (s.database_url, s.modelo_api_key_1, s.chave_h16, s.chave_fingerprint, s.chat_ref_chave):
         assert isinstance(campo, SecretStr)
 
 
@@ -58,12 +62,30 @@ def test_repr_str_e_dump_nao_vazam_segredo(monkeypatch):
     _definir(monkeypatch, BASE)
     s = Settings()
     for saida in (repr(s), str(s), s.model_dump_json(), str(s.model_dump())):
-        for segredo in ("senha-do-banco-XYZ", "fw_chave-do-modelo-ABC123", "token-da-api-QWERTY"):
+        for segredo in (
+            "senha-do-banco-XYZ",
+            "fw_chave-do-modelo-ABC123",
+            "token-n8n-descartavel-QWERTY-0123456789",
+            "token-ti-descartavel-ASDFGH-0123456789",
+        ):
             assert segredo not in saida
 
 
 @pytest.mark.parametrize(
-    "faltando", ["DATABASE_URL", "MODELO_API_KEY_1", "API_TOKEN", "CHAVE_AES_ID", "CHAVE_AES_ARQUIVO", "CHAVE_H16", "CHAVE_FINGERPRINT"]
+    "faltando",
+    [
+        "DATABASE_URL",
+        "MODELO_API_KEY_1",
+        "API_TOKENS",
+        "CHAVE_AES_ID",
+        "CHAVE_AES_ARQUIVO",
+        "CHAVE_H16",
+        "CHAVE_FINGERPRINT",
+        "CHAT_REF_CHAVE",
+        "GATEWAY_HMAC_ARQUIVO",
+        "SEGREDOS_SAIDA_ARQUIVO",
+        "RESPONSAVEL_IA",
+    ],
 )
 def test_campo_obrigatorio_ausente_recusa_o_boot(monkeypatch, faltando):
     _definir(monkeypatch, {k: v for k, v in BASE.items() if k != faltando})
@@ -130,7 +152,7 @@ def test_env_example_so_tem_nomes_dos_campos():
     nomes = {linha.split("=", 1)[0] for linha in exemplo.splitlines() if linha and not linha.startswith("#")}
     assert nomes == {campo.upper() for campo in Settings.model_fields}
     for linha in exemplo.splitlines():
-        if linha.startswith(("DATABASE_URL", "MODELO_API_KEY_1", "API_TOKEN")):
+        if linha.startswith(("DATABASE_URL", "MODELO_API_KEY_1", "API_TOKENS")):
             assert linha.split("=", 1)[1] == "", f"valor secreto no exemplo: {linha.split('=', 1)[0]}"
 
 
@@ -302,7 +324,7 @@ def test_database_url_aceita_os_dois_logins_do_runtime(monkeypatch, login):
     assert Settings().database_url.get_secret_value().startswith(f"postgresql://{login}:")
 
 
-@pytest.mark.parametrize("campo", ["MODELO_API_KEY_1", "API_TOKEN"])
+@pytest.mark.parametrize("campo", ["MODELO_API_KEY_1", "CHAT_REF_CHAVE"])
 @pytest.mark.parametrize("valor", ["", "k", "curto-demais"])
 def test_segredo_vazio_ou_curto_recusa_o_boot(monkeypatch, campo, valor):
     """O `.env.example` traz os campos vazios: copiar e esquecer de preencher não pode subir com a API aberta."""
@@ -325,11 +347,11 @@ def test_phoenix_endpoint_vazio_do_env_example_vale_como_sem_exportar(monkeypatc
 
 
 def test_boot_com_erro_lista_campo_e_motivo_sem_valor(monkeypatch):
-    _definir(monkeypatch, {**BASE, "API_TOKEN": "curto", "CHAVE_AES_ID": "0"})
+    _definir(monkeypatch, {**BASE, "API_TOKENS": '{"ti": "curto"}', "CHAVE_AES_ID": "0"})
     with pytest.raises(ConfiguracaoInvalida) as erro:
         get_settings()
     texto = str(erro.value)
-    assert "api_token" in texto and "chave_aes_id" in texto and "curto" not in texto
+    assert "api_tokens" in texto and "chave_aes_id" in texto and "curto" not in texto
 
 
 def test_chaves_hmac_de_mensagem_recusam_curta_vazia_e_repetida_s2(monkeypatch):
@@ -349,3 +371,91 @@ def test_chaves_de_mensagem_vem_do_settings_s2(monkeypatch):
     chaves = ChavesDeMensagem.de_settings(Settings())
     assert chaves.h16 == BASE["CHAVE_H16"].encode()
     assert chaves.fingerprint == BASE["CHAVE_FINGERPRINT"].encode()
+
+
+# --- B1.5: tokens por origem, chat_ref, e-mail do Amado, preços e arquivos de segredo ---------------------------------------------------
+
+
+def test_api_tokens_por_origem_sao_secretstr_e_so_as_origens_com_token(monkeypatch):
+    _definir(monkeypatch, BASE)
+    s = Settings()
+    assert set(s.api_tokens) == {"n8n_braco", "ti"}
+    assert all(isinstance(v, SecretStr) for v in s.api_tokens.values())
+    assert str(s.gateway_hmac_arquivo) == "/etc/ia-s4/gateway-hmac.keys" and s.responsavel_ia == "amado.teste@glcapital.invalid"
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        pytest.param("{}", id="vazio"),
+        pytest.param('{"robo_esteira": "' + "r" * 40 + '"}', id="robo-esteira-e-reservada"),
+        pytest.param('{"gateway_chatguru": "' + "g" * 40 + '"}', id="gateway-nao-tem-token"),
+        pytest.param('{"ti": "curto"}', id="curto"),
+        pytest.param('{"ti": "' + "x" * 40 + '", "vigia": "' + "x" * 40 + '"}', id="dois-tokens-iguais"),
+        pytest.param("nao-e-json", id="nao-json"),
+    ],
+)
+def test_api_tokens_invalidos_recusam_o_boot_sem_ecoar_token(monkeypatch, tokens):
+    _definir(monkeypatch, {**BASE, "API_TOKENS": tokens})
+    with pytest.raises((ValidationError, ConfiguracaoInvalida, ValueError)) as erro:
+        get_settings()
+    assert "x" * 40 not in str(erro.value) and "r" * 40 not in str(erro.value)
+
+
+def test_chat_ref_chave_tem_de_ser_diferente_das_outras_duas(monkeypatch):
+    _definir(monkeypatch, {**BASE, "CHAT_REF_CHAVE": BASE["CHAVE_H16"]})
+    with pytest.raises(ValidationError) as erro:
+        Settings()
+    assert BASE["CHAVE_H16"] not in str(erro.value)
+
+
+@pytest.mark.parametrize("valor", ["amado", "amado@", "Amado Teste <a@b.invalid>", ""])
+def test_responsavel_ia_tem_de_ser_email(monkeypatch, valor):
+    _definir(monkeypatch, {**BASE, "RESPONSAVEL_IA": valor})
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_responsavel_ia_e_normalizado_em_minusculas(monkeypatch):
+    _definir(monkeypatch, {**BASE, "RESPONSAVEL_IA": "  Amado.Teste@GLCapital.invalid "})
+    assert Settings().responsavel_ia == "amado.teste@glcapital.invalid"
+
+
+def test_padroes_de_casamento_e_de_preco_do_plano(monkeypatch):
+    from decimal import Decimal
+
+    _definir(monkeypatch, BASE)
+    s = Settings()
+    assert (s.casamento_janela_s, s.casamento_janela_sem_hora_s) == (10, 30)
+    assert (s.preco_in_usd, s.preco_cache_usd, s.preco_out_usd, s.cambio) == (
+        Decimal("0.45"),
+        Decimal("0.009"),
+        Decimal("1.80"),
+        Decimal("5.3346"),
+    )
+    assert s.preco_template_brl is None and s.pessoas_teste_arquivo is None
+
+
+@pytest.mark.parametrize("campo", ["PRECO_IN_USD", "PRECO_CACHE_USD", "PRECO_OUT_USD", "CAMBIO", "PRECO_TEMPLATE_BRL"])
+@pytest.mark.parametrize("valor", ["0", "-1", "abc"])
+def test_preco_zero_negativo_ou_invalido_recusa_o_boot(monkeypatch, campo, valor):
+    _definir(monkeypatch, {**BASE, campo: valor})
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize("campo", ["CASAMENTO_JANELA_S", "CASAMENTO_JANELA_SEM_HORA_S"])
+@pytest.mark.parametrize("valor", ["0", "-5", "9999"])
+def test_janela_de_casamento_fora_do_limite_recusa_o_boot(monkeypatch, campo, valor):
+    _definir(monkeypatch, {**BASE, campo: valor})
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_env_example_vazio_vale_como_ausente_e_os_obrigatorios_seguem_obrigatorios(monkeypatch):
+    _definir(monkeypatch, {**BASE, "PRECO_IN_USD": "", "CASAMENTO_JANELA_S": "", "PESSOAS_TESTE_ARQUIVO": ""})
+    s = Settings()
+    assert s.casamento_janela_s == 10 and s.pessoas_teste_arquivo is None
+    _definir(monkeypatch, {"RESPONSAVEL_IA": ""})
+    with pytest.raises(ValidationError):
+        Settings()
