@@ -17,6 +17,8 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ia_atendimento.tipos import contem_documento
+
 FUSO = ZoneInfo("America/Sao_Paulo")
 INICIO_MINIMO = time(8, 0)
 FIM_MAXIMO = time(20, 0)
@@ -26,6 +28,7 @@ FERIADOS_MINIMOS = frozenset({date(2026, 11, 2), date(2026, 11, 20)})
 DATAPREV_DE = datetime(2026, 11, 20, 22, 0, tzinfo=FUSO)
 DATAPREV_ATE = datetime(2026, 11, 23, 6, 0, tzinfo=FUSO)
 _HORA = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+_MOTIVO = re.compile(r"^[a-z0-9_]{1,40}$")
 _LIMITE_PASSOS = 64  # cada passo avança para o próximo início/fim de janela: 64 cobre meses de feriados e janelas emendadas
 
 
@@ -159,8 +162,11 @@ def _data(texto: Any) -> date:
 
 
 def _janela(item: Any) -> JanelaBloqueio:
-    if not isinstance(item, Mapping) or not isinstance(item.get("motivo"), str) or not item["motivo"]:
-        raise CalendarioInvalido("calendario_bloqueio.janelas: cada item precisa de de, ate e motivo")
+    if not isinstance(item, Mapping) or set(item) != {"de", "ate", "motivo"}:
+        raise CalendarioInvalido("calendario_bloqueio.janelas: cada item tem exatamente de, ate e motivo")
+    motivo = item["motivo"]
+    if not (isinstance(motivo, str) and _MOTIVO.fullmatch(motivo)) or contem_documento(motivo):
+        raise CalendarioInvalido("calendario_bloqueio.janelas: motivo é um código ^[a-z0-9_]{1,40}$ (nunca texto livre, que volta no GET)")
     de, ate = _instante(item.get("de")), _instante(item.get("ate"))
     if de >= ate:
         raise CalendarioInvalido("calendario_bloqueio.janelas: 'de' deve ser antes de 'ate'")

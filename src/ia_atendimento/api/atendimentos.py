@@ -23,7 +23,7 @@ from pydantic import Field, StringConstraints
 from ia_atendimento import cofre, estado
 from ia_atendimento.api.contexto import ContextoApi, PreVooFalhou
 from ia_atendimento.api.erros import ErroApi
-from ia_atendimento.api.validacao import erro_de_validacao, rejeitar_pii, validar
+from ia_atendimento.api.validacao import LoginOuEmail, erro_de_validacao, rejeitar_documento, rejeitar_pii, validar
 from ia_atendimento.chave import abertos_agora, bloqueio_entrada, disparos_dia
 from ia_atendimento.esforco import faixa_por_comissao
 from ia_atendimento.estado import TOLERANCIA_RELOGIO, EntradaAtendimento, ModoInvalido, Resultado
@@ -40,6 +40,7 @@ class EntradaApi(EntradaAtendimento):
     comissão/faixa a conferir."""
 
     chave_logica: Annotated[str, StringConstraints(pattern=r"^venda:[0-9a-f]{32}$")]
+    disparado_por: LoginOuEmail
     chat_number: Annotated[str, StringConstraints(pattern=r"^[0-9]{10,15}$")]
     comissao_esperada_brl: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)] | None = None
     faixa_esforco: Faixa | None = None
@@ -53,6 +54,15 @@ def chave_esperada(clt_job_id: Any, chat_id: str) -> str:
 def _conferir_forma(entrada: EntradaApi, agora: Any) -> None:
     if entrada.ultimo_cliente_em is not None and entrada.ultimo_cliente_em > agora + TOLERANCIA_RELOGIO:
         raise erro_de_validacao((("ultimo_cliente_em", "no_futuro"),))
+    for campo in (
+        "disparado_por",
+        "criterio_versao",
+        "banco",
+        "produto",
+        "responsavel_antes",
+    ):  # identidades e códigos: sem documento/telefone
+        if (valor := getattr(entrada, campo)) is not None:
+            rejeitar_documento(campo, valor)
     if entrada.motivo_escolha_nota is not None:
         rejeitar_pii("motivo_escolha_nota", entrada.motivo_escolha_nota)
     for nome, valor in entrada.perfil.items():

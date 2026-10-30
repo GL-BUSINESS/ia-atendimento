@@ -259,9 +259,9 @@ def corpo_de_agendamento(chat: str = CHAT, **mudar: Any) -> dict[str, Any]:
     from ia_atendimento.agendamento import chave_logica_do_agendamento
 
     postado = mudar.pop("datetime_post", "2026-11-17T11:55:00-03:00")
+    chave = mudar.pop("chave", None) or chave_logica_do_agendamento(chat, _dt.fromisoformat(postado))
     base: dict[str, Any] = {
         "pessoa_id": PESSOA, "chat_id": chat, "phone_id": PHONE, "chat_number": TELEFONE, "clt_job_id": CLT_JOB,
-        "texto_mensagem": "pode ser hoje às 17h", "datetime_post": postado, "retoma_fase": "E8",
-        "chave": chave_logica_do_agendamento(chat, _dt.fromisoformat(postado)),
+        "texto_mensagem": "pode ser hoje às 17h", "datetime_post": postado, "retoma_fase": "E8", "chave": chave,
     }  # fmt: skip
     return {**base, **mudar}

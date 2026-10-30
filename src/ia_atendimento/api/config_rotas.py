@@ -12,6 +12,7 @@ por `mascarar`.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Annotated, Any, Final
 from uuid import UUID
@@ -21,14 +22,17 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from ia_atendimento.api.contexto import ContextoApi
 from ia_atendimento.api.erros import ErroApi
-from ia_atendimento.api.validacao import rejeitar_pii, validar
+from ia_atendimento.api.validacao import LoginOuEmail, rejeitar_documento, rejeitar_pii, validar
 from ia_atendimento.chave import ConfigCorrida, ConfigInexistente, ModoTesteGlobal, ValorInvalido, VersaoConfig
 from ia_atendimento.chave_registro import PADROES, REGISTRO
 from ia_atendimento.mascara import mascarar
+from ia_atendimento.tipos import contem_documento
 
 JANELA_ENCERRAMENTO_S: Final = 19 * 60  # a parada leve fecha tudo em <= 20 min (folga de 1 min)
 MAX_HISTORICO: Final = 50
 MASCARADO: Final = "[mascarado]"
+_CODIGO: Final = re.compile(r"^[a-z0-9_]{1,40}$")
+_DATA: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ORIGENS_QUE_MEXEM_EM_TUDO: Final = frozenset({"ti"})
 ORIGENS_LIMITADAS: Final = {"c360_api": frozenset({"ia_ativa", "modo"})}  # `por` = o login do operador no web
 ESTADOS_DA_PARADA_LEVE: Final = ("aberto", "aguardando_cliente", "pausado")
@@ -38,9 +42,30 @@ class PutConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     valor: Any
-    por: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    por: LoginOuEmail
     motivo: Annotated[str, StringConstraints(min_length=1, max_length=300)] | None = None
     versao_esperada: Annotated[int, Field(ge=0)] | None = None
+
+
+def _codigo_publico(ctx: ContextoApi, texto: object) -> object:
+    """Motivo de janela na leitura: código `^[a-z0-9_]{1,40}$` sem documento passa; legado de texto livre vira `[mascarado]`."""
+    if isinstance(texto, str) and _CODIGO.fullmatch(texto) and not contem_documento(texto):
+        return texto
+    ctx.metricas.somar("texto_livre_mascarado_na_leitura")
+    return MASCARADO
+
+
+def _valor_publico(ctx: ContextoApi, nome: str, valor: Any) -> Any:
+    """Só `calendario_bloqueio` tem texto de operador no `valor`: voltam só as chaves do contrato, e o `motivo` mascarado se preciso."""
+    if nome != "calendario_bloqueio" or not isinstance(valor, dict):
+        return valor
+    janelas = [
+        {chave: (_codigo_publico(ctx, j[chave]) if chave == "motivo" else j[chave]) for chave in ("de", "ate", "motivo") if chave in j}
+        for j in valor.get("janelas", [])
+        if isinstance(j, dict)
+    ]
+    feriados = [f for f in valor.get("feriados", []) if isinstance(f, str) and _DATA.fullmatch(f)]
+    return {"domingos": valor.get("domingos"), "feriados": feriados, "janelas": janelas}
 
 
 def _item(ctx: ContextoApi, v: VersaoConfig) -> dict[str, Any]:
@@ -49,8 +74,8 @@ def _item(ctx: ContextoApi, v: VersaoConfig) -> dict[str, Any]:
         ctx.metricas.somar("texto_livre_mascarado_na_leitura")
         motivo = MASCARADO
     return {
-        "nome": v.nome, "versao": v.versao, "valor": v.valor, "publicado_em": _iso(v.publicado_em), "publicado_por": v.publicado_por,
-        "motivo": motivo,
+        "nome": v.nome, "versao": v.versao, "valor": _valor_publico(ctx, v.nome, v.valor), "publicado_em": _iso(v.publicado_em),
+        "publicado_por": MASCARADO if contem_documento(v.publicado_por) else v.publicado_por, "motivo": motivo,
     }  # fmt: skip
 
 
@@ -147,6 +172,7 @@ def gravar_config(ctx: ContextoApi, origem: str, nome: str, corpo: dict[str, Any
         raise ErroApi("config_inexistente", campo="nome")
     _conferir_origem(origem, nome)
     dados = validar(PutConfig, corpo)
+    rejeitar_documento("por", dados.por)
     if dados.motivo is not None:
         rejeitar_pii("motivo", dados.motivo)
     valor = _valor_validado(nome, dados.valor)

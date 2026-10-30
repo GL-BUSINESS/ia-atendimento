@@ -33,7 +33,7 @@ from psycopg.types.json import Jsonb
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 
 from ia_atendimento.modelos_conversa import EstadoConversa
-from ia_atendimento.tipos import LIMITE_JSON_OCTETOS, Codigo40, Codigo60, Perfil, octetos_como_jsonb
+from ia_atendimento.tipos import LIMITE_JSON_OCTETOS, Codigo40, Codigo60, DataHora, Perfil, octetos_como_jsonb
 
 LEASE_RESERVADO_S: Final = 120  # `reservado` nasce com 2 min (K §8.1)
 LEASE_TURNO_S: Final = 300  # `iniciar` e cada transição renovam para +5 min
@@ -184,7 +184,7 @@ class EntradaAtendimento(BaseModel):
     produto: Annotated[str, StringConstraints(pattern=r"^[A-Z0-9_]{1,32}$")] | None = None
     persona_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,40}$")] | None = None
     modo: Literal["teste"] | None = None  # asserção do chamador; o modo de verdade sai de `resolver_modo`
-    ultimo_cliente_em: AwareDatetime | None = None
+    ultimo_cliente_em: DataHora | None = None
 
     @model_validator(mode="after")
     def _regras_dos_checks(self) -> EntradaAtendimento:

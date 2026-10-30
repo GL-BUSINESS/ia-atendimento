@@ -1,29 +1,29 @@
 """Validação de entrada da API: corpo cru → JSON → modelo, sempre com `ErroApi` que leva só NOME de campo e regra (contrato 08 §1).
 
-`validar_corpo` (estado) já tira o valor do `ValidationError`; aqui o resultado vira `422 validacao` (ou o código específico). Chave de
-topo que o
-modelo não conhece vira `campo_desconhecido`/`campo_fora_da_allowlist` ANTES do Pydantic, para o código sair certo e o nome ser filtrado
-(`nome_seguro`: uma chave estranha pode ser o próprio dado).
+`validar_corpo` (estado) já tira o valor do `ValidationError`; aqui o resultado vira `422 validacao` (ou o código específico).
+Chave de topo que o modelo não conhece vira `campo_desconhecido`/`campo_fora_da_allowlist` ANTES do Pydantic, para o código sair
+certo e o nome ser filtrado (`nome_seguro`: uma chave estranha pode ser o próprio dado).
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 from ia_atendimento.api.erros import MAX_CAMPOS_NO_DETALHE, ErroApi, nome_seguro
 from ia_atendimento.estado import EntradaInvalida, validar_corpo
 from ia_atendimento.mascara import mascarar
+from ia_atendimento.tipos import contem_documento
 
 
 def objeto_do_corpo(bruto: bytes) -> dict[str, Any]:
     """O corpo tem de ser um objeto JSON; senão `422 validacao` em `(corpo)`."""
     try:
         corpo = json.loads(bruto)
-    except ValueError:
+    except (ValueError, RecursionError):  # JSON profundo demais estoura a pilha do parser: também é corpo inválido, não erro interno
         corpo = None
     if not isinstance(corpo, dict):
         raise ErroApi("validacao", campo="(corpo)", detalhe={"campos": [{"campo": "(corpo)", "regra": "objeto_json_esperado"}]})
@@ -59,6 +59,12 @@ def rejeitar_pii(campo: str, valor: str) -> None:
         raise ErroApi("pii_no_texto_livre", campo=campo)
 
 
+def rejeitar_documento(campo: str, valor: str) -> None:
+    """`422 pii_no_texto_livre` se a IDENTIDADE (login/e-mail do operador) leva sequência de documento ou telefone (10+ dígitos)."""
+    if contem_documento(valor):
+        raise ErroApi("pii_no_texto_livre", campo=campo)
+
+
 def uuid_do_caminho(valor: str, campo: str) -> UUID:
     """UUID minúsculo e hifenizado; qualquer outra forma ⇒ `422 validacao` no campo (nunca o valor)."""
     try:
@@ -68,3 +74,7 @@ def uuid_do_caminho(valor: str, campo: str) -> UUID:
     if achado is None or str(achado) != valor:
         raise erro_de_validacao(((campo, "uuid_esperado"),))
     return achado
+
+
+# login ou e-mail do operador (`por`, `operador`, `disparado_por`): sem espaço nem texto livre (documento nele: `rejeitar_documento`)
+LoginOuEmail = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._@+-]{1,128}$")]

@@ -23,11 +23,11 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from ia_atendimento import passos
 from ia_atendimento.api.contexto import ContextoApi
 from ia_atendimento.api.erros import ErroApi
-from ia_atendimento.api.validacao import erro_de_validacao, rejeitar_pii, uuid_do_caminho, validar
+from ia_atendimento.api.validacao import LoginOuEmail, erro_de_validacao, rejeitar_documento, rejeitar_pii, uuid_do_caminho, validar
 from ia_atendimento.estado import Hex24
 from ia_atendimento.linha_tempo import gravar_passo
 from ia_atendimento.passos import LIMITE_NOTA
-from ia_atendimento.tipos import LIMITE_JSON_OCTETOS, Perfil, octetos_como_jsonb
+from ia_atendimento.tipos import LIMITE_JSON_OCTETOS, Codigo40, Perfil, octetos_como_jsonb
 
 MAX_CANDIDATOS: Final = 200
 Codigo = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]
@@ -36,7 +36,7 @@ Codigo = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]
 class Anotacao(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
-    operador: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    operador: LoginOuEmail
     categoria: Codigo
     texto: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=LIMITE_NOTA)]
 
@@ -50,7 +50,7 @@ class Candidato(BaseModel):
     perfil: Perfil = Field(default_factory=dict)
     escolhido: bool
     atendimento_id: uuid.UUID | None = None
-    recusa: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,60}$")] | None = None
+    recusa: Codigo40 | None = None  # contrato 08 §5.6: ^[a-z0-9_]{1,40}$, sem sequência de documento
 
     @model_validator(mode="after")
     def _regras_do_check(self) -> Candidato:
@@ -75,6 +75,7 @@ class Candidatos(BaseModel):
 def criar_anotacao(ctx: ContextoApi, atendimento_id: str, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     atd = uuid_do_caminho(atendimento_id, "id")
     dados = validar(Anotacao, corpo)
+    rejeitar_documento("operador", dados.operador)
     rejeitar_pii("texto", dados.texto)
     with ctx.conexao() as conn:
         if conn.execute("SELECT 1 FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone() is None:
@@ -134,6 +135,7 @@ def _gravar_um(conn: psycopg.Connection, sessao: uuid.UUID, criterio: str, ref: 
 def gravar_candidatos(ctx: ContextoApi, sessao_id: str, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     sessao = uuid_do_caminho(sessao_id, "id")
     dados = validar(Candidatos, corpo)
+    rejeitar_documento("criterio_versao", dados.criterio_versao)
     for i, candidato in enumerate(dados.candidatos):
         for nome, valor in candidato.perfil.items():
             if isinstance(valor, str):

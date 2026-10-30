@@ -23,7 +23,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Final
 
 import psycopg
-from pydantic import AwareDatetime, BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from ia_atendimento.agenda_extrator import VERSAO as EXTRATOR_VERSAO
 from ia_atendimento.agenda_extrator import ConfigAgenda, extrair
@@ -41,6 +41,7 @@ from ia_atendimento.estado import (
     resolver_modo,
 )
 from ia_atendimento.mascara import mascarar
+from ia_atendimento.tipos import DataHora
 
 PREFIXO_TEXTO: Final = b"texto/v1\n"
 GATILHO: Final = "agendamento"
@@ -63,10 +64,10 @@ class EntradaAgendamento(BaseModel):
     chat_number: Annotated[str, StringConstraints(pattern=r"^[0-9]{10,15}$")] | None = None
     clt_job_id: uuid.UUID  # obrigatório: preserva a associação ao job (F13)
     texto_mensagem: Annotated[str, StringConstraints(min_length=1, max_length=1000)]
-    datetime_post: AwareDatetime
+    datetime_post: DataHora
     chave: Annotated[str, StringConstraints(pattern=r"^agendar:[0-9a-f]{24}:[0-9a-f]{16}$")]
     retoma_fase: Annotated[str, StringConstraints(pattern=r"^E([2-6]|8)$")]
-    ultimo_cliente_em: AwareDatetime | None = None
+    ultimo_cliente_em: DataHora | None = None
 
 
 def datetime_utc_texto(instante: datetime) -> str:

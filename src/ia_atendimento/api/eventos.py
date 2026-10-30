@@ -16,15 +16,16 @@ from typing import Annotated, Any, Final, Literal
 from urllib.parse import urlsplit
 
 import psycopg
-from pydantic import AwareDatetime, BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from ia_atendimento.api.auth import CREDENCIAL_DE_TESTE, Identidade
 from ia_atendimento.api.contexto import ContextoApi
 from ia_atendimento.api.erros import ErroApi
 from ia_atendimento.api.validacao import erro_de_validacao, validar
-from ia_atendimento.estado import Hex24
+from ia_atendimento.estado import TOLERANCIA_RELOGIO, Hex24
 from ia_atendimento.evento_mensagem import LIMITE_TEXTO, EventoMensagem, RpaId, TipoMensagem
 from ia_atendimento.mensagens import DepsMensagem, RespostaMensagem, atendimento_ativo, registrar_mensagem
+from ia_atendimento.tipos import DataHora
 
 TIPOS_NATIVOS: Final[dict[str, str]] = {
     "chat": "texto", "audio": "audio", "ptt": "audio", "image": "imagem", "document": "documento", "sticker": "sticker",
@@ -43,7 +44,7 @@ class NativoChatguru(BaseModel):
     phone_id: Hex24
     tipo_mensagem: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,40}$")]
     texto_mensagem: Annotated[str, StringConstraints(max_length=LIMITE_TEXTO)] | None = None
-    datetime_post: AwareDatetime | None = None
+    datetime_post: DataHora | None = None
     url_arquivo: Medio | None = None
     responsavel_email: Curto | None = None
     responsavel_nome: Curto | None = None  # descartado sem registro
@@ -59,7 +60,7 @@ class MensagemNormalizada(BaseModel):
     tipo: TipoMensagem
     texto: Annotated[str, StringConstraints(max_length=LIMITE_TEXTO)] | None = None
     url_arquivo: Medio | None = None
-    datetime_post: AwareDatetime | None = None
+    datetime_post: DataHora | None = None
     origem_evento: Literal["webhook", "reconciliacao", "replay"]
     rpa_id: RpaId | None = None
 
@@ -111,8 +112,9 @@ def _regra_do_canal_de_teste(
 
 
 def _delegacao_externa(ctx: ContextoApi, responsavel_email: str | None) -> bool:
-    """`responsavel_email` diferente do Amado ⇒ humano na conversa. Ausente = sem evidência = falso."""
-    return responsavel_email is not None and responsavel_email.strip().lower() != ctx.settings.responsavel_ia
+    """`responsavel_email` diferente do Amado ⇒ humano na conversa. Ausente, vazio ou só espaço = sem evidência = falso."""
+    informado = (responsavel_email or "").strip().lower()  # o ChatGuru manda texto vazio para campo sem valor: vazio = ausente
+    return bool(informado) and informado != ctx.settings.responsavel_ia
 
 
 def _deps(ctx: ContextoApi) -> DepsMensagem:
@@ -136,9 +138,16 @@ def _tratar(
         return 200, resposta.corpo()
 
 
+def _conferir_hora(instante: datetime | None, agora: datetime) -> None:
+    """`datetime_post` mais de 5 min à frente do relógio é recusado (422, sem o valor): iria CRU a `msg_enviada_em` e ao casamento."""
+    if instante is not None and instante > agora + TOLERANCIA_RELOGIO:
+        raise erro_de_validacao((("datetime_post", "no_futuro"),))
+
+
 def evento_chatguru(ctx: ContextoApi, identidade: Identidade, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Origem `gateway_chatguru` (assinatura) ⇒ `webhook`; origem `ti` (replay manual, sem `x-gl-*`) ⇒ `replay`."""
     dados = validar(NativoChatguru, corpo, codigo_de_chave_extra="campo_fora_da_allowlist")
+    _conferir_hora(dados.datetime_post, ctx.relogio.agora())
     origem_evento = "webhook" if identidade.canal_origem is not None else "replay"
     return _tratar(
         ctx, identidade, dados.chat_id, lambda: _evento_de_nativo(dados, origem_evento),
@@ -149,4 +158,5 @@ def evento_chatguru(ctx: ContextoApi, identidade: Identidade, corpo: dict[str, A
 def evento_mensagem(ctx: ContextoApi, identidade: Identidade, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Normalizado (o reconciliador do RPA chama a mesma função por dentro): `origem_evento` e `rpa_id` vêm no corpo."""
     dados = validar(MensagemNormalizada, corpo, codigo_de_chave_extra="campo_fora_da_allowlist")
+    _conferir_hora(dados.datetime_post, ctx.relogio.agora())
     return _tratar(ctx, identidade, dados.chat_id, lambda: _evento_de_normalizado(dados), False, ctx.relogio.agora())
