@@ -9,6 +9,8 @@ SEGREDOS = {
     "DATABASE_URL": "postgresql://ia_app_a:senha-do-banco-XYZ@127.0.0.1:5434/ia_atendimento",
     "MODELO_API_KEY_1": "fw_chave-do-modelo-ABC123",
     "API_TOKEN": "token-da-api-QWERTY",
+    "CHAVE_H16": "h16-chave-hmac-de-teste-descartavel-0123456789",
+    "CHAVE_FINGERPRINT": "fp-chave-hmac-de-teste-descartavel-0123456789",
 }
 BASE = {
     **SEGREDOS,
@@ -48,7 +50,7 @@ def test_le_env_com_padroes_do_estudo_g(monkeypatch):
 def test_chaves_sao_secretstr(monkeypatch):
     _definir(monkeypatch, BASE)
     s = Settings()
-    for campo in (s.database_url, s.modelo_api_key_1, s.api_token):
+    for campo in (s.database_url, s.modelo_api_key_1, s.api_token, s.chave_h16, s.chave_fingerprint):
         assert isinstance(campo, SecretStr)
 
 
@@ -60,7 +62,9 @@ def test_repr_str_e_dump_nao_vazam_segredo(monkeypatch):
             assert segredo not in saida
 
 
-@pytest.mark.parametrize("faltando", ["DATABASE_URL", "MODELO_API_KEY_1", "API_TOKEN", "CHAVE_AES_ID", "CHAVE_AES_ARQUIVO"])
+@pytest.mark.parametrize(
+    "faltando", ["DATABASE_URL", "MODELO_API_KEY_1", "API_TOKEN", "CHAVE_AES_ID", "CHAVE_AES_ARQUIVO", "CHAVE_H16", "CHAVE_FINGERPRINT"]
+)
 def test_campo_obrigatorio_ausente_recusa_o_boot(monkeypatch, faltando):
     _definir(monkeypatch, {k: v for k, v in BASE.items() if k != faltando})
     with pytest.raises(ValidationError) as erro:
@@ -326,3 +330,22 @@ def test_boot_com_erro_lista_campo_e_motivo_sem_valor(monkeypatch):
         get_settings()
     texto = str(erro.value)
     assert "api_token" in texto and "chave_aes_id" in texto and "curto" not in texto
+
+
+def test_chaves_hmac_de_mensagem_recusam_curta_vazia_e_repetida_s2(monkeypatch):
+    """S2: `msg_fingerprint` e `h16` são HMAC com chaves próprias; sem chave (ou curta, ou a mesma nas duas) o boot recusa."""
+    for ruim in ({"CHAVE_FINGERPRINT": ""}, {"CHAVE_H16": "curta"}, {"CHAVE_FINGERPRINT": BASE["CHAVE_H16"]}):
+        _definir(monkeypatch, {**BASE, **ruim})
+        with pytest.raises(ValidationError) as erro:
+            Settings()
+        assert BASE["CHAVE_H16"] not in str(erro.value)
+        assert BASE["CHAVE_FINGERPRINT"] not in str(erro.value)
+
+
+def test_chaves_de_mensagem_vem_do_settings_s2(monkeypatch):
+    from ia_atendimento.evento_mensagem import ChavesDeMensagem
+
+    _definir(monkeypatch, BASE)
+    chaves = ChavesDeMensagem.de_settings(Settings())
+    assert chaves.h16 == BASE["CHAVE_H16"].encode()
+    assert chaves.fingerprint == BASE["CHAVE_FINGERPRINT"].encode()

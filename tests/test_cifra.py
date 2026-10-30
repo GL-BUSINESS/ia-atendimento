@@ -305,6 +305,8 @@ def test_funcoes_de_modulo_usam_o_chaveiro_padrao(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://ia_app_a:y@127.0.0.1/db")
     monkeypatch.setenv("MODELO_API_KEY_1", "k" * 24)
     monkeypatch.setenv("API_TOKEN", "t" * 24)
+    monkeypatch.setenv("CHAVE_H16", "h" * 32)
+    monkeypatch.setenv("CHAVE_FINGERPRINT", "f" * 32)
     monkeypatch.setenv("CHAVE_AES_ID", "4")
     monkeypatch.setenv("CHAVE_AES_ARQUIVO", str(arquivo))
     monkeypatch.chdir(tmp_path)
