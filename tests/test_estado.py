@@ -6,6 +6,7 @@ Sem PII: ids, chat e operador sintéticos (`tests/estado_apoio.py`).
 from __future__ import annotations
 
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
@@ -37,9 +38,9 @@ from ia_atendimento.estado import (
     retomar,
     versoes_vigentes,
 )
-from ia_atendimento.estado_conversa import EstadoConversa, Pausa
+from ia_atendimento.estado_conversa import EstadoConversa, Pausa, gravar_estado_conversa
 from tests.banco import Banco
-from tests.estado_apoio import CHAT, CHAVE, INICIO, OUTRA_PESSOA, OUTRO_CHAT, entrada
+from tests.estado_apoio import CHAT, CHAVE, INICIO, OUTRA_PESSOA, OUTRO_CHAT, PESSOA, entrada
 
 # --- helpers --------------------------------------------------------------------------------------------------------------------
 
@@ -698,7 +699,7 @@ def test_transicao_que_muda_estado_atualiza_a_fase_junto(db_conn, relogio, verso
 
 @pytest.mark.banco
 def test_estrutura_aceita_pausado_e_dele_se_repassa_e_se_encerra(db_conn, relogio, versoes):
-    """As transições de pausa são de B5.7b; o enum e os CHECKs já aceitam `pausado` e o resto do ciclo parte dele."""
+    """O enum e os CHECKs aceitam `pausado` por `aplicar` direto (as transições `pausar`/`sair_da_pausa` são da B5.7b); o ciclo parte dele."""
     atd, v = _aberto(db_conn, relogio, versoes, 1)
     retoma = relogio() + timedelta(hours=3)
     pausa = EstadoConversa(fase="E3", pausa=Pausa(retoma_fase="E3"))
@@ -736,20 +737,30 @@ def test_pausado_com_lease_menor_que_retoma_em_e_recusado(db_conn, relogio, vers
     assert erro.value.restricao == "atendimento_conversa_check"
 
 
-@pytest.mark.xfail(
-    strict=True, raises=AttributeError, reason="B5.7b: pausar/sair_da_pausa (E2-E6 e E8, nunca E7; lease >= retoma_em) ainda não existem"
-)
 @pytest.mark.banco
-def test_pausar_e_sair_da_pausa_ficam_para_b5_7b(db_conn, relogio, versoes):
+def test_pausar_e_sair_da_pausa(db_conn, relogio, versoes):
+    """B5.7b: as transições de pausa (a cobertura completa está em `test_estado_pausa.py` e `test_agenda_jobs.py`)."""
     atd, v = _aberto(db_conn, relogio, versoes)
+    v = gravar_estado_conversa(db_conn, atd, v, EstadoConversa(fase="E3"), relogio=relogio)
     retoma = relogio() + timedelta(hours=3)
     v = estado.pausar(db_conn, atd, v, retoma_em=retoma, retoma_fase="E3", relogio=relogio)
+    a = ler(db_conn, atd)
+    assert (a.estado, a.fase, a.retoma_em, a.lease_ate) == ("pausado", "E3", retoma, retoma + timedelta(minutes=30))
+    assert a.estado_conversa["pausa"] == {"retoma_fase": "E3"}
     estado.sair_da_pausa(db_conn, atd, v, relogio=relogio)
+    a = ler(db_conn, atd)
+    assert (a.estado, a.fase, a.retoma_em) == ("aberto", "E3", None) and "pausa" not in a.estado_conversa
 
 
-@pytest.mark.xfail(
-    strict=True, raises=AttributeError, reason="B5.7b: abrir_agendado/iniciar_agendado (reservado de vida longa) ainda não existem"
-)
 @pytest.mark.banco
-def test_abrir_agendado_fica_para_b5_7b(db_conn, relogio, versoes):
-    estado.abrir_agendado  # noqa: B018
+def test_abrir_agendado_reserva_de_vida_longa(db_conn, relogio, versoes):
+    """B5.7b: `reservado` de agendamento, sem tocar o chat, com `lease_ate >= retoma_em` (a cobertura completa está em `test_estado_pausa.py`)."""
+    retoma = relogio() + timedelta(hours=5)
+    r = estado.abrir_agendado(
+        db_conn, origem="n8n_braco", chave_logica=f"agendar:{CHAT}:0123456789abcdef", disparado_por="dialogo_agendar",
+        pessoa_id=uuid.UUID(PESSOA), chat_id=CHAT, phone_id="89abcdef0123456789abcdef", clt_job_id=uuid.uuid4(), versoes=versoes,
+        modo="duble", retoma_em=retoma, ultimo_cliente_em=relogio(), agora=relogio(),
+    )  # fmt: skip
+    a = ler(db_conn, r.atendimento_id)
+    assert (a.estado, a.gatilho, a.fase, a.retoma_em, a.assumido_em) == ("reservado", "agendamento", "E0", retoma, None)
+    assert a.lease_ate == retoma + timedelta(minutes=30)

@@ -57,6 +57,12 @@ class _NaoConfigurado:
         raise ServicoNaoConfigurado(f"serviço '{self._nome}' não foi injetado (Servicos)")
 
 
+def configurado(servico: object) -> bool:
+    """O serviço foi injetado? (`False` = ainda é o `_NaoConfigurado` que falha alto.) Quem não pode desfazer o que fez antes de chamar o
+    serviço confere antes (o `retomar`: reivindicar o agendamento e depois falhar perderia a volta)."""
+    return not isinstance(servico, _NaoConfigurado)
+
+
 @dataclass(frozen=True)
 class InstantaneoLembrete:
     """O que o lembrete precisa saber do atendimento (a leitura real é do estado, B1.1)."""
@@ -79,6 +85,18 @@ class LeaseVencido:
 
 
 @dataclass(frozen=True)
+class Volta:
+    """O que o job `retomar` entrega à volta combinada depois de ganhar o CAS `confirmado → disparado` (B5.7b; a volta em si é da B5.7c)."""
+
+    agendamento_id: uuid.UUID
+    atendimento_id: uuid.UUID
+    chat_id: str
+    entrada: str  # `pausa_ia` = caso (a), atendimento `pausado` · `dialogo_agendar` = caso (b), `reservado` que nunca tocou o chat
+    retoma_fase: str | None
+    dispara_em: datetime
+
+
+@dataclass(frozen=True)
 class Servicos:
     relogio: Relogio
     abrir_conexao: Callable[[], AbstractContextManager[psycopg.Connection]]
@@ -92,6 +110,8 @@ class Servicos:
     tratar_lease_vencido: Callable[[LeaseVencido], Awaitable[None]] = field(default=_NaoConfigurado("tratar_lease_vencido"))
     auditar_pii: Callable[[Sequence[uuid.UUID]], Awaitable[int]] = field(default=_NaoConfigurado("auditar_pii"))
     encerrar_por_chave: Callable[[uuid.UUID], Awaitable[None]] = field(default=_NaoConfigurado("encerrar_por_chave"))
+    # a volta combinada (B5.7c): pré-checagens, `sair_da_pausa`/`iniciar_agendado`, mensagem. Devolve o desfecho (`None` = `retomou`)
+    retomar_atendimento: Callable[[Volta], Awaitable[str | None]] = field(default=_NaoConfigurado("retomar_atendimento"))
 
     def leitor(self) -> LeitorConfig:
         return self.leitor_config or LeitorConfig(self.relogio, ttl_s=0)
