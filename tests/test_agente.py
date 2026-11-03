@@ -72,10 +72,10 @@ from tests.apoio_b14 import (
     CHAVE_DA_API,
     MODELO,
     TURNO_E2,
-    ContextoFalso,
     RedeSimulada,
     agente_falso,
     agente_na_rede,
+    contexto_falso,
     resposta_openai,
     settings_de_teste,
 )
@@ -334,7 +334,7 @@ def test_custo_usa_os_precos_do_settings_e_recusa_token_negativo():
 async def test_raciocinio_desligado_vai_no_extra_body(forma, presente, ausente):
     rede = RedeSimulada([resposta_openai(TURNO_E2)])
     agente = agente_na_rede(rede, settings=settings_de_teste(modelo_raciocinio_off=forma, modelo_tentativas_http=0))
-    await executar_turno(agente, DEPS, ContextoFalso("E2"))
+    await executar_turno(agente, DEPS, contexto_falso("E2"))
     corpo = rede.corpos[0]
     assert corpo[presente[0]] == presente[1]
     assert ausente not in corpo
@@ -361,7 +361,7 @@ async def test_um_so_provedor_falha_e_propaga():
     agente = agente_na_rede(rede, settings=settings_de_teste(modelo_tentativas_http=0))
     assert isinstance(agente.agente.model, OpenAIChatModel) and not isinstance(agente.agente.model, FallbackModel)
     with pytest.raises(ProvedorIndisponivel) as erro:
-        await executar_turno(agente, DEPS, ContextoFalso("E2"))
+        await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert isinstance(erro.value, ErroDoModelo) and erro.value.status == 503 and erro.value.codigo == "provedor"
     assert "corpo-secreto-do-provedor" not in str(erro.value)  # a mensagem é fixa: o SDK cita o corpo da resposta
     assert erro.value.__cause__ is None and erro.value.__context__ is None
@@ -375,7 +375,7 @@ async def test_rede_fora_do_ar_e_tempo_esgotado_tambem_viram_erro_do_modelo():
 
     agente = agente_na_rede(RedeSimulada([cai]), settings=settings_de_teste(modelo_tentativas_http=0))
     with pytest.raises(ProvedorIndisponivel) as erro:
-        await executar_turno(agente, DEPS, ContextoFalso("E2"))
+        await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert erro.value.codigo in {"provedor", "tempo_esgotado"} and erro.value.__context__ is None
 
 
@@ -400,7 +400,7 @@ async def test_chave_da_api_so_do_settings_e_nunca_em_repr_log_nem_erro(caplog):
     resolvedor = ResolvedorModelo(settings, cliente_http=rede.cliente())
     agente = criar_agente(resolvedor, MODELO, settings=settings)
     with pytest.raises(ProvedorIndisponivel) as erro:
-        await executar_turno(agente, DEPS, ContextoFalso("E2"))
+        await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert rede.requisicoes[0].headers["authorization"] == f"Bearer {CHAVE_DA_API}"  # a chave vai ao provedor, e só a ele
     for saida in (repr(resolvedor), repr(settings), str(settings), str(erro.value), repr(erro.value), repr(agente), caplog.text):
         assert CHAVE_DA_API not in saida
@@ -413,7 +413,7 @@ async def test_chave_da_api_so_do_settings_e_nunca_em_repr_log_nem_erro(caplog):
 async def test_turno_devolve_resposta_estruturada():
     rede = RedeSimulada([resposta_openai({**TURNO_E2, "objecao": None, "tx_id": "TX-39"}, entrada=1200, em_cache=800, saida=90)])
     agente = agente_na_rede(rede, settings=settings_de_teste(modelo_tentativas_http=0))
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2"), cronometro=iter([10.0, 10.25]).__next__)
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"), cronometro=iter([10.0, 10.25]).__next__)
     assert r.turno.intencao == "saudacao" and r.turno.tx_id == "TX-39" and r.turno.sinal == "positivo"
     assert (r.tokens_in, r.tokens_cache, r.tokens_out) == (400, 800, 90)  # a entrada total (1200) inclui o cache (800)
     assert r.latencia_ms == 250 and r.acao_invalida is False and r.raciocinio_detectado is False
@@ -424,7 +424,7 @@ async def test_turno_devolve_resposta_estruturada():
 async def test_decisao_sem_motivo():
     sem_motivo = {k: v for k, v in TURNO_E2.items() if k != "motivo"}
     agente = agente_na_rede(RedeSimulada([resposta_openai(sem_motivo)]), settings=settings_de_teste(modelo_tentativas_http=0))
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2"))
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert r.turno.motivo == "(não informado)"
     assert r.como_decisao().colunas()["motivo"] == "nao_informado"  # passo.motivo é de lista fechada; o texto do modelo nunca vai para lá
 
@@ -433,12 +433,12 @@ async def test_motivo_livre_do_modelo_nao_vai_para_o_passo_so_o_codigo_da_lista(
     agente = agente_na_rede(
         RedeSimulada([resposta_openai({**TURNO_E2, "motivo": "cliente_concordou"})]), settings=settings_de_teste(modelo_tentativas_http=0)
     )
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2"))
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert "cliente_concordou" in MOTIVOS_DE_DECISAO and r.como_decisao().colunas()["motivo"] == "cliente_concordou"
     livre = await executar_turno(
         agente_na_rede(RedeSimulada([resposta_openai(TURNO_E2)]), settings=settings_de_teste(modelo_tentativas_http=0)),
         DEPS,
-        ContextoFalso("E2"),
+        contexto_falso("E2"),
     )
     assert livre.turno.motivo == "cliente cumprimentou" and livre.como_decisao().colunas()["motivo"] == "nao_informado"
 
@@ -447,7 +447,7 @@ async def test_acao_fora_da_fase_chega_com_o_gasto_e_acao_invalida():
     rede = RedeSimulada([resposta_openai({**TURNO_BASE, "acao": "pedir_confirmacao"}, entrada=1000, saida=50)])
     agente = agente_na_rede(rede, settings=settings_de_teste(modelo_tentativas_http=0))
     with pytest.raises(AcaoForaDaFase) as erro:
-        await executar_turno(agente, DEPS, ContextoFalso("E2"))
+        await executar_turno(agente, DEPS, contexto_falso("E2"))
     resultado = erro.value.resultado
     assert resultado is not None and resultado.acao_invalida is True
     assert erro.value.uso.custo_brl == resultado.custo_brl > 0  # o turno gastou: o gasto do dia (Σ passo.custo_brl) tem de enxergar
@@ -460,7 +460,7 @@ async def test_saida_invalida_depois_do_output_retries_conta_uma_falha_e_leva_o_
     rede = RedeSimulada([invalida])
     agente = agente_na_rede(rede, settings=settings_de_teste(modelo_tentativas_http=0))
     with pytest.raises(SaidaInvalida) as erro:
-        await executar_turno(agente, DEPS, ContextoFalso("E2"))
+        await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert len(rede.requisicoes) == 2  # output_retries=1: a saída inválida ganha UMA nova tentativa
     assert "inventada-xyz" not in str(erro.value) and erro.value.__context__ is None
     assert (erro.value.uso.tokens_in, erro.value.uso.tokens_out) == (2000, 120)  # as duas respostas foram cobradas
@@ -470,7 +470,7 @@ async def test_saida_invalida_depois_do_output_retries_conta_uma_falha_e_leva_o_
 async def test_saida_invalida_que_se_corrige_na_segunda_vale():
     rede = RedeSimulada([resposta_openai({**TURNO_BASE, "intencao": "inventada-xyz"}), resposta_openai(TURNO_E2)])
     agente = agente_na_rede(rede, settings=settings_de_teste(modelo_tentativas_http=0))
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2"))
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert len(rede.requisicoes) == 2 and r.turno.intencao == "saudacao"
     assert r.tokens_in == 2400 and r.tokens_out == 180  # as duas chamadas somam no custo
 
@@ -479,7 +479,7 @@ async def test_resposta_com_raciocinio_alerta_e_marca_o_resultado(caplog):
     caplog.set_level(logging.WARNING, logger="ia_atendimento.observabilidade")
     rede = RedeSimulada([resposta_openai(TURNO_E2, saida=200, tokens_raciocinio=120, conteudo_de_raciocinio="pensando")])
     agente = agente_na_rede(rede, settings=settings_de_teste(modelo_tentativas_http=0))
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2"))
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert r.raciocinio_detectado is True and r.uso.tokens_raciocinio == 120
     assert observabilidade.ALERTA_RACIOCINIO in caplog.text
 
@@ -487,7 +487,7 @@ async def test_resposta_com_raciocinio_alerta_e_marca_o_resultado(caplog):
 async def test_sem_raciocinio_nao_alerta(caplog):
     caplog.set_level(logging.WARNING, logger="ia_atendimento.observabilidade")
     agente = agente_na_rede(RedeSimulada([resposta_openai(TURNO_E2)]), settings=settings_de_teste(modelo_tentativas_http=0))
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2"))
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert r.raciocinio_detectado is False and observabilidade.ALERTA_RACIOCINIO not in caplog.text
 
 
@@ -503,7 +503,7 @@ async def test_ferramenta_do_agente_e_registrada_em_ferramentas_chamadas_e_nao_v
     )  # fmt: skip
     rede = RedeSimulada([chamada, resposta_openai(TURNO_E2)])
     agente = agente_na_rede(rede, ferramentas={"T3": ferramenta_falsa}, settings=settings_de_teste(modelo_tentativas_http=0))
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2"))
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert r.ferramentas_chamadas == ("T3",) and len(rede.requisicoes) == 2
     segunda = str(rede.corpos[1])
     assert "oferta-1" in segunda and "valor_liberado" in segunda  # só placeholders
@@ -521,7 +521,7 @@ def _usuario(fase: str, *mensagens: str) -> str:
 async def test_provedor_falso_e_deterministico_e_responde_pelo_roteiro(corpus):
     falso_a, falso_b = ProvedorFalso(RoteiroF3(corpus)), ProvedorFalso(RoteiroF3(corpus))
     a, b = criar_agente(falso_a, MODELO), criar_agente(falso_b, MODELO)
-    contexto = ContextoFalso("E2", usuario=_usuario("E2", "nao lembro de ter pedido isso"))
+    contexto = contexto_falso("E2", pendentes=("nao lembro de ter pedido isso",))
     ra, rb = await executar_turno(a, DEPS, contexto), await executar_turno(b, DEPS, contexto)
     assert ra.turno == rb.turno and ra.uso.tokens_in == rb.uso.tokens_in  # mesma entrada, mesma saída, mesmo custo
     assert ra.turno.intencao == "objecao" and ra.turno.objecao == "nao_lembra" and ra.turno.tx_id == "TX-33"
@@ -534,7 +534,7 @@ async def test_provedor_falso_falha_sob_comando_e_a_falha_propaga_como_erro_do_m
     agente, falso = agente_falso(_NaoDeveSerChamado())
     falso.falha = ModelHTTPError(503, "falso", {"error": "x"})
     with pytest.raises(ProvedorIndisponivel) as erro:
-        await executar_turno(agente, DEPS, ContextoFalso("E2"))
+        await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert erro.value.status == 503 and falso.chamadas == 1
 
 
@@ -600,7 +600,7 @@ async def test_modelo_e_provedor_do_resultado_vem_de_modelo_por_faixa(conn_app):
     assert (media.modelo, media.provedor, media.raciocinio) == ("deepseek-v4p1-flash-1017", "fireworks-us", False)
     assert media.custo_max_brl == Decimal("2.0")
     agente = criar_agente(ProvedorFalso(_Fixo(_turno(intencao="saudacao"))), media)
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2", usuario=_usuario("E2", "oi")))
+    r = await executar_turno(agente, DEPS, contexto_falso("E2", pendentes=("oi",)))
     assert (r.modelo, r.provedor) == ("deepseek-v4p1-flash-1017", "fireworks-us")
     with pytest.raises(ProvedorNaoConfigurado):
         ModeloDaFaixa.de_config(valor, "faixa_que_nao_existe")
@@ -617,7 +617,7 @@ class _Fixo:
 async def test_decisao_do_turno_grava_tokens_custo_e_latencia_no_passo(conn_app):
     atd = novo_atendimento(conn_app)
     agente = criar_agente(ProvedorFalso(_Fixo(_turno(intencao="duvida_oferta", objecao="taxa_juros", confianca="media"))), MODELO)
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2", usuario=_usuario("E2", "e a taxa?")), cronometro=iter([1.0, 1.5]).__next__)
+    r = await executar_turno(agente, DEPS, contexto_falso("E2", pendentes=("e a taxa?",)), cronometro=iter([1.0, 1.5]).__next__)
     ordem = gravar_passo(conn_app, atd, ctx=CtxPasso(turno=1, fase="E2"), dados=r.como_decisao(faixa_esforco="media")).ordem
     tipo, intencao, custo, tokens_in, tokens_out, latencia, modelo, provedor, acao_invalida = conn_app.execute(
         "SELECT tipo, intencao, custo_brl, tokens_entrada, tokens_saida, latencia_ms, modelo, provedor, acao_invalida FROM ia.passo"

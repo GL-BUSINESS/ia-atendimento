@@ -14,7 +14,7 @@ import pytest
 from pydantic_ai import ModelRetry, RunContext
 
 from ia_atendimento.agente import ResolvedorModelo, criar_agente, executar_turno
-from ia_atendimento.contexto import ContextoComDadoPessoal
+from ia_atendimento.contexto import Contexto, ContextoComDadoPessoal
 from ia_atendimento.ferramentas import (
     Deps,
     FerramentaSemProjecao,
@@ -28,8 +28,8 @@ from tests.apoio_b14 import (
     MODELO,
     NOME_DO_CLIENTE,
     TURNO_E2,
-    ContextoFalso,
     RedeSimulada,
+    contexto_falso,
     resposta_openai,
     settings_de_teste,
 )
@@ -75,9 +75,9 @@ def _agente(rede: RedeSimulada, ferramentas: dict[str, Any]):
     return criar_agente(ResolvedorModelo(s, cliente_http=rede.cliente()), MODELO, ferramentas, settings=s)
 
 
-async def _turno_com_ferramenta(funcao, nome: str = "T3", deps: Deps = DEPS, contexto: ContextoFalso | None = None):
+async def _turno_com_ferramenta(funcao, nome: str = "T3", deps: Deps = DEPS, contexto: Contexto | None = None):
     rede = RedeSimulada([_chamada_de_ferramenta(nome), resposta_openai(TURNO_E2)])
-    resultado = await executar_turno(_agente(rede, {nome: funcao}), deps, contexto or ContextoFalso("E3"))
+    resultado = await executar_turno(_agente(rede, {nome: funcao}), deps, contexto or contexto_falso("E3"))
     return rede, resultado
 
 
@@ -127,7 +127,7 @@ async def test_funcao_assincrona_e_ferramenta_com_argumentos_tambem_passam_pela_
 
 
 async def test_apelido_do_contexto_e_reusado_no_retorno_da_ferramenta():
-    contexto = ContextoFalso("E3", referencias={"oferta-1": OFERTA_REAL})
+    contexto = contexto_falso("E3", referencias={"oferta-1": OFERTA_REAL})
     _, r = await _turno_com_ferramenta(_ferramenta({"oferta_ref": OFERTA_REAL, "status": "ativa"}), contexto=contexto)
     assert r.referencias == {"oferta-1": OFERTA_REAL}  # o MESMO id real, o MESMO apelido (nada de oferta-2 para a mesma oferta)
 
@@ -145,7 +145,7 @@ async def test_model_retry_da_ferramenta_vai_ao_modelo_com_texto_fixo():
         raise ModelRetry(f"cpf {CPF} recusado, valor R$ 5.000,00")
 
     rede = RedeSimulada([_chamada_de_ferramenta("T3"), resposta_openai(TURNO_E2)])
-    await executar_turno(_agente(rede, {"T3": falha}), DEPS, ContextoFalso("E3"))
+    await executar_turno(_agente(rede, {"T3": falha}), DEPS, contexto_falso("E3"))
     corpo = json.dumps(rede.corpos[1]["messages"], ensure_ascii=False)
     assert CPF not in corpo and "5.000,00" not in corpo and "siga sem ela" in corpo
 

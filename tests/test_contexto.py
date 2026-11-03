@@ -6,6 +6,7 @@ modelo recebeu. CPF, telefone, e-mail e nome são sintéticos (`000.000.0nn`, `e
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -34,6 +35,7 @@ from tests.apoio_b14 import (
     TELEFONE,
     abrir_em,
     receber,
+    receber_cru,
     receber_midia,
     receber_sem_linha_na_conversa,
     resposta_da_ia,
@@ -868,3 +870,37 @@ def test_simbolo_de_moeda_solto_numa_troca_antiga_tambem_nao_derruba_os_turnos_s
             ate_ordem=2 + i,
         )
         resposta_da_ia(db_conn, atd, chaveiro, f"ok {i}", nomes=NOMES)
+
+
+# --- o portão final está LIGADO em montar_contexto (M-8) ---------------------------------------------------------------------------------
+
+
+def test_montar_contexto_chama_o_portao_final_mesmo_se_a_protecao_falhar(db_conn, e3, chaveiro, monkeypatch):
+    """M-8: tirar `auditar_prompt` de `montar_contexto` sobrevivia a toda a suíte (os testes chamavam o portão direto). Aqui a proteção é neutralizada
+    (identidade) e só o portão impede o CPF de chegar ao prompt."""
+    atd, _ = e3
+    receber_cru(db_conn, atd, chaveiro, f"meu cpf é {CPF}")  # linha legada, sem máscara
+    monkeypatch.setattr(ctx, "proteger_texto", lambda texto, nomes: texto)
+    with pytest.raises(ctx.ContextoComDadoPessoal) as erro:
+        _montar(db_conn, atd, chaveiro)
+    assert CPF not in str(erro.value)
+
+
+def test_montar_contexto_audita_tambem_os_nomes_da_conversa(db_conn, e3, chaveiro, monkeypatch):
+    atd, _ = e3
+    receber(db_conn, atd, chaveiro, "quem fala é a Maria Alvardel", nomes=())  # gravada SEM saber o nome: o texto cifrado tem o nome
+    monkeypatch.setattr(ctx, "proteger_texto", lambda texto, nomes: texto)
+    with pytest.raises(ctx.ContextoComDadoPessoal):
+        _montar(db_conn, atd, chaveiro)  # `nomes=NOMES`: o portão conhece o nome e barra
+
+
+def test_executar_turno_so_aceita_o_contexto_montado_nunca_texto_solto():
+    """M-8: antes bastava ter `.sistema`/`.usuario`; um chamador podia passar texto que ninguém auditou."""
+    from ia_atendimento.agente import criar_agente, executar_turno
+
+    class TextoSolto:
+        fase, sistema, usuario, referencias = "E2", "instruções", f"meu cpf {CPF}", {}
+
+    agente = criar_agente(ProvedorFalso(_Fixo(Turno(intencao="saudacao", acao="responder", confianca="alta"))), MODELO)
+    with pytest.raises(TypeError, match="Contexto"):
+        asyncio.run(executar_turno(agente, DEPS, TextoSolto()))  # type: ignore[arg-type]

@@ -43,7 +43,7 @@ from pydantic_ai.usage import RequestUsage
 
 from ia_atendimento import observabilidade
 from ia_atendimento.config import PRECOS_PADRAO, Precos, Settings
-from ia_atendimento.contexto import Apelidos, ler_do_prompt
+from ia_atendimento.contexto import Apelidos, Contexto, ler_do_prompt
 from ia_atendimento.ferramentas import Deps, registrar
 from ia_atendimento.turno import (
     ACOES_POR_FASE,
@@ -263,19 +263,6 @@ def criar_agente(
     return AgenteDoTurno(agente, modelo_faixa, settings.precos() if settings else precos, timeout, tuple(ferramentas or ()))
 
 
-class ContextoDoTurno(Protocol):
-    """O que `executar_turno` lê do contexto (`contexto.Contexto` cumpre)."""
-
-    @property
-    def fase(self) -> str: ...
-
-    @property
-    def sistema(self) -> str: ...
-
-    @property
-    def usuario(self) -> str: ...
-
-
 def _numeros(uso: Any) -> tuple[int, int, int, int]:
     """(entrada total, entrada cacheada, saída, raciocínio) de um `RunUsage`/`RequestUsage`. Raciocínio já está dentro da saída."""
     detalhes = getattr(uso, "details", None) or {}
@@ -332,16 +319,17 @@ def _trazem_raciocinio(mensagens: Sequence[ModelMessage], tokens: int) -> bool:
 
 
 async def executar_turno(
-    agente: AgenteDoTurno, deps: Deps, contexto: ContextoDoTurno, *, cronometro: Callable[[], float] = time.perf_counter
+    agente: AgenteDoTurno, deps: Deps, contexto: Contexto, *, cronometro: Callable[[], float] = time.perf_counter
 ) -> ResultadoTurno:
     """Roda UM turno do modelo e devolve `ResultadoTurno` (Turno validado na fase + tokens, `custo_brl`, latência, `trace_id`).
 
     Levanta `ProvedorIndisponivel`/`SaidaInvalida` (falha do provedor) ou `TurnoForaDaFase` (o modelo pediu o que a fase não permite); as
     duas famílias são `ErroDoModelo` e carregam o gasto em `.uso`. Cada tentativa vale uma falha; o processador conta as 2 (B1.6)."""
+    if not isinstance(contexto, Contexto):  # só o que `contexto.construir` monta (e `montar_contexto` audita) chega ao provedor
+        raise TypeError("executar_turno recebe o Contexto de contexto.montar_contexto, não texto solto")
     modelo, provedor = agente.modelo.modelo, agente.modelo.provedor
-    deps = replace(
-        deps, apelidos=Apelidos(getattr(contexto, "referencias", None))
-    )  # o resultado de ferramenta reusa os apelidos do contexto
+    # o resultado de ferramenta reusa os apelidos do contexto
+    deps = replace(deps, apelidos=Apelidos(contexto.referencias))
     with observabilidade.span_do_turno(fase=contexto.fase, modelo=modelo, provedor=provedor) as span:
         trace_id = observabilidade.trace_id_atual()
         inicio = cronometro()
@@ -381,7 +369,6 @@ __all__ = [
     "TX_DO_MODELO_POR_FASE",
     "AcaoForaDaFase",
     "AgenteDoTurno",
-    "ContextoDoTurno",
     "Deps",
     "ErroDoModelo",
     "FerramentaForaDaFase",

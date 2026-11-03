@@ -20,7 +20,7 @@ from pydantic_ai.exceptions import ModelHTTPError
 from ia_atendimento import observabilidade as obs
 from ia_atendimento.agente import Deps, ProvedorFalso, criar_agente, executar_turno
 from ia_atendimento.turno import ErroDoModelo, Turno
-from tests.apoio_b14 import CHAVE_DA_API, EMAIL, MODELO, TELEFONE, ContextoFalso, settings_de_teste
+from tests.apoio_b14 import CHAVE_DA_API, EMAIL, MODELO, TELEFONE, contexto_falso, settings_de_teste
 
 CPF_FORMATADO = "000.000.012-34"
 CPF_SO_DIGITOS = "00000001234"
@@ -135,7 +135,7 @@ async def test_span_nao_contem_cpf(memoria):
     obs.configurar(settings_de_teste(), exportador=memoria)
     falso = ProvedorFalso(_Fixo(Turno(intencao="saudacao", acao="responder", confianca="alta", motivo=f"cliente falou {CPF_FORMATADO}")))
     agente = criar_agente(falso, MODELO)
-    contexto = ContextoFalso("E2", usuario=f'## Estado\n{{"fase":"E2"}}\n\n## Mensagens pendentes do cliente\n1. «{SUJEIRA}»')
+    contexto = contexto_falso("E2", pendentes=(SUJEIRA,))
     await executar_turno(agente, DEPS, contexto)
     spans = memoria.get_finished_spans()
     assert spans, "o pydantic-ai tem de emitir spans com a instrumentação ligada"
@@ -152,7 +152,7 @@ async def test_span_de_erro_nao_leva_pii_na_excecao_nem_no_traceback(memoria):
     falso = ProvedorFalso(_Fixo(Turno(intencao="saudacao", acao="responder", confianca="alta")), falha=ModelHTTPError(500, "falso", corpo))
     agente = criar_agente(falso, MODELO)
     with pytest.raises(ErroDoModelo):
-        await executar_turno(agente, DEPS, ContextoFalso("E2"))
+        await executar_turno(agente, DEPS, contexto_falso("E2"))
     exportado = _serializar(memoria.get_finished_spans())
     _sem_pii(exportado)
     assert "exception" in exportado or "ERROR" in exportado  # o erro foi registrado, só que mascarado
@@ -269,7 +269,7 @@ def test_trace_id_atual_tem_32_hex(memoria):
 async def test_executar_turno_devolve_o_trace_id_do_span_do_turno(memoria):
     obs.configurar(settings_de_teste(), exportador=memoria)
     agente = criar_agente(ProvedorFalso(_Fixo(Turno(intencao="saudacao", acao="responder", confianca="alta"))), MODELO)
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2"))
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert r.trace_id is not None and len(r.trace_id) == 32
     assert {format(s.context.trace_id, "032x") for s in memoria.get_finished_spans()} == {r.trace_id}  # um turno, um trace
     assert r.como_decisao().trace_id == r.trace_id
@@ -277,7 +277,7 @@ async def test_executar_turno_devolve_o_trace_id_do_span_do_turno(memoria):
 
 async def test_sem_observabilidade_o_trace_id_do_turno_e_nulo_e_o_passo_aceita():
     agente = criar_agente(ProvedorFalso(_Fixo(Turno(intencao="saudacao", acao="responder", confianca="alta"))), MODELO)
-    r = await executar_turno(agente, DEPS, ContextoFalso("E2"))
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert r.trace_id is None and r.como_decisao().trace_id is None
 
 

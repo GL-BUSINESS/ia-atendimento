@@ -19,11 +19,14 @@ import psycopg
 from ia_atendimento.agente import ModeloDaFaixa, ProvedorFalso, criar_agente
 from ia_atendimento.cifra import Chaveiro
 from ia_atendimento.config import Settings
+from ia_atendimento.contexto import Contexto, Insumos, construir
 from ia_atendimento.conversa import gravar_troca
 from ia_atendimento.estado import Versoes, abrir, iniciar, ler
 from ia_atendimento.estado_conversa import EstadoConversa, gravar_estado_conversa, registrar_mensagem_do_cliente
 from ia_atendimento.evento_mensagem import ChavesDeMensagem, EventoMensagem
 from ia_atendimento.linha_tempo import Gravada, Pendente, gravar_mensagem_recebida, mensagens_pendentes
+from ia_atendimento.modulos_fase import esquemas_das_ferramentas, modulo_da_fase
+from ia_atendimento.tokens import ESTIMADOR_PADRAO
 from tests.apoio_b12 import AGORA
 from tests.estado_apoio import RelogioFalso, entrada
 
@@ -112,14 +115,24 @@ def agente_na_rede(rede: RedeSimulada, **opcoes: Any):
     return criar_agente(ResolvedorModelo(settings, cliente_http=rede.cliente()), MODELO, settings=settings, **opcoes)
 
 
-@dataclass(frozen=True)
-class ContextoFalso:
-    """Contexto mínimo para `executar_turno` sem banco: o prompt é o que o teste quiser (mas com a fase, que o ProvedorFalso lê)."""
+def contexto_falso(
+    fase: str, *, pendentes: tuple[str, ...] = (), referencias: Mapping[str, str] | None = None, estado: str | None = None
+) -> Contexto:
+    """`Contexto` de verdade (os mesmos 8 blocos) sem banco: `executar_turno` só aceita o que `contexto.construir` monta.
 
-    fase: str
-    sistema: str = "Instruções do teste."
-    usuario: str = '## Estado\n{"fase":"E2"}'
-    referencias: Mapping[str, str] = field(default_factory=dict)
+    As `pendentes` entram COMO ESTÃO (sem a proteção de `montar_contexto`): é assim que um teste simula um vazamento que escapou das cercas."""
+    insumos = Insumos(
+        fase,
+        estado or json.dumps({"fase": fase}, separators=(",", ":")),
+        modulo_da_fase(fase),
+        esquemas_das_ferramentas(fase),
+        (),
+        None,
+        (),
+        "",
+        tuple(pendentes),  # type: ignore[arg-type]
+    )
+    return construir(insumos, dict(referencias or {}), ESTIMADOR_PADRAO)
 
 
 def agente_falso(roteiro, **opcoes: Any):
@@ -211,4 +224,15 @@ def receber_sem_linha_na_conversa(
     evento = _evento(conn, atendimento_id, em, tipo="texto", texto=texto)
     gravada = gravar_mensagem_recebida(conn, atendimento_id, evento=evento, chaves=CHAVES)
     assert isinstance(gravada, Gravada)
+    return next(p for p in mensagens_pendentes(conn, atendimento_id) if p.ordem == gravada.ordem)
+
+
+def receber_cru(conn: psycopg.Connection, atendimento_id: uuid.UUID, chaveiro: Chaveiro, texto: str, *, em: datetime = AGORA) -> Pendente:
+    """Como `receber`, mas grava o texto SEM a máscara (linha legada ou bug): simula o que só a proteção do contexto e o portão final seguram."""
+    from ia_atendimento.conversa import _gravar
+
+    evento = _evento(conn, atendimento_id, em, tipo="texto", texto="mensagem")  # o passo leva só tamanho e chaves, nunca o texto
+    gravada = gravar_mensagem_recebida(conn, atendimento_id, evento=evento, chaves=CHAVES)
+    assert isinstance(gravada, Gravada)
+    _gravar(conn, atendimento_id, remetente="cliente", tipo="mensagem", texto=texto, agora=em, chaveiro=chaveiro, passo_ordem=gravada.ordem)
     return next(p for p in mensagens_pendentes(conn, atendimento_id) if p.ordem == gravada.ordem)
