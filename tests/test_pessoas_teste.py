@@ -1,0 +1,329 @@
+"""`pessoas_teste` (B2.4): uma pessoa sintética por `persona_id` da F3, servida em `duble|teste` com `valid_until` relativo.
+
+Sem banco. O catálogo (`src/ia_atendimento/pessoas_teste/pessoas.json`) é gerado do corpus por `scripts/gerar_pessoas_teste.py`; aqui se prova que
+cobre as 84 personas, que T1/T3 saem na forma medida do 360, que `valid_until` anda com o relógio, que a marca «[TESTE]» é só do modo `teste`,
+que fixture não responde em `real`/`sombra` e que nenhum dado de pessoa entrou.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+from uuid import UUID
+
+import pytest
+
+from ia_atendimento import corpus
+from ia_atendimento.pessoas_teste import (
+    PREFIXO_TESTE,
+    CatalogoPessoasTeste,
+    FontePessoasTeste,
+    ForaDoModoDeTeste,
+    PessoasTesteInvalidas,
+    carregar,
+    carregar_catalogo,
+    catalogo_padrao,
+    hash_canonico,
+    marcar_teste,
+    texto_de_saida,
+)
+from ia_atendimento.pessoas_teste import catalogo as modulo_catalogo
+from ia_atendimento.pessoas_teste.formas import ResultadoPropostasPessoa, ResumosPessoas
+from ia_atendimento.relogio import RelogioFalso
+
+RAIZ = Path(__file__).resolve().parent.parent
+AGORA = datetime(2026, 11, 17, 15, 0, tzinfo=UTC)
+BANCOS_DUBLE = Path(os.environ["BANCOS_DUBLE_PATH"]).expanduser() if os.environ.get("BANCOS_DUBLE_PATH") else None
+CPF_SINTETICO = re.compile(r"^000\.000\.0\d{2}-\d{2}$")
+TELEFONE_SINTETICO = re.compile(r"^55009000\d{4}$")
+
+
+@pytest.fixture(scope="module")
+def corpo() -> corpus.Corpus:
+    return corpus.carregar(RAIZ / "tests" / "corpus")
+
+
+@pytest.fixture(scope="module")
+def catalogo() -> CatalogoPessoasTeste:
+    return catalogo_padrao()
+
+
+@pytest.fixture
+def relogio() -> RelogioFalso:
+    return RelogioFalso(AGORA)
+
+
+@pytest.fixture
+def fonte(catalogo: CatalogoPessoasTeste, relogio: RelogioFalso) -> FontePessoasTeste:
+    return FontePessoasTeste(catalogo, relogio)
+
+
+def _instante(texto: str) -> datetime:
+    return datetime.strptime(texto, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+
+
+# --- cobertura: todas as personas da F3 ------------------------------------------------------------------------------------------------
+
+
+def test_pessoas_teste_cobrem_todas_as_personas(catalogo, corpo):
+    """Uma pessoa por `persona_id` (60 H + 24 P-M), com o CPF, o nome e o cenário do dublê do corpus; `pessoa_id` fixo e único."""
+    personas = corpo.todas()
+    assert len(personas) == 84
+    assert [p.persona_id for p in catalogo.pessoas] == [p.id for p in personas]
+    assert len(catalogo.pessoa_ids()) == 84, "pessoa_id repetido"
+    for persona, pessoa in zip(personas, catalogo.pessoas, strict=True):
+        assert (pessoa.cpf, pessoa.nome, pessoa.duble) == (persona.cpf, persona.nome, persona.cenario_facta.persona_duble), persona.id
+        assert CPF_SINTETICO.match(pessoa.cpf) and TELEFONE_SINTETICO.match(pessoa.telefone), persona.id
+        assert str(pessoa.pessoa_id).startswith("00000000-0000-7000-8000-"), "pessoa_id fora da faixa sintética"
+
+
+def test_pessoas_teste_oferta_facta_ativa_segue_o_perfil_da_persona(catalogo, corpo):
+    """Oferta FACTA ativa ⇔ `perfil.oferta_facta_ativa`; valor e prazo são os do perfil; a parcela é valor × coeficiente da tabela 115716."""
+    for persona in corpo.todas():
+        facta = next(par for par in catalogo.por_persona(persona.id).pares if par.banco == "FACTA")
+        perfil = persona.perfil
+        if not perfil.oferta_facta_ativa:
+            assert facta.economia is None and facta.oferta_id is None, persona.id
+            continue
+        assert facta.economia is not None
+        assert int(float(facta.economia.valor_liberado)) == perfil.valor_pre_aprovado_brl, persona.id
+        assert facta.economia.prazo_meses == perfil.prazo_oferta_x, persona.id
+        esperado = round(perfil.valor_pre_aprovado_brl * float(facta.economia.coeficiente_financeiro), 2)
+        assert float(facta.economia.valor_parcela) == pytest.approx(esperado, abs=0.005), persona.id
+
+
+@pytest.mark.parametrize("modo", ["duble", "teste"])
+def test_pessoas_teste_todas_as_personas_leem_t1_e_t3(catalogo, fonte, modo):
+    """O aceite da B2.4: as 84 personas leem T1 e T3 em `duble|teste`, e o que sai tem a forma do 360 (Pydantic estrito)."""
+    for pessoa in catalogo.pessoas:
+        resumo = ResumosPessoas.model_validate(fonte.resumo(pessoa.pessoa_id, modo))
+        assert [i.pessoa_id for i in resumo.itens] == [str(pessoa.pessoa_id)]
+        assert resumo.itens[0].cpf == pessoa.cpf_digitos
+        propostas = ResultadoPropostasPessoa.model_validate(fonte.propostas(pessoa.pessoa_id, modo))
+        assert propostas.encontrado and propostas.pessoa_id == str(pessoa.pessoa_id)
+        com_oferta = [par for par in pessoa.pares if par.economia is not None]
+        assert [p.banco for p in propostas.pares if p.oferta_ativa] == [par.banco for par in com_oferta], pessoa.persona_id
+        assert {p.caso for p in propostas.pares} <= {"so_oferta", "sem_oferta"}
+
+
+def test_pessoas_teste_p13_tem_oferta_no_c6_e_p14_nao_tem_no_3rn(catalogo, fonte):
+    p13 = {p["banco"]: p for p in fonte.propostas(catalogo.por_persona("P13").pessoa_id, "duble")["pares"]}
+    assert p13["FACTA"]["caso"] == "so_oferta" and p13["C6"]["caso"] == "so_oferta" and p13["C6"]["oferta_ativa"]["estado"] == "ativa"
+    p14 = {p["banco"]: p for p in fonte.propostas(catalogo.por_persona("P14").pessoa_id, "duble")["pares"]}
+    assert p14["FACTA"]["caso"] == "so_oferta" and p14["3RN"] == {
+        "banco": "3RN", "produto": "CLT", "caso": "sem_oferta", "contratos": [], "oferta_ativa": None, "alvo_sugerido": None,
+    }  # fmt: skip
+
+
+def test_pessoas_teste_pessoa_desconhecida_responde_como_o_360(fonte):
+    fora = "00000000-0000-7000-8000-999999999999"
+    assert fonte.resumo(fora, "duble") == {"itens": []}
+    vazio = fonte.propostas(fora, "teste")
+    assert (vazio["encontrado"], vazio["pares"], vazio["varias_ofertas"]) == (False, [], False) and "pessoa_id" not in vazio
+    assert fonte.resumo("nao-e-uuid", "duble") == {"itens": []}
+    assert fonte.cpf_de(fora, "duble") is None
+
+
+# --- valid_until relativo -------------------------------------------------------------------------------------------------------------
+
+
+def test_valid_until_relativo(catalogo, fonte, relogio):
+    """`valid_until` = agora + 2 h, calculado a CADA leitura: o relógio anda, a oferta anda junto (nunca fica velha no arquivo)."""
+    pessoa = catalogo.por_persona("P01").pessoa_id
+    for avanco_h in (0, 1, 5, 30):
+        relogio.definir(AGORA + timedelta(hours=avanco_h))
+        agora = relogio.agora()
+        corpo_t3 = fonte.propostas(pessoa, "duble")
+        oferta = corpo_t3["pares"][0]["oferta_ativa"]
+        assert _instante(oferta["valid_until"]) == agora + timedelta(hours=2)
+        assert _instante(corpo_t3["lido_em"]) == agora and _instante(oferta["criada_em"]) < agora < _instante(oferta["valid_until"])
+    # a data de negócio é a de São Paulo, não a de UTC (01:30 UTC de 18/11 ainda é 17/11 no Brasil)
+    relogio.definir(datetime(2026, 11, 18, 1, 30, tzinfo=UTC))
+    assert fonte.propostas(pessoa, "duble")["pares"][0]["oferta_ativa"]["business_date"] == "2026-11-17"
+
+
+def test_valid_until_relativo_padrao_e_substituivel_pelo_harness(catalogo, relogio):
+    """A validade é de 2 h por padrão; o harness da F3 (P51/P52, «a oferta vence») pode encurtá-la, e a versão pode mudar entre o SIM e o T7."""
+    pessoa = catalogo.por_persona("P51").pessoa_id
+    assert (
+        FontePessoasTeste(catalogo, relogio).propostas(pessoa, "duble")["pares"][0]["oferta_ativa"]["valid_until"] == "2026-11-17T17:00:00Z"
+    )
+    curta = FontePessoasTeste(catalogo, relogio, validade=timedelta(minutes=5)).propostas(pessoa, "duble")
+    assert curta["pares"][0]["oferta_ativa"]["valid_until"] == "2026-11-17T15:05:00Z"
+    v2 = FontePessoasTeste(catalogo, relogio).propostas(pessoa, "teste", validade=timedelta(seconds=1), versao=2)["pares"][0][
+        "oferta_ativa"
+    ]
+    assert (v2["valid_until"], v2["versao"]) == ("2026-11-17T15:00:01Z", 2)
+    with pytest.raises(ValueError, match="positiva"):
+        FontePessoasTeste(catalogo, relogio, validade=timedelta(0))
+
+
+def test_pessoas_teste_nao_serve_em_real_nem_em_sombra(catalogo, fonte):
+    """Fixture nunca responde por cliente de verdade: `real` e `sombra` leem o 360 (sombra só leitura), não o catálogo."""
+    pessoa = catalogo.por_persona("P01").pessoa_id
+    for modo in ("real", "sombra", "", "qualquer"):
+        for chamada in (fonte.resumo, fonte.propostas, fonte.cpf_de):
+            with pytest.raises(ForaDoModoDeTeste):
+                chamada(pessoa, modo)
+
+
+# --- «[TESTE]» -----------------------------------------------------------------------------------------------------------------------
+
+
+def test_mensagem_de_teste_prefixada_TESTE():
+    """Só o `modo_efetivo = teste` envia a um chat da TI, e a mensagem leva «[TESTE]» (08 §6); os outros modos não mexem no texto."""
+    assert PREFIXO_TESTE == "[TESTE]"
+    assert texto_de_saida("teste", "Oi, tudo bem?") == "[TESTE] Oi, tudo bem?"
+    for modo in ("real", "duble", "sombra"):
+        assert texto_de_saida(modo, "Oi, tudo bem?") == "Oi, tudo bem?", modo
+    assert marcar_teste(marcar_teste("Oi")) == "[TESTE] Oi", "idempotente: nunca dois prefixos"
+    assert texto_de_saida("teste", "[TESTE] Oi") == "[TESTE] Oi"
+    assert texto_de_saida("teste", "") == "[TESTE] "
+    assert texto_de_saida("teste", "meio [TESTE] do texto") == "[TESTE] meio [TESTE] do texto"
+
+
+# --- sem dado de pessoa ---------------------------------------------------------------------------------------------------------------
+
+
+def _strings(objeto: Any):
+    if isinstance(objeto, str):
+        yield objeto
+    elif isinstance(objeto, dict):
+        for v in objeto.values():
+            yield from _strings(v)
+    elif isinstance(objeto, list):
+        for v in objeto:
+            yield from _strings(v)
+
+
+def test_pessoas_teste_e_fixtures_sem_dado_de_pessoa(catalogo, fonte):
+    """Todo CPF é `000.000.0nn`, todo telefone `5500 9000-00nn`, nenhum e-mail, nenhum UUID fora da faixa sintética, nomes só de inventados."""
+    textos = list(_strings(json.loads((RAIZ / "src/ia_atendimento/pessoas_teste/pessoas.json").read_text(encoding="utf-8"))))
+    for nome in ("cliente360_oferta.json", "3rn_calcular.json", "c6_simular.json"):
+        textos += list(_strings(json.loads((RAIZ / "fixtures" / "duble" / nome).read_text(encoding="utf-8"))))
+    textos += list(_strings(fonte.propostas(catalogo.por_persona("P13").pessoa_id, "duble")))
+    for texto in textos:
+        assert not re.search(r"[^\s@]+@[^\s@]+\.[a-z]{2,}", texto), "e-mail"
+        for cpf in re.findall(r"\d{3}\.\d{3}\.\d{3}-\d{2}", texto):
+            assert CPF_SINTETICO.match(cpf), cpf
+        for onze in re.findall(r"(?<!\d)\d{11}(?!\d)", texto):
+            assert onze.startswith("0000000"), onze
+        for tel in re.findall(r"(?<!\d)55\d{10,11}(?!\d)", texto):
+            assert TELEFONE_SINTETICO.match(tel), tel
+        for uid in re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", texto):
+            assert uid.startswith("00000000-"), uid
+    sobrenomes = corpus.SOBRENOMES_FICTICIOS
+    assert all(p.nome.split()[-1] in sobrenomes for p in catalogo.pessoas)
+
+
+# --- catálogo, hash e gerador ---------------------------------------------------------------------------------------------------------
+
+
+def test_pessoas_teste_hash_gravado_confere(catalogo):
+    """`pessoas.sha256` é o hash que o `bancos-duble` guarda no instantâneo dele; mexer no catálogo sem regravar reprova."""
+    assert hash_canonico(catalogo.conteudo()) == modulo_catalogo.ler_hash_gravado()
+    mudado = [dict(p) for p in catalogo.conteudo()]
+    mudado[0]["nome"] = "Outro Nome"
+    assert hash_canonico(mudado) != modulo_catalogo.ler_hash_gravado()
+
+
+def test_pessoas_teste_gerador_esta_em_dia():
+    """O que está versionado (catálogo, hash e as 3 fixtures) é exatamente o que `scripts/gerar_pessoas_teste.py` produz do corpus."""
+    spec = importlib.util.spec_from_file_location("gerar_pessoas_teste", RAIZ / "scripts" / "gerar_pessoas_teste.py")
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    for caminho, texto in modulo.textos().items():
+        assert caminho.read_text(encoding="utf-8") == texto, (
+            f"{caminho.relative_to(RAIZ)} desatualizado: rode scripts/gerar_pessoas_teste.py"
+        )
+
+
+def test_pessoas_teste_catalogo_recusa_arquivo_ruim(tmp_path, catalogo):
+    base = json.loads((RAIZ / "src/ia_atendimento/pessoas_teste/pessoas.json").read_text(encoding="utf-8"))
+
+    def com(mutar) -> Path:
+        copia = json.loads(json.dumps(base))
+        mutar(copia)
+        arquivo = tmp_path / "pessoas.json"
+        arquivo.write_text(json.dumps(copia), encoding="utf-8")
+        return arquivo
+
+    assert len(carregar_catalogo(com(lambda d: None)).pessoas) == 84
+    ruins = {
+        "cpf de cliente": lambda d: d["pessoas"][0].update(cpf="529.982.247-25"),
+        "dv errado": lambda d: d["pessoas"][0].update(cpf="000.000.001-92"),
+        "pessoa_id fora da faixa": lambda d: d["pessoas"][0].update(pessoa_id="11111111-1111-7111-8111-111111111111"),
+        "pessoa_id repetido": lambda d: d["pessoas"][1].update(pessoa_id=d["pessoas"][0]["pessoa_id"]),
+        "persona_id repetido": lambda d: d["pessoas"][1].update(persona_id="P01"),
+        "persona fora da F3": lambda d: d["pessoas"][0].update(persona_id="P61"),
+        "campo a mais": lambda d: d["pessoas"][0].update(email="x@y.test"),
+        "oferta sem economia": lambda d: d["pessoas"][0]["pares"][0].update(economia=None),
+        "par repetido": lambda d: d["pessoas"][0]["pares"].append(dict(d["pessoas"][0]["pares"][0], oferta_id="1")),
+        "telefone real": lambda d: d["pessoas"][0].update(telefone="11"),
+    }
+    for rotulo, mutar in ruins.items():
+        with pytest.raises(PessoasTesteInvalidas):
+            carregar_catalogo(com(mutar))
+        assert rotulo
+    with pytest.raises(PessoasTesteInvalidas):
+        carregar_catalogo(tmp_path / "nao-existe.json")
+
+
+# --- a ligação com a API: PessoasTeste a partir do catálogo -------------------------------------------------------------------------
+
+
+def test_pessoas_teste_do_catalogo_viram_o_pessoas_teste_da_api(catalogo):
+    chat = "a1b2c3d4e5f60718293a4b5c"
+    fixas = catalogo.como_pessoas_teste({chat: "P13"})
+    p13 = catalogo.por_persona("P13").pessoa_id
+    assert fixas.contem(p13) and len(fixas.pessoas) == 84 and fixas.pessoa_do_chat(chat) == p13
+    assert not fixas.contem(UUID("11111111-1111-7111-8111-111111111111"))
+    assert fixas.pessoa_do_chat("bbbbbbbbbbbbbbbbbbbbbbbb") is None
+    for ruim in ({chat: "P99"}, {"CHAT-MAIUSCULO": "P01"}, {"abc": "P01"}):
+        with pytest.raises(PessoasTesteInvalidas):
+            catalogo.como_pessoas_teste(ruim)
+
+
+def _cli(*argumentos: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "ia_atendimento.pessoas_teste", *argumentos], capture_output=True, text=True, cwd=cwd, check=False
+    )
+
+
+def test_pessoas_teste_cli_monta_o_arquivo_da_api_e_nao_vaza_cpf(tmp_path):
+    chat = "a1b2c3d4e5f60718293a4b5c"
+    saida = tmp_path / "pessoas_teste.json"
+    ok = _cli("arquivo", "--par", f"{chat}=P01", "--saida", str(saida), cwd=tmp_path)
+    assert ok.returncode == 0, ok.stderr
+    assert saida.stat().st_mode & 0o777 == 0o600
+    pessoas = carregar(saida)  # o mesmo carregador que o orquestrador usa no boot
+    assert len(pessoas.pessoas) == 84 and pessoas.pessoa_do_chat(chat) == UUID("00000000-0000-7000-8000-000000000001")
+    listar = _cli("listar", cwd=tmp_path)
+    assert listar.returncode == 0 and "P01\t00000000-0000-7000-8000-000000000001" in listar.stdout
+    assert "000.000" not in listar.stdout and "Zuleide" not in listar.stdout, "listar não mostra CPF nem nome"
+    for pares in (["--par", "sem-igual"], ["--par", f"{chat}=P01", "--par", f"{chat}=P02"], ["--par", f"{chat}=P99"]):
+        assert _cli("arquivo", *pares, cwd=tmp_path).returncode == 2, pares
+
+
+# --- consistência com o bancos-duble (BANCOS_DUBLE_PATH; sem ele, pulado) ------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    BANCOS_DUBLE is None or not (BANCOS_DUBLE / "personas" / "pessoas_teste.sha256").is_file(),
+    reason="defina BANCOS_DUBLE_PATH (checkout do bancos-duble com a B2.4) para comparar os dois repositorios",
+)
+def test_pessoas_teste_o_hash_e_o_mesmo_do_instantaneo_do_bancos_duble(catalogo):
+    """O `bancos-duble` guarda `personas/pessoas_teste.yaml` (o instantâneo em YAML) e o MESMO `.sha256`; o teste dele confere o YAML contra o hash."""
+    do_duble = (BANCOS_DUBLE / "personas" / "pessoas_teste.sha256").read_text(encoding="utf-8")
+    assert do_duble == modulo_catalogo.ARQUIVO_HASH.read_text(encoding="utf-8"), (
+        "regrave lá: scripts/atualizar_pessoas_teste.py <pessoas.json>"
+    )
+    assert do_duble.split()[0] == hash_canonico(catalogo.conteudo())
+    assert (BANCOS_DUBLE / "personas" / "pessoas_teste.yaml").is_file()
