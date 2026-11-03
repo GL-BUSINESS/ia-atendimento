@@ -581,3 +581,44 @@ async def test_decisao_do_turno_grava_tokens_custo_e_latencia_no_passo(conn_app)
         False,
     )
     assert custo == r.custo_brl > 0 and tokens_in == r.uso.tokens_entrada and tokens_out == r.tokens_out and latencia == 500
+
+
+# --- Settings do modelo (roteador só-EUA, forma de desligar o raciocínio, preços) --------------------------------------------------------
+
+
+def test_padroes_documentados_do_settings_do_modelo():
+    s = settings_de_teste()
+    assert s.modelo_roteador == "accounts/fireworks/routers/deepseek-v4p1-flash-1017-us" and s.modelo_base_url_1.endswith("/inference/v1")
+    assert (s.modelo_temperatura, s.modelo_max_tokens, s.modelo_timeout_s, s.modelo_tentativas_http) == (0.3, 400, 20.0, 1)
+    assert s.precos() == Precos(Decimal("0.45"), Decimal("0.009"), Decimal("1.80"), Decimal("5.3346"))  # estudo G §4 e premissas.json
+
+
+@pytest.mark.parametrize(
+    "roteador",
+    [
+        "accounts/fireworks/routers/deepseek-v4p1-flash-1017",  # sem -us: endpoint «global», que NÃO garante os EUA
+        "accounts/fireworks/models/deepseek-v4p1-flash-1017-us",  # modelo, não roteador
+        "accounts/fireworks/routers/deepseek-v4p1-flash-1010-us",  # outra versão: o roteador tem de ser o do modelo_nome
+        "accounts/fireworks/routers/claude-opus-5-us",
+        "deepseek-v4p1-flash-1017-us",
+        "accounts/fireworks/routers/deepseek-v4p1-flash-1017-us/../x",
+    ],
+)
+def test_roteador_que_nao_e_o_so_eua_do_modelo_derruba_o_boot(roteador):
+    with pytest.raises(ValidationError):
+        settings_de_teste(modelo_roteador=roteador)
+
+
+@pytest.mark.parametrize("campo", ["preco_in_usd", "preco_cache_usd", "preco_out_usd", "cambio"])
+@pytest.mark.parametrize("valor", ["0", "-1", "1001"])
+def test_boot_recusa_preco_ou_cambio_zerado_negativo_ou_absurdo(campo, valor):
+    """Contrato 08 §9: preço ausente ou ≤ 0 derruba o boot; custo zero calado esconderia o gasto do dia."""
+    with pytest.raises(ValidationError) as erro:
+        settings_de_teste(**{campo: valor})
+    assert valor not in str(erro.value) or campo in str(erro.value)
+
+
+def test_limites_do_modelo_no_settings():
+    for ruim in ({"modelo_temperatura": 1.5}, {"modelo_max_tokens": 10}, {"modelo_timeout_s": 0}, {"modelo_tentativas_http": 9}):
+        with pytest.raises(ValidationError):
+            settings_de_teste(**ruim)

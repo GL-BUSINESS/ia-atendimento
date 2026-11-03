@@ -89,7 +89,9 @@ PROJECAO_DAS_FERRAMENTAS: Final[Mapping[str, Mapping[str, Any]]] = {
     "T10": {"macro": True, "status": True},
 }
 MAX_ITENS_DE_LISTA: Final = 5
-_FOLHA_TEXTO: Final = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,39}$")
+MAX_INTEIRO_DE_RESULTADO: Final = 99  # contador; acima disso pode ser valor, prazo ou id (ver o teste de projeção)
+MAX_INTEIRO_DO_LEAD: Final = 9999  # `idade_do_lead_min`: minutos desde a simulação
+_FOLHA_TEXTO: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,39}$")
 _PARECE_NUMERO: Final = re.compile(
     r"^[0-9][0-9.,:-]*$|[0-9][.,][0-9]{2}(?![0-9])"
 )  # «5000.00», «1,5»: dinheiro ou taxa disfarçados de código
@@ -351,15 +353,17 @@ def _estado_para_o_modelo(estado: EstadoConversa, perfil: Mapping[str, Any], jan
     if estado.pausa is not None:
         corpo["pausa"] = {"retoma_fase": estado.pausa.retoma_fase}
     corpo["flags"] = {**estado.flags, "janela_aberta": janela_aberta}
-    if lead := {chave: perfil[chave] for chave in PERFIL_PARA_O_MODELO if perfil.get(chave) is not None}:
+    seguros = {chave: _folha_segura(perfil.get(chave), MAX_INTEIRO_DO_LEAD) for chave in PERFIL_PARA_O_MODELO}
+    if lead := {chave: valor for chave, (ok, valor) in seguros.items() if ok and valor is not None}:
         corpo["lead"] = lead
     return json.dumps(corpo, ensure_ascii=False, separators=(",", ":"))
 
 
-def _folha_segura(valor: Any) -> tuple[bool, Any]:
+def _folha_segura(valor: Any, maximo_inteiro: int = MAX_INTEIRO_DE_RESULTADO) -> tuple[bool, Any]:
+    """Folha que pode ir ao modelo: booleano, contador pequeno ou código curto que a máscara não troca e que não parece dinheiro."""
     if valor is None or isinstance(valor, bool):
         return True, valor
-    if isinstance(valor, int) and 0 <= valor <= 99:
+    if isinstance(valor, int) and 0 <= valor <= maximo_inteiro:
         return True, valor
     if isinstance(valor, str) and _FOLHA_TEXTO.fullmatch(valor) and not _PARECE_NUMERO.search(valor) and mascarar(valor) == valor:
         return True, valor

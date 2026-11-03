@@ -172,6 +172,14 @@ def test_perfil_leva_so_a_allowlist_e_inclui_ultimo_sentido_tipo_da_fala_e_etapa
     assert set(lead) <= set(ctx.PERFIL_PARA_O_MODELO)
 
 
+def test_valor_de_perfil_que_parece_dinheiro_ou_dado_e_descartado_mesmo_na_allowlist(db_conn, relogio, versoes, chaveiro):
+    perfil = {"banco": "5000.00", "origem": "inapp", "etapa_inapp": "tela_dados", "idade_do_lead_min": 45, "tipo_ultima_fala": "texto"}
+    atd, _ = abrir_em(db_conn, relogio, versoes, fase="E2", perfil=perfil)
+    receber(db_conn, atd, chaveiro, "oi", nomes=NOMES)
+    lead = json.loads(_montar(db_conn, atd, chaveiro).insumos.estado)["lead"]
+    assert lead == {"etapa_inapp": "tela_dados", "idade_do_lead_min": 45, "origem": "inapp", "tipo_ultima_fala": "texto"}  # sem o «banco»
+
+
 def test_perfil_sem_os_campos_do_braco_simplesmente_nao_traz_lead(db_conn, relogio, versoes, chaveiro):
     atd, _ = abrir_em(db_conn, relogio, versoes, fase="E2", perfil={"faixa_parcela": "200_300"})
     receber(db_conn, atd, chaveiro, "oi", nomes=NOMES)
