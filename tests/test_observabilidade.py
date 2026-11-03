@@ -323,3 +323,46 @@ def test_log_bem_formatado_continua_igual_e_sem_marca(caplog):
     caplog.set_level(logging.INFO)
     logging.getLogger("terceiro.biblioteca").info("valor %d de %s", 3, "ana")
     assert caplog.messages == ["valor 3 de ana"]
+
+
+# --- o scrubber cobre chave, nome de evento, link e JSON com quebra de linha (B-4); configurar duas vezes (B-8) -------------------------------
+
+
+def _com_span(escrever):
+    """Roda `escrever(span)` num span com o scrubber ligado e devolve o span exportado (já mascarado), inteiro, para a busca."""
+    memoria = InMemorySpanExporter()
+    obs.configurar(settings_de_teste(), exportador=memoria)
+    with obs._tracer.start_as_current_span("op") as span:
+        escrever(span)
+    (exportado,) = memoria.get_finished_spans()
+    return exportado
+
+
+@pytest.mark.parametrize(
+    "escrever",
+    [
+        lambda sp: sp.set_attribute(f"chave {CPF_FORMATADO}", "v"),  # CHAVE de atributo
+        lambda sp: sp.add_event(f"ev {CPF_FORMATADO}", {"a": "1"}),  # NOME de evento
+        lambda sp: sp.add_event("ev", {f"a{CPF_FORMATADO}": "1"}),  # CHAVE de atributo de evento
+        lambda sp: sp.add_link(sp.get_span_context(), {"l": f"x {CPF_FORMATADO}"}),  # atributo de link
+        lambda sp: sp.add_link(sp.get_span_context(), {f"l{CPF_FORMATADO}": "x"}),  # chave de atributo de link
+        lambda sp: sp.set_attribute("k", json.dumps({"t": "000\n000\n012\n34", "e": EMAIL})),  # PII partida por \n dentro de JSON
+        lambda sp: sp.set_attribute("k", json.dumps([{"fone": TELEFONE}, {"x": {"y": CPF_FORMATADO}}])),
+    ],
+)
+def test_scrubber_cobre_chave_nome_de_evento_link_e_json(escrever):
+    """B-4: só o valor de atributo e o texto de evento eram mascarados; chaves, nomes de evento, links e PII partida em JSON escapado passavam."""
+    exportado = _com_span(escrever)
+    texto = _serializar([exportado]) + json.dumps([dict(lig.attributes) for lig in exportado.links], default=str)
+    texto += " ".join(exportado.attributes) + " ".join(e.name for e in exportado.events)
+    _sem_pii(texto)
+    assert "000\\n000" not in texto and "000\n000" not in texto
+
+
+def test_configurar_duas_vezes_encerra_o_provedor_anterior():
+    primeiro = obs.configurar(settings_de_teste(), exportador=InMemorySpanExporter())
+    desligados = []
+    original = primeiro.provedor.shutdown
+    primeiro.provedor.shutdown = lambda: (desligados.append(1), original())[1]
+    segundo = obs.configurar(settings_de_teste(), exportador=InMemorySpanExporter())
+    assert desligados == [1] and segundo.provedor is not primeiro.provedor

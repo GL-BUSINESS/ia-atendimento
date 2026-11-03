@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import traceback
@@ -34,7 +35,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Event, ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter, SpanExportResult
-from opentelemetry.trace import Span, Status, StatusCode, Tracer
+from opentelemetry.trace import Link, Span, Status, StatusCode, Tracer
 from pydantic import SecretStr
 from pydantic_ai.models.instrumented import InstrumentationSettings
 
@@ -75,20 +76,32 @@ def mascarar_texto(texto: str) -> str:
     return saida
 
 
+def _limpar_json(texto: str) -> str | None:
+    """Atributo que é JSON (o OpenInference e o pydantic-ai gravam mensagens assim): máscara no valor DECODIFICADO, porque no texto escapado
+    (`"000\\n000\\n012\\n34"`) o CPF partido por quebra de linha não casa (B-4). `None` = não é JSON."""
+    if not texto.lstrip().startswith(("{", "[")):
+        return None
+    try:
+        return json.dumps(_limpar_valor(json.loads(texto)), ensure_ascii=False)
+    except ValueError:
+        return None
+
+
 def _limpar_valor(valor: Any) -> Any:
     if isinstance(valor, str):
-        return mascarar_texto(valor)
+        em_json = _limpar_json(valor)
+        return mascarar_texto(em_json if em_json is not None else valor)
     if isinstance(valor, bytes):
         return mascarar_texto(valor.decode("utf-8", errors="replace"))
     if isinstance(valor, Mapping):
-        return {chave: _limpar_valor(v) for chave, v in valor.items()}
+        return {mascarar_texto(str(chave)): _limpar_valor(v) for chave, v in valor.items()}
     if isinstance(valor, Sequence):
         return tuple(_limpar_valor(v) for v in valor)
     return valor
 
 
 def _limpar_atributos(atributos: Mapping[str, Any] | None) -> dict[str, Any]:
-    return {chave: _limpar_valor(valor) for chave, valor in (atributos or {}).items()}
+    return {mascarar_texto(str(chave)): _limpar_valor(valor) for chave, valor in (atributos or {}).items()}  # a CHAVE também (B-4)
 
 
 def copia_mascarada(span: ReadableSpan) -> ReadableSpan:
@@ -101,8 +114,8 @@ def copia_mascarada(span: ReadableSpan) -> ReadableSpan:
         parent=span.parent,
         resource=span.resource,
         attributes=_limpar_atributos(span.attributes),
-        events=tuple(Event(e.name, _limpar_atributos(e.attributes), e.timestamp) for e in span.events),
-        links=span.links,
+        events=tuple(Event(mascarar_texto(e.name), _limpar_atributos(e.attributes), e.timestamp) for e in span.events),
+        links=tuple(Link(lig.context, _limpar_atributos(lig.attributes)) for lig in span.links),
         kind=span.kind,
         status=Status(status.status_code, descricao if status.status_code == StatusCode.ERROR else None),
         start_time=span.start_time,
@@ -246,6 +259,7 @@ def configurar(settings: Settings, *, exportador: SpanExporter | None = None, in
     `exportador` (em memória, nos testes) usa processamento síncrono; o OTLP usa lote. O conteúdo das mensagens vai nos spans já mascarado
     (`incluir_conteudo=False` o tira de vez). Segredos do `Settings` são registrados para sair como `[SEGREDO]`."""
     global _atual, _tracer
+    _atual.encerrar()  # `configurar` duas vezes não deixa a thread do `BatchSpanProcessor` do provedor anterior vazar (B-8)
     registrar_segredo(settings.modelo_api_key_1)
     registrar_segredo(settings.phoenix_api_key)
     instalar_filtro_de_logs()
