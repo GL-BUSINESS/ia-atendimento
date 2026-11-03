@@ -290,7 +290,9 @@ class TurnoForaDaFase(ErroDoModelo):
 
     acao_invalida = True
 
-    def __init__(self, codigo: str, mensagem: str, *, turno: Turno, fase: str, resultado: ResultadoTurno | None = None) -> None:
+    def __init__(
+        self, codigo: str, mensagem: str, *, turno: Turno | None = None, fase: str, resultado: ResultadoTurno | None = None
+    ) -> None:
         super().__init__(codigo, mensagem, uso=resultado.uso if resultado else None)
         self.turno = turno
         self.fase = fase
@@ -301,8 +303,9 @@ class AcaoForaDaFase(TurnoForaDaFase):
     pass
 
 
-class FerramentaForaDaFase(TurnoForaDaFase):
-    pass
+class FerramentaForaDaFase(AcaoForaDaFase):
+    """A ferramenta (pelo campo `Turno.ferramenta` OU pelo function calling do Agent) não vale na fase. É uma `AcaoForaDaFase`: usar
+    ferramenta é uma ação."""
 
 
 class TxForaDaFase(TurnoForaDaFase):
@@ -331,6 +334,12 @@ def validar_turno_na_fase(fase: str, turno: Turno, *, resultado: ResultadoTurno 
             fase=fase,
             resultado=resultado,
         )
+    if resultado is not None:
+        for nome in resultado.ferramentas_chamadas:  # function calling: a função registrada também só roda na fase que a libera (R2-03)
+            if nome not in FERRAMENTAS_DO_MODELO_POR_FASE[fase]:  # type: ignore[index]
+                raise FerramentaForaDaFase(
+                    "ferramenta_fora_da_fase", f"ferramenta {nome} não vale na fase {fase}", turno=turno, fase=fase, resultado=resultado
+                )
     if turno.tx_id is not None and turno.tx_id not in TX_DO_MODELO_POR_FASE[fase]:  # type: ignore[index]
         raise TxForaDaFase(
             "tx_fora_da_fase", f"texto {turno.tx_id} não é do modelo na fase {fase}", turno=turno, fase=fase, resultado=resultado

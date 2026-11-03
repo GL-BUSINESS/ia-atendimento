@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -44,8 +45,9 @@ from pydantic_ai.usage import RequestUsage
 
 from ia_atendimento import observabilidade
 from ia_atendimento.config import PRECOS_PADRAO, Precos, Settings
-from ia_atendimento.contexto import Apelidos, Contexto, ler_do_prompt
+from ia_atendimento.contexto import TETO_TOKENS, Apelidos, Contexto, ContextoNaoCabe, ler_do_prompt
 from ia_atendimento.ferramentas import Deps, registrar
+from ia_atendimento.tokens import ESTIMADOR_PADRAO
 from ia_atendimento.turno import (
     ACOES_POR_FASE,
     FERRAMENTAS_DO_MODELO_POR_FASE,
@@ -257,6 +259,12 @@ class AgenteDoTurno:
     precos: Precos
     timeout_s: float | None
     ferramentas: tuple[str, ...]
+    tokens_por_ferramenta: Mapping[str, int] = field(default_factory=dict)
+
+    def tokens_das_ferramentas(self, fase: str) -> int:
+        """Tokens estimados dos esquemas das ferramentas registradas que o provedor RECEBE na fase (só as que a fase libera)."""
+        liberadas = FERRAMENTAS_DO_MODELO_POR_FASE.get(fase, frozenset())  # type: ignore[call-overload]
+        return sum(tokens for nome, tokens in self.tokens_por_ferramenta.items() if nome in liberadas)
 
 
 def criar_agente(
@@ -294,7 +302,16 @@ def criar_agente(
     timeout = (settings.modelo_timeout_s if settings else TIMEOUT_PADRAO_S) * (
         OUTPUT_RETRIES + 1
     )  # o turno inteiro: toda tentativa de saída
-    return AgenteDoTurno(agente, modelo_faixa, settings.precos() if settings else precos, timeout, tuple(ferramentas or ()))
+    por_ferramenta = {t.name: ESTIMADOR_PADRAO.contar(_esquema_da_ferramenta(t)) for t in tools}
+    return AgenteDoTurno(agente, modelo_faixa, settings.precos() if settings else precos, timeout, tuple(ferramentas or ()), por_ferramenta)
+
+
+def _esquema_da_ferramenta(ferramenta: Any) -> str:
+    """O que o provedor recebe de uma ferramenta registrada (nome, descrição e esquema dos parâmetros), para entrar na conta do teto."""
+    definicao = ferramenta.tool_def
+    return json.dumps(
+        {"name": definicao.name, "description": definicao.description, "parameters": definicao.parameters_json_schema}, ensure_ascii=False
+    )
 
 
 def _numeros(uso: Any) -> tuple[int, int, int, int]:
@@ -356,6 +373,14 @@ def _trazem_raciocinio(mensagens: Sequence[ModelMessage], tokens: int) -> bool:
     return tokens > 0 or any(isinstance(p, ThinkingPart) for m in mensagens if isinstance(m, ModelResponse) for p in m.parts)
 
 
+def _conferir_teto_com_as_ferramentas(agente: AgenteDoTurno, contexto: Contexto) -> None:
+    """O contexto montado SEM `tokens_das_ferramentas` não conta os esquemas das ferramentas registradas: soma a diferença e recusa se
+    passar do teto."""
+    falta = max(agente.tokens_das_ferramentas(contexto.fase) - contexto.tokens_ferramentas, 0)
+    if falta and contexto.tokens_total + falta > TETO_TOKENS:
+        raise ContextoNaoCabe(contexto.tokens_total + falta, TETO_TOKENS)
+
+
 async def executar_turno(
     agente: AgenteDoTurno, deps: Deps, contexto: Contexto, *, cronometro: Callable[[], float] = time.perf_counter
 ) -> ResultadoTurno:
@@ -367,7 +392,8 @@ async def executar_turno(
         raise TypeError("executar_turno recebe o Contexto de contexto.montar_contexto, não texto solto")
     modelo, provedor = agente.modelo.modelo, agente.modelo.provedor
     # o resultado de ferramenta reusa os apelidos do contexto
-    deps = replace(deps, apelidos=Apelidos(contexto.referencias))
+    deps = replace(deps, fase=contexto.fase, apelidos=Apelidos(contexto.referencias))
+    _conferir_teto_com_as_ferramentas(agente, contexto)
     with observabilidade.span_do_turno(fase=contexto.fase, modelo=modelo, provedor=provedor) as span:
         trace_id = observabilidade.trace_id_atual()
         inicio = cronometro()

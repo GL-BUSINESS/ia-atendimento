@@ -32,7 +32,7 @@ from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import Tool, ToolDefinition
 
 from ia_atendimento.contexto import PROJECAO_DAS_FERRAMENTAS, Apelidos, auditar_textos, projetar_resultado
-from ia_atendimento.turno import ErroDoModelo
+from ia_atendimento.turno import FERRAMENTAS_DO_MODELO_POR_FASE, ErroDoModelo, FerramentaForaDaFase
 
 _CONTROLE_DO_PYDANTIC_AI: Final = (ApprovalRequired, CallDeferred, SkipToolExecution)  # sinais de fluxo, não falha da função
 MENSAGEM_DE_NOVA_TENTATIVA: Final = "A ferramenta não conseguiu responder agora; siga sem ela."
@@ -48,6 +48,7 @@ class Deps:
 
     atendimento_id: UUID
     pessoa_id: UUID
+    fase: str = ""  # `executar_turno` a preenche com a fase do contexto: a ferramenta só roda e só aparece na fase que a libera (R2-03)
     nomes: tuple[str, ...] = field(default=(), repr=False)
     apelidos: Apelidos = field(default_factory=Apelidos, repr=False, compare=False)
 
@@ -97,6 +98,12 @@ class ProjecaoDeFerramentas(AbstractCapability[Deps]):
             raise FerramentaSemProjecao(f"ferramenta {tool_def.name} sem projeção declarada")
         return proteger_retorno(tool_def.name, result, ctx.deps)
 
+    async def prepare_tools(self, ctx: RunContext[Deps], tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
+        """Só as ferramentas que a FASE libera vão ao corpo HTTP (sem isso o esquema de T2/T3/T5/T10 ia em toda fase, fora do bloco 3 e
+        do teto)."""
+        liberadas = FERRAMENTAS_DO_MODELO_POR_FASE.get(ctx.deps.fase, frozenset())  # type: ignore[call-overload]
+        return [definicao for definicao in tool_defs if definicao.name in liberadas]
+
     async def wrap_tool_execute(
         self, ctx: RunContext[Deps], *, call: ToolCallPart, tool_def: ToolDefinition, args: Any, handler: Any
     ) -> Any:
@@ -104,6 +111,11 @@ class ProjecaoDeFerramentas(AbstractCapability[Deps]):
         lugar. QUALQUER outra exceção da ferramenta (`ValueError("cpf=…")`, erro do cliente do gateway) vira `FerramentaFalhou`, um
         `ErroDoModelo` de mensagem fixa e sem causa encadeada: o `except ErroDoModelo` da B1.6 a conta, o gasto do turno vai junto e o
         texto original (que pode citar CPF e nome) não sai (R2-02)."""
+        liberadas = FERRAMENTAS_DO_MODELO_POR_FASE.get(ctx.deps.fase, frozenset())  # type: ignore[call-overload]
+        if tool_def.name not in liberadas:  # defesa em profundidade: o modelo chamou o que `prepare_tools` não lhe mostrou
+            raise FerramentaForaDaFase(
+                "ferramenta_fora_da_fase", f"ferramenta {tool_def.name} não vale na fase {ctx.deps.fase}", fase=ctx.deps.fase
+            )
         falhou = False
         try:
             return await handler(args)

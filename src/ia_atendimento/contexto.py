@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Final
@@ -207,10 +207,11 @@ class Contexto:
     referencias: Mapping[str, str] = field(repr=False)  # apelido que o modelo viu -> id real (oferta, opção, agendamento)
     insumos: Insumos = field(repr=False)
     estimador: EstimadorDeTokens = field(repr=False)
+    tokens_ferramentas: int = 0  # esquemas das ferramentas REGISTRADAS que o provedor recebe nesta fase (`tools` do corpo HTTP)
 
     @property
     def tokens_total(self) -> int:
-        return sum(b.tokens for b in self.blocos) + self.tokens_formato
+        return sum(b.tokens for b in self.blocos) + self.tokens_formato + self.tokens_ferramentas
 
     @property
     def sistema(self) -> str:
@@ -235,7 +236,13 @@ def _bloco(numero: int, texto: str, estimador: EstimadorDeTokens) -> Bloco:
     return Bloco(numero, NOMES_DOS_BLOCOS[numero], texto, estimador.contar(texto))
 
 
-def construir(insumos: Insumos, referencias: Mapping[str, str], estimador: EstimadorDeTokens, cortes: tuple[str, ...] = ()) -> Contexto:
+def construir(
+    insumos: Insumos,
+    referencias: Mapping[str, str],
+    estimador: EstimadorDeTokens,
+    cortes: tuple[str, ...] = (),
+    tokens_ferramentas: int = 0,
+) -> Contexto:
     """Renderiza os 8 blocos na ordem de H §3.1 e conta os tokens (o bloco vazio custa zero)."""
     modulo = insumos.modulo + ("\nExemplos:\n" + "\n".join(insumos.exemplos) if insumos.exemplos else "")
     textos = (
@@ -249,7 +256,16 @@ def construir(insumos: Insumos, referencias: Mapping[str, str], estimador: Estim
         f"{CABECALHO_PENDENTES}\n" + "\n".join(f"{i}. «{t}»" for i, t in enumerate(insumos.pendentes, start=1)),
     )
     blocos = tuple(_bloco(numero, texto, estimador) for numero, texto in enumerate(textos, start=1))
-    return Contexto(insumos.fase, blocos, estimador.contar(formato_do_turno()), cortes, dict(referencias), insumos, estimador)
+    return Contexto(
+        insumos.fase,
+        blocos,
+        estimador.contar(formato_do_turno()),
+        cortes,
+        dict(referencias),
+        insumos,
+        estimador,
+        tokens_ferramentas,
+    )
 
 
 def _proximo_corte(insumos: Insumos) -> tuple[str, Insumos] | None:
@@ -272,7 +288,7 @@ def cortar_ate_caber(contexto: Contexto, teto: int = TETO_TOKENS) -> Contexto:
         if corte is None:
             raise ContextoNaoCabe(atual.tokens_total, teto)
         nome, insumos = corte
-        atual = construir(insumos, atual.referencias, atual.estimador, (*atual.cortes, nome))
+        atual = construir(insumos, atual.referencias, atual.estimador, (*atual.cortes, nome), atual.tokens_ferramentas)
     return atual
 
 
@@ -510,6 +526,7 @@ def montar_contexto(
     estimador: EstimadorDeTokens = ESTIMADOR_PADRAO,
     teto: int = TETO_TOKENS,
     desvio_liberado: bool = False,
+    tokens_das_ferramentas: Callable[[str], int] | None = None,
 ) -> Contexto:
     """Lê o atendimento, a conversa cifrada e o `perfil`; monta os 8 blocos, corta até caber em `teto` e audita o prompt.
 
@@ -539,7 +556,8 @@ def montar_contexto(
         resultados=projetar_resultado(resultados or {}, apelidos, nomes),
         pendentes=_linhas_pendentes(pendentes, achados, nomes, _campo_a_ocultar(estado, desvio_liberado)),
     )
-    contexto = cortar_ate_caber(construir(insumos, apelidos.mapa, estimador), teto)
+    extra = tokens_das_ferramentas(estado.fase) if tokens_das_ferramentas is not None else 0
+    contexto = cortar_ate_caber(construir(insumos, apelidos.mapa, estimador, (), extra), teto)
     auditar_prompt(contexto, nomes)
     return contexto
 

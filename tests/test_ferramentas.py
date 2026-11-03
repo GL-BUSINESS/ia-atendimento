@@ -5,8 +5,10 @@ O 'Fireworks' é o `httpx.MockTransport` de `apoio_b14`; os dados do retorno sã
 
 from __future__ import annotations
 
+import contextlib
 import json
 import uuid
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -25,6 +27,7 @@ from ia_atendimento.ferramentas import (
     proteger_retorno,
     registrar,
 )
+from ia_atendimento.turno import ACOES_POR_FASE, FerramentaForaDaFase
 from tests.apoio_b14 import (
     CPF,
     EMAIL,
@@ -36,6 +39,8 @@ from tests.apoio_b14 import (
     resposta_openai,
     settings_de_teste,
 )
+
+pytest_plugins = ["tests.apoio_b12"]
 
 DEPS = Deps(atendimento_id=uuid.UUID(int=1), pessoa_id=uuid.UUID(int=2), nomes=(NOME_DO_CLIENTE,))
 OFERTA_REAL = "0194a8b0-2f7e-4c3a-9d41-6b1f0c2e7a55"
@@ -61,6 +66,9 @@ PROIBIDOS = [
 ]  # fmt: skip
 
 
+FASE_DA_FERRAMENTA = {"T2": "E2", "T3": "E3", "T5": "E4", "T10": "E8"}  # a fase em que o modelo pode pedir cada uma (H §2.3b)
+
+
 def _chamada_de_ferramenta(nome: str) -> httpx.Response:
     chamada = {"id": "call_t", "type": "function", "function": {"name": nome, "arguments": "{}"}}
     return httpx.Response(
@@ -80,7 +88,7 @@ def _agente(rede: RedeSimulada, ferramentas: dict[str, Any]):
 
 async def _turno_com_ferramenta(funcao, nome: str = "T3", deps: Deps = DEPS, contexto: Contexto | None = None):
     rede = RedeSimulada([_chamada_de_ferramenta(nome), resposta_openai(TURNO_E2)])
-    resultado = await executar_turno(_agente(rede, {nome: funcao}), deps, contexto or contexto_falso("E3"))
+    resultado = await executar_turno(_agente(rede, {nome: funcao}), deps, contexto or contexto_falso(FASE_DA_FERRAMENTA[nome]))
     return rede, resultado
 
 
@@ -247,3 +255,131 @@ async def test_erro_do_modelo_levantado_dentro_da_ferramenta_passa_sem_ser_troca
 
     with pytest.raises(Proprio):
         await _turno_com_ferramenta(_ferramenta_que_levanta(Proprio("meu_codigo", "fixa")))
+
+
+# --- a ferramenta registrada obedece à fase: esquema no corpo, execução e conta de tokens (R2-03; sondas p4 e p9 da revisão 2) --------------
+
+
+def _todas_as_ferramentas(chamadas: list[str]) -> dict[str, Any]:
+    def uma(nome: str):
+        def funcao(ctx: RunContext[Deps]) -> dict[str, Any]:
+            chamadas.append(nome)
+            return {"versao": 1}
+
+        return funcao
+
+    return {nome: uma(nome) for nome in ("T2", "T3", "T5", "T10")}
+
+
+def _nomes_no_corpo(corpo: dict[str, Any]) -> list[str]:
+    return [t["function"]["name"] for t in corpo["tools"]]
+
+
+@pytest.mark.parametrize(
+    ("fase", "esperadas"),
+    [
+        ("E2", ["T2", "T3"]),
+        ("E3", ["T3"]),
+        ("E4", ["T3", "T5"]),
+        ("E5", []),
+        ("E6", []),
+        ("E7", []),
+        ("E8", ["T10"]),
+        ("E10", []),
+    ],
+)
+async def test_so_o_esquema_das_ferramentas_da_fase_vai_ao_corpo_http(fase, esperadas):
+    """R2-03: com T2/T3/T5/T10 registradas, o corpo da E2, E5 e E7 levava as quatro (≈ 300 tokens fora da conta do teto)."""
+    acao = sorted(ACOES_POR_FASE[fase])[0]  # a ação que a fase aceita (E7 só `aguardar`, E10 `encerrar`/`repassar`)
+    rede = RedeSimulada([resposta_openai({**TURNO_E2, "acao": acao})])
+    agente = _agente(rede, _todas_as_ferramentas([]))
+    await executar_turno(agente, DEPS, contexto_falso(fase))
+    assert sorted(_nomes_no_corpo(rede.corpos[0])) == sorted([*esperadas, "final_result"])
+
+
+async def test_ferramenta_que_a_fase_nao_libera_nao_executa_mesmo_que_o_modelo_a_chame():
+    """O modelo pede T5 na E3: a função não roda (não estava nem no corpo), e o gasto não some."""
+    chamadas: list[str] = []
+    rede = RedeSimulada([_chamada_de_ferramenta("T5"), resposta_openai(TURNO_E2)])
+    with contextlib.suppress(ErroDoModelo):  # pode virar saída inválida; o que importa é que a função NÃO rodou
+        await executar_turno(_agente(rede, _todas_as_ferramentas(chamadas)), DEPS, contexto_falso("E3"))
+    assert chamadas == []
+
+
+async def test_ferramenta_fora_da_fase_na_execucao_e_acao_fora_da_fase_com_o_gasto():
+    """Defesa em profundidade: mesmo se `prepare_tools` fosse contornado, a execução recusa (`AcaoForaDaFase`, `acao_invalida`)."""
+    from ia_atendimento.ferramentas import ProjecaoDeFerramentas
+    from ia_atendimento.turno import AcaoForaDaFase
+
+    chamadas: list[str] = []
+
+    async def deixa_tudo(self, ctx, tool_defs):  # `prepare_tools` contornado
+        return tool_defs
+
+    ProjecaoDeFerramentas.prepare_tools, original = deixa_tudo, ProjecaoDeFerramentas.prepare_tools
+    try:
+        rede = RedeSimulada([_chamada_de_ferramenta("T5"), resposta_openai(TURNO_E2)])
+        with pytest.raises(AcaoForaDaFase) as erro:
+            await executar_turno(_agente(rede, _todas_as_ferramentas(chamadas)), DEPS, contexto_falso("E3"))
+    finally:
+        ProjecaoDeFerramentas.prepare_tools = original
+    assert chamadas == [] and isinstance(erro.value, FerramentaForaDaFase) and erro.value.acao_invalida
+    assert erro.value.uso is not None and erro.value.uso.tokens_in == 1000
+
+
+def test_ferramentas_chamadas_fora_da_fase_reprovam_na_validacao_do_turno():
+    from ia_atendimento.turno import ResultadoTurno, Turno, UsoDoTurno, validar_turno_na_fase
+
+    turno = Turno(intencao="saudacao", acao="responder", confianca="alta")
+    resultado = ResultadoTurno(turno, "m", "p", UsoDoTurno(), ferramentas_chamadas=("T5",))
+    with pytest.raises(FerramentaForaDaFase):
+        validar_turno_na_fase("E3", turno, resultado=resultado)
+    validar_turno_na_fase("E4", turno, resultado=resultado)  # T5 vale na E4
+    validar_turno_na_fase("E3", turno, resultado=replace(resultado, ferramentas_chamadas=("T3",)))
+
+
+def test_os_esquemas_das_ferramentas_registradas_entram_na_conta_de_tokens():
+    agente = _agente(RedeSimulada([]), _todas_as_ferramentas([]))
+    por_fase = {fase: agente.tokens_das_ferramentas(fase) for fase in ("E2", "E3", "E4", "E5", "E7", "E8")}
+    assert por_fase["E5"] == por_fase["E7"] == 0
+    assert por_fase["E2"] > por_fase["E3"] > 0 and por_fase["E4"] > por_fase["E3"] and por_fase["E8"] > 0
+    assert agente.tokens_das_ferramentas("E99") == 0
+
+
+async def test_montar_contexto_soma_os_tokens_das_ferramentas_e_corta_para_caber(db_conn, relogio, versoes, chaveiro):
+    from ia_atendimento import contexto as ctx
+    from ia_atendimento.linha_tempo import mensagens_pendentes
+    from tests.apoio_b12 import AGORA
+    from tests.apoio_b14 import abrir_em, receber
+
+    agente = _agente(RedeSimulada([]), _todas_as_ferramentas([]))
+    atd, _ = abrir_em(db_conn, relogio, versoes, fase="E4")
+    receber(db_conn, atd, chaveiro, "oi", nomes=(NOME_DO_CLIENTE,))
+    pendentes = mensagens_pendentes(db_conn, atd)
+    sem = ctx.montar_contexto(db_conn, atd, pendentes=pendentes, chaveiro=chaveiro, nomes=(NOME_DO_CLIENTE,), agora=AGORA)
+    com = ctx.montar_contexto(
+        db_conn, atd, pendentes=pendentes, chaveiro=chaveiro, nomes=(NOME_DO_CLIENTE,), agora=AGORA,
+        tokens_das_ferramentas=agente.tokens_das_ferramentas,
+    )  # fmt: skip
+    assert com.tokens_ferramentas == agente.tokens_das_ferramentas("E4") > 0
+    assert com.tokens_total == sem.tokens_total + com.tokens_ferramentas
+    # com o teto apertado, o que as ferramentas custam entra na decisão de cortar (e de recusar)
+    apertado = sem.tokens_total + 5
+    with pytest.raises(ctx.ContextoNaoCabe):
+        ctx.montar_contexto(
+            db_conn, atd, pendentes=pendentes, chaveiro=chaveiro, nomes=(NOME_DO_CLIENTE,), agora=AGORA, teto=apertado,
+            tokens_das_ferramentas=agente.tokens_das_ferramentas,
+        )  # fmt: skip
+
+
+async def test_executar_turno_recusa_o_contexto_que_nao_contou_as_ferramentas_e_estouraria_o_teto():
+    from ia_atendimento.contexto import TETO_TOKENS, ContextoNaoCabe
+
+    agente = _agente(RedeSimulada([resposta_openai({**TURNO_E2, "acao": "responder"})]), _todas_as_ferramentas([]))
+    ferramentas = agente.tokens_das_ferramentas("E4")
+    base = contexto_falso("E4", pendentes=("x",)).tokens_total
+    caracteres = int((TETO_TOKENS - ferramentas // 2 - base) * 3 / 1.1)  # tokens_total fica entre (teto − ferramentas) e o teto
+    quase_cheio = contexto_falso("E4", pendentes=("x" * caracteres,))
+    assert TETO_TOKENS - ferramentas < quase_cheio.tokens_total <= TETO_TOKENS  # o contexto sozinho cabe...
+    with pytest.raises(ContextoNaoCabe):  # ...mas com os esquemas das ferramentas que o provedor recebe, não
+        await executar_turno(agente, DEPS, quase_cheio)
