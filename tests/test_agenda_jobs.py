@@ -471,7 +471,7 @@ async def test_retomar_com_o_atendimento_fora_da_espera_cancela_por_sistema_e_na
     assert _passos(conn_app, caso.atendimento_id) == ["cancelado"] and _estado(conn_app, caso.atendimento_id)[0] == "aberto"
 
 
-@pytest.mark.parametrize("desfecho", ["resolvido", "repassou", "humano_atuou", "reagendado_sistema", "retomou", None])
+@pytest.mark.parametrize("desfecho", ["resolvido", "repassou", "humano_atuou", "retomou", None])
 async def test_o_desfecho_que_a_volta_devolve_vira_o_desfecho_do_disparo(banco, conn_app, relogio, versoes, desfecho):
     dispara = relogio.agora() + timedelta(hours=2)
     caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)

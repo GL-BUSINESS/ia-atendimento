@@ -18,7 +18,6 @@ from typing import Any, Literal
 
 import psycopg
 
-from ia_atendimento.agenda_estado import Desfecho
 from ia_atendimento.calendario import (
     BLOQUEIO_DATAPREV_EM,
     DATAPREV_ATE,
@@ -104,6 +103,11 @@ class Volta:
     atendimento_versao: int
 
 
+# O que a volta pode devolver como desfecho. `reagendado_sistema` NÃO está aqui de propósito (R2-04): reagendar é `Adiar` (rearme + alarme).
+# Devolvê-lo como texto deixaria o agendamento `disparado/reagendado_sistema` sem alarme, o beco sem saída do R1-02.
+DesfechoDaVolta = Literal["retomou", "resolvido", "repassou", "humano_atuou"]
+
+
 @dataclass(frozen=True)
 class Adiar:
     """A volta decidiu NÃO falar agora e pede nova tentativa em `dispara_em`, no MESMO agendamento e sem consumir `seq` (R1-02, estudo M
@@ -129,7 +133,9 @@ class Servicos:
     encerrar_por_chave: Callable[[uuid.UUID], Awaitable[None]] = field(default=_NaoConfigurado("encerrar_por_chave"))
     # a volta combinada (B5.7c): pré-checagens, `sair_da_pausa`/`iniciar_agendado`, mensagem.
     # Devolve o desfecho (`None` = `retomou`) ou `Adiar` (nova tentativa no mesmo agendamento)
-    retomar_atendimento: Callable[[Volta], Awaitable[Desfecho | Adiar | None]] = field(default=_NaoConfigurado("retomar_atendimento"))
+    retomar_atendimento: Callable[[Volta], Awaitable[DesfechoDaVolta | Adiar | None]] = field(
+        default=_NaoConfigurado("retomar_atendimento")
+    )
 
     def leitor(self) -> LeitorConfig:
         return self.leitor_config or LeitorConfig(self.relogio, ttl_s=0)

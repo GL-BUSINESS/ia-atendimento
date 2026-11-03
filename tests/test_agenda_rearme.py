@@ -161,3 +161,25 @@ async def test_o_alarme_do_rearme_entra_na_fila_na_hora_nova(conninfo_app, conn_
     assert timedelta(minutes=9) < novo[0] <= timedelta(minutes=10, seconds=5)
     assert novo[1:] == (f"retomar:{caso.agendamento_id}", None), "alarme sem lock do chat, um por agendamento"
     assert _ag(conn_app, caso.agendamento_id)[0] == "confirmado"
+
+
+@pytest.mark.parametrize("devolvido", ["reagendado_sistema", "inventado", ""])
+async def test_reagendado_sistema_puro_nao_reabre_o_beco_falha_alto_e_manda_usar_adiar(banco, conn_app, relogio, versoes, devolvido):
+    """R2-04: `"reagendado_sistema"` devolvido como texto deixava o agendamento `disparado/reagendado_sistema`, sem rearme nem alarme (o beco do R1-02).
+    Só `Adiar` reagenda; qualquer outro texto fora de `DesfechoDaVolta` falha explícita (e o lease devolve o lead)."""
+    dispara = relogio.agora() + timedelta(hours=2)
+    caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)
+    relogio.definir(dispara + timedelta(seconds=1))
+    with pytest.raises(agenda_jobs.RetornoInvalidoDaVolta, match="Adiar"):
+        await agenda_jobs.executar_retomar(_servicos(banco, relogio, Voltas(desfecho=devolvido)), caso.agendamento_id, _sem_alarme)
+    desfecho = _ag(conn_app, caso.agendamento_id)[5]
+    assert desfecho != "reagendado_sistema", "nunca grava o desfecho que não tem alarme"
+
+
+@pytest.mark.parametrize("devolvido", [None, "retomou", "resolvido", "repassou", "humano_atuou"])
+async def test_os_desfechos_validos_da_volta_continuam_aceitos(banco, conn_app, relogio, versoes, devolvido):
+    dispara = relogio.agora() + timedelta(hours=2)
+    caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)
+    relogio.definir(dispara + timedelta(seconds=1))
+    resultado = await agenda_jobs.executar_retomar(_servicos(banco, relogio, Voltas(desfecho=devolvido)), caso.agendamento_id, _sem_alarme)
+    assert resultado == "disparado" and _ag(conn_app, caso.agendamento_id)[5] == (devolvido or "retomou")

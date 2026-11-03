@@ -28,13 +28,13 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Final, Literal
+from typing import Final, Literal, get_args
 
 import psycopg
 
 from ia_atendimento import agenda_estado as ae
-from ia_atendimento.estado_erros import ConflitoVersao, TransicaoInvalida
-from ia_atendimento.jobs import LIMITE_LOTE, Adiar, ServicoNaoConfigurado, Servicos, Volta, configurado
+from ia_atendimento.estado_erros import ConflitoVersao, EstadoErro, TransicaoInvalida
+from ia_atendimento.jobs import LIMITE_LOTE, Adiar, DesfechoDaVolta, ServicoNaoConfigurado, Servicos, Volta, configurado
 
 PREFIXO_ALARME: Final = "retomar:"
 PREFIXO_EXEC: Final = "retomar_exec:"
@@ -42,6 +42,10 @@ FOLGA_REARME: Final = timedelta(
     seconds=5
 )  # o alarme `cedo` nunca volta antes de agora + 5 s (relógio da app atrasado não vira laço quente)
 Codigo = Literal["disparado", "inexistente", "nao_confirmado", "fora_do_estado", "cedo", "expirado", "perdeu"]
+
+
+class RetornoInvalidoDaVolta(EstadoErro):
+    """A volta devolveu algo que não é `None`, um `DesfechoDaVolta` nem `Adiar` (ex.: `"reagendado_sistema"` puro). O job falha ALTO."""
 
 
 @dataclass(frozen=True)
@@ -83,7 +87,7 @@ def _reivindicar(servicos: Servicos, agendamento_id: uuid.UUID, agora: datetime,
         return Reivindicacao("disparado", volta=volta)
 
 
-def _registrar_desfecho(servicos: Servicos, volta: Volta, desfecho: ae.Desfecho) -> None:
+def _registrar_desfecho(servicos: Servicos, volta: Volta, desfecho: DesfechoDaVolta) -> None:
     with servicos.abrir_conexao() as conn, conn.transaction():
         ae.travar_dono(conn, volta.agendamento_id)  # a mesma ordem de locks de `_reivindicar`: atendimento, depois agendamento (R1-08)
         ae.registrar_desfecho(conn, volta.agendamento_id, desfecho, agora=servicos.relogio.agora())
@@ -122,6 +126,8 @@ async def executar_retomar(
         await reagendar(atraso_do_rearme(r.dispara_em, agora))
     if r.volta is not None:
         resultado = await servicos.retomar_atendimento(r.volta)
+        if not isinstance(resultado, Adiar) and resultado is not None and resultado not in get_args(DesfechoDaVolta):
+            raise RetornoInvalidoDaVolta("a volta que reagenda devolve Adiar(dispara_em, motivo); desfecho fora de DesfechoDaVolta")
         if isinstance(resultado, Adiar):
             await asyncio.to_thread(_adiar, servicos, r.volta, resultado)
             await reagendar(atraso_do_rearme(resultado.dispara_em, servicos.relogio.agora()))  # alarme novo, na hora nova
