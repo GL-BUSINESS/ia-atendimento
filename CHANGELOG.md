@@ -4,6 +4,23 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **B5.7b, agendamento: estado `pausado` e jobs `retomar`/`reaper_agenda`** (`feat/b5-7b-pausado`, empilhada sobre `feat/b1-5-api-entrada`; `docs/DECISOES-B5.7b-0211.md`; a versão do `pyproject` não muda):
+  - **`estado.py`:** `pausar` (`aberto|aguardando_cliente → pausado`, **só de E2–E6 e E8, nunca E7**: `retoma_fase` é a fase atual e o UPDATE só casa com ela; `lease_ate = retoma_em + folga_min`,
+    padrão 30; a chave `pausa` entra no `estado_conversa` no mesmo UPDATE) e `sair_da_pausa` (→ `aberto` com lease de turno, ou `aguardando_cliente`; tira `pausa` e `retoma_em`).
+    `repassar` e `encerrar` também tiram a `pausa`: a chave existe se e somente se o estado é `pausado`. `abrir_agendado` (caso b: `reservado` de vida longa, `gatilho='agendamento'`, não toca o chat;
+    o INSERT saiu de `agendamento.reservar`) e `iniciar_agendado` (na hora, já em `retoma_fase`, só para `gatilho='agendamento'`). `aplicar` ganha `pausa=` e `onde_igual=`. Os dois `xfail` estritos da B1.1
+    (`pausar`, `abrir_agendado`) viraram testes verdes.
+  - **`agenda_estado.py` (novo):** `pendente → confirmado → disparado | cancelado` por CAS em `versao` (`confirmar`, `disparar`, `cancelar`, `registrar_desfecho`, `ler_agendamento`) e o passo `agendamento` da linha do tempo.
+  - **`agenda_jobs.py` + `fila.py` (novos jobs):** `alarme_retomar` (agendado em `dispara_em`, **sem lock**, `queueing_lock=retomar:{agendamento_id}`) enfileira o `retomar` de verdade (`lock=chat:`,
+    `queueing_lock=retomar_exec:{agendamento_id}`), que reivindica o agendamento (CAS `confirmado → disparado`, uma transação) e entrega a volta a `Servicos.retomar_atendimento` (B5.7c; falha alto antes do
+    CAS se não injetado). `reaper_agenda` por minuto reenfileira o `confirmado` vencido sem job vivo e dá como falho o `doing` de worker morto (que segurava o lock do chat). **Não usa `send_date` do ChatGuru.**
+  - **`POST /agendamentos`:** grava o passo `agendamento` (`proposto`) e enfileira o alarme **na mesma transação** (`Enfileirador.agendar_retomada`); `retoma_fase` ≠ E8 com `agenda_b_digita=false` ⇒ 422 `validacao`.
+  - **Provas:** `tests/test_agenda_jobs.py` (EM4: restart com 3 `confirmado`, um deles com o worker morto no meio do `retomar`, outro com o alarme sumido, na fila real, sem perda nem duplicidade;
+    `test_um_agendamento_ativo_por_atendimento`, `test_post_triplicado_e_noop`, `test_reaper_pula_pausado`, `test_desligada_noturna_nao_encerra_pausado`, `test_pausar_nunca_em_E7`),
+    `tests/test_estado_pausa.py`, `tests/test_agenda_estado.py`. Testes: 2.252 → 2.319 passed (+67; dos 3 `xfail` estritos sobra o do gasto, B1.6).
+  - **Pendências declaradas:** B5.7c (confirmar/expirar/reagendar, pré-checagens e mensagem da volta, `agenda_max_pausados`); **job `doing` de worker morto segura o `lock=chat:` de qualquer tarefa e a B1.3 não recupera
+    «stalled jobs»** (só a agenda se cura aqui; recomendo periódica geral na B1.6/B1.7); `expirar_parados`/`encerrar_por_chave` (B1.6) não podem tocar `pausado` fora da parada leve manual.
+
 - **B1.5, API de entrada (T7) + migração 0004** (`feat/b1-5-api-entrada`; `docs/DECISOES-B1.5-3010.md`; a versão do `pyproject` não muda, entra na v0.3.0):
   - **Migração `0004_anexo_rpa_e_espelho`** (D5 e D6 do contrato 08 §11, aditiva): `ia.fn_anexar_rpa(bigint, text)` `SECURITY DEFINER` (dono `ia_owner`, `search_path = pg_catalog, ia`,
     `EXECUTE` só a `ia_app`; o único jeito de anexar o `_id` do RPA ao passo, que é append-only) e a outbox `ia.espelho_evento` (`SELECT, INSERT` e `UPDATE` de 4 colunas a `ia_app`, nada a `ia_leitura`).
