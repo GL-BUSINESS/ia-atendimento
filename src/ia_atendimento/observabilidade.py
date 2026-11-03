@@ -25,6 +25,7 @@ import threading
 import traceback
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -129,16 +130,45 @@ class ExportadorMascarado(SpanExporter):
 # --- logs -------------------------------------------------------------------------------------------------------------------------------
 
 
+MARCA_DE_LOG_MAL_FORMATADO: Final = "[log mal formatado] "
+_avisando: ContextVar[bool] = ContextVar("avisando_log_mal_formatado", default=False)
+
+
+def _mensagem_do_registro(registro_de_log: logging.LogRecord) -> str:
+    """`getMessage()` NUNCA levanta aqui: uma chamada de log mal formatada (`%d` com texto, argumentos a menos) de QUALQUER biblioteca
+    derrubaria o chamador, porque a fábrica roda na criação do registro e não no `emit` (onde a stdlib engole o erro). Falhou: vai o
+    formato cru e os argumentos, mascarados, com a marca."""
+    try:
+        return registro_de_log.getMessage()
+    except Exception:
+        _avisar_log_mal_formatado(registro_de_log.name)
+        return f"{MARCA_DE_LOG_MAL_FORMATADO}{registro_de_log.msg!r} {registro_de_log.args!r}"
+
+
+def _avisar_log_mal_formatado(origem: str) -> None:
+    """Um aviso (sem o conteúdo) de que `origem` chamou o log com formato inválido; não recursivo."""
+    if _avisando.get():
+        return
+    marca = _avisando.set(True)
+    try:
+        registro.warning("chamada de log com formato inválido em %s; mensagem preservada e mascarada", origem)
+    finally:
+        _avisando.reset(marca)
+
+
 def _mascarar_registro(registro_de_log: logging.LogRecord) -> logging.LogRecord:
-    """Mensagem já formatada, argumentos, traceback e pilha mascarados, no próprio registro (vale para todo handler)."""
-    registro_de_log.msg = mascarar_texto(registro_de_log.getMessage())
+    """Mensagem já formatada, argumentos, traceback e pilha mascarados, no próprio registro (vale para todo handler). Nunca levanta."""
+    registro_de_log.msg = mascarar_texto(_mensagem_do_registro(registro_de_log))
     registro_de_log.args = ()
-    if registro_de_log.exc_info and registro_de_log.exc_info[1] is not None:
-        registro_de_log.exc_text = mascarar_texto("".join(traceback.format_exception(*registro_de_log.exc_info)))
-    elif registro_de_log.exc_text:
-        registro_de_log.exc_text = mascarar_texto(registro_de_log.exc_text)
-    if registro_de_log.stack_info:
-        registro_de_log.stack_info = mascarar_texto(registro_de_log.stack_info)
+    try:
+        if registro_de_log.exc_info and registro_de_log.exc_info[1] is not None:
+            registro_de_log.exc_text = mascarar_texto("".join(traceback.format_exception(*registro_de_log.exc_info)))
+        elif registro_de_log.exc_text:
+            registro_de_log.exc_text = mascarar_texto(registro_de_log.exc_text)
+        if registro_de_log.stack_info:
+            registro_de_log.stack_info = mascarar_texto(registro_de_log.stack_info)
+    except Exception:
+        registro_de_log.exc_info, registro_de_log.exc_text, registro_de_log.stack_info = None, "[traceback indisponível]", None
     return registro_de_log
 
 

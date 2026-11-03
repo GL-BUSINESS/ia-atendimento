@@ -298,3 +298,28 @@ def test_atributos_do_span_do_turno_sao_so_codigos_e_passam_pela_mascara(memoria
         pass
     (span,) = memoria.get_finished_spans()
     assert span.attributes["fase"] == "E2" and span.attributes["nota"] == "x [EMAIL]"
+
+
+# --- a fábrica de LogRecord nunca levanta (M-10) -----------------------------------------------------------------------------------------
+
+
+def test_chamada_de_log_mal_formatada_nao_levanta_no_chamador_e_sai_mascarada(caplog):
+    """M-10: a fábrica avaliava `getMessage()` na criação do registro, então `log.warning("%d", "abc")` de QUALQUER biblioteca levantava `TypeError` no
+    chamador (a stdlib só engole o erro no `emit`). Agora o log sai com a marca, mascarado, e o chamador segue."""
+    obs.configurar(settings_de_teste())
+    caplog.set_level(logging.DEBUG)
+    log = logging.getLogger("terceiro.biblioteca")
+    log.warning("valor %d do cliente %s", f"abc {CPF_FORMATADO}", EMAIL)  # TypeError antes
+    log.warning("faltam argumentos %s e %s", "um")  # TypeError antes
+    log.warning("sem placeholder", "sobrando")  # TypeError antes
+    saida = "\n".join(caplog.messages)
+    _sem_pii(saida)
+    assert saida.count(obs.MARCA_DE_LOG_MAL_FORMATADO) == 3 and "[CPF]" in saida and "[EMAIL]" in saida
+    assert saida.count("chamada de log com formato inválido") == 3  # um aviso por ocorrência, sem o conteúdo, e sem recursão infinita
+
+
+def test_log_bem_formatado_continua_igual_e_sem_marca(caplog):
+    obs.configurar(settings_de_teste())
+    caplog.set_level(logging.INFO)
+    logging.getLogger("terceiro.biblioteca").info("valor %d de %s", 3, "ana")
+    assert caplog.messages == ["valor 3 de ana"]
