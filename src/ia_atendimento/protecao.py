@@ -3,7 +3,8 @@
 `proteger_texto` é a ÚLTIMA cerca do texto de cliente (ou da IA) antes do modelo; a primeira é a máscara da gravação
 (`conversa.gravar_troca`). Em ordem:
 
-1. `mascarar` (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos e os nomes da conversa), que é idempotente;
+1. `mascarar` (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos e os nomes da conversa), que é idempotente; link digitado vira
+   `[LINK]` (H §3.3);
 2. data completa (`dd/mm/aaaa`) vira `[DATA]`: nascimento é dado que H §3.3 proíbe; a data de agendamento do cliente não leva o ano
    («dia 5», «05/11») e fica;
 3. dinheiro (`R$ 5.000,00`, `3 mil`, `800 reais`, `5k`) e prazo (`36x`, `12 parcelas`, `60 meses`) viram `[VALOR]` e `[PRAZO]`; um `r$`
@@ -24,6 +25,8 @@ from typing import Final
 
 from ia_atendimento.mascara import mascarar
 
+# Link que o cliente digitou (H §3.3: URL/link nunca entra no prompt): com esquema, `www.` ou domínio conhecido sem esquema.
+_LINK: Final = re.compile(r"(?i)\b(?:https?://|www\.)\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|br|io|app|me|link|ly)\b(?:/\S*)?")
 _DATA_COMPLETA: Final = re.compile(r"(?<!\d)(?:0?[1-9]|[12]\d|3[01])([/.\-])(?:0?[1-9]|1[0-2])\1(?:19|20)\d{2}(?!\d)")
 _DINHEIRO: Final = re.compile(
     r"(?i)(?<![\w])(?:r\$|rs)\s*\d[\d.,]*(?:\s*(?:mil|milh(?:ão|ões|ao|oes)|k|reais))?(?![\w])"
@@ -56,7 +59,8 @@ def _trocar_numero(achado: re.Match[str]) -> str:
 
 def proteger_texto(texto: str, nomes: Collection[str]) -> str:
     """Texto de cliente (ou da IA) pronto para o prompt (ver o docstring do módulo). Idempotente."""
-    protegido = _DATA_COMPLETA.sub("[DATA]", mascarar(texto, nomes))
+    protegido = _LINK.sub("[LINK]", mascarar(texto, nomes))
+    protegido = _DATA_COMPLETA.sub("[DATA]", protegido)
     protegido = _PRAZO.sub("[PRAZO]", _DINHEIRO.sub("[VALOR]", protegido))
     protegido = _SIMBOLO_DE_MOEDA_SOLTO.sub("[VALOR]", protegido)
     protegido = _NUMERO.sub(_trocar_numero, protegido)

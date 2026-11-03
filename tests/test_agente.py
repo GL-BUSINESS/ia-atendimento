@@ -777,3 +777,27 @@ async def test_resposta_com_usage_nao_alerta(caplog):
     agente = agente_na_rede(RedeSimulada([resposta_openai(TURNO_E2)]), settings=settings_de_teste())
     r = await executar_turno(agente, DEPS, contexto_falso("E2"))
     assert r.uso_ausente is False and observabilidade.ALERTA_USO_AUSENTE not in caplog.text
+
+
+# --- sonda p4 da revisão: com os PADRÕES, um 503 e um 429 são UMA requisição (sem retentativa escondida) -----------------------------------
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_com_os_padroes_do_settings_uma_falha_http_e_uma_so_requisicao(status):
+    """B-1/M-9 (p4): o padrão antigo (1 retentativa do SDK) fazia um 503 virar 2 requisições e o 429 + 200 passar por baixo dos panos."""
+    rede = RedeSimulada([httpx.Response(status, headers={"retry-after": "0"}, json={"error": {"message": "x"}}), resposta_openai(TURNO_E2)])
+    agente = agente_na_rede(rede, settings=settings_de_teste())  # TUDO no padrão
+    with pytest.raises(ProvedorIndisponivel) as erro:
+        await executar_turno(agente, DEPS, contexto_falso("E2"))
+    assert erro.value.status == status and len(rede.requisicoes) == 1
+
+
+async def test_retry_de_saida_invalida_soma_o_uso_das_duas_respostas_e_manda_o_aviso_ao_modelo():
+    ruim = {**TURNO_E2, "texto": "me liga no 11 91234 5678 ou veja R$ 5.000"}  # texto livre com número e valor: o `Turno` recusa
+    rede = RedeSimulada([resposta_openai(ruim, entrada=1000, saida=50), resposta_openai(TURNO_E2, entrada=1100, saida=60)])
+    r = await executar_turno(agente_na_rede(rede, settings=settings_de_teste()), DEPS, contexto_falso("E2"))
+    assert len(rede.corpos) == 2 and (r.uso.tokens_in, r.uso.tokens_out) == (2100, 110)
+    aviso = json.dumps(rede.corpos[1]["messages"][2:], ensure_ascii=False)
+    assert (
+        "texto livre sem dígito" in aviso
+    )  # o modelo recebe o MOTIVO da recusa para corrigir (e o que ele mesmo escreveu, que ele já tinha)

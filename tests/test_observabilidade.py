@@ -10,6 +10,7 @@ import logging
 import sys
 from uuid import UUID
 
+import httpx
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -373,3 +374,41 @@ def test_configurar_duas_vezes_encerra_o_provedor_anterior():
     primeiro.provedor.shutdown = lambda: (desligados.append(1), original())[1]
     segundo = obs.configurar(settings_de_teste(), exportador=InMemorySpanExporter())
     assert desligados == [1] and segundo.provedor is not primeiro.provedor
+
+
+# --- sonda p3/p8 da revisão: erro HTTP cheio de PII e o que o OTLP serializa --------------------------------------------------------------
+
+
+async def test_span_com_resposta_http_de_erro_cheia_de_pii_e_prompts_sujos(memoria):
+    from ia_atendimento.turno import ErroDoModelo
+    from tests.apoio_b14 import RedeSimulada, agente_na_rede
+
+    s = settings_de_teste()
+    obs.configurar(s, exportador=memoria)
+    rede = RedeSimulada([httpx.Response(400, json={"error": {"message": f"bad request {SUJEIRA}"}})])
+    with pytest.raises(ErroDoModelo):
+        await executar_turno(agente_na_rede(rede, settings=s), DEPS, contexto_falso("E2", pendentes=(SUJEIRA,)))
+    spans = memoria.get_finished_spans()
+    assert len(spans) >= 2
+    texto = json.dumps(
+        [
+            {
+                "nome": sp.name, "chaves": list(sp.attributes or {}), "attrs": dict(sp.attributes or {}), "status": sp.status.description,
+                "eventos": [(e.name, dict(e.attributes or {})) for e in sp.events], "recurso": dict(sp.resource.attributes),
+            }
+            for sp in spans
+        ],
+        ensure_ascii=False,
+        default=str,
+    )  # fmt: skip
+    _sem_pii(texto)
+
+
+async def test_o_que_o_otlp_serializa_nao_leva_cpf_nem_email(memoria):
+    from opentelemetry.exporter.otlp.proto.common.trace_encoder import encode_spans
+
+    obs.configurar(settings_de_teste(), exportador=memoria)
+    agente = criar_agente(ProvedorFalso(_Fixo(Turno(intencao="saudacao", acao="responder", confianca="alta"))), MODELO)
+    await executar_turno(agente, DEPS, contexto_falso("E2", pendentes=(f"{CPF_FORMATADO} {EMAIL}",)))
+    bruto = encode_spans(memoria.get_finished_spans()).SerializeToString()
+    assert len(bruto) > 200 and CPF_FORMATADO.encode() not in bruto and EMAIL.encode() not in bruto and b"exemplo.test" not in bruto

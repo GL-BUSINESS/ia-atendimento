@@ -978,3 +978,18 @@ def test_rajada_enorme_entra_limitada_com_uma_linha_de_omitidas(db_conn, e3, cha
     assert f"mensagem {rotulos[-1]} do" in c.insumos.pendentes[-1] and f"mensagem {rotulos[49]} do" not in "".join(c.insumos.pendentes)
     assert f"mensagem {rotulos[50]} do" in c.insumos.pendentes[1]  # as 10 ÚLTIMAS, em ordem
     assert c.blocos[7].tokens < 600 and c.cortes == ()
+
+
+@pytest.mark.parametrize(
+    ("bruto", "esperado"),
+    [
+        ("veja https://exemplo.test/x?token=abc", "veja [LINK]"),
+        ("www.exemplo.com.br/oferta", "[LINK]"),
+        ("meusite.com.br/oferta e tchau", "[LINK] e tchau"),
+        ("manda no http://127.0.0.1:8000/ok", "manda no [LINK]"),
+        ("oi, tudo bem. mais tarde eu vejo", "oi, tudo bem. mais tarde eu vejo"),
+    ],
+)
+def test_link_digitado_pelo_cliente_vira_marcador(bruto, esperado):
+    """H §3.3: URL/link nunca entra no prompt; na sonda p2 a URL que o cliente digitou chegava ao corpo da requisição."""
+    assert ctx.proteger_texto(bruto, ()) == esperado
