@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
@@ -720,3 +721,37 @@ async def test_reaper_agenda_nao_insiste_quando_o_atendimento_ja_saiu_da_espera(
     )  # o reaper_lease devolveu
     relogio.definir(dispara + timedelta(minutes=45))
     assert agenda_jobs.selecionar_vencidos(conn_app, relogio.agora()) == []
+
+
+def test_registrar_desfecho_trava_o_atendimento_antes_do_agendamento(banco, conn_app, conn_super, relogio, versoes):
+    """R1-08: a ordem de locks é sempre atendimento → agendamento (a de `_reivindicar` e da B5.7c). Com o atendimento preso por outra transação,
+    `_registrar_desfecho` espera NELE sem ter tocado na linha do agendamento; na ordem inversa a linha ficava travada e dois `retomar`/cancelamentos
+    se enroscavam em deadlock."""
+    dispara = relogio.agora() + timedelta(hours=2)
+    caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)
+    relogio.definir(dispara + timedelta(seconds=1))
+    servicos = _servicos(banco, relogio, Voltas())
+    reivindicacao = agenda_jobs._reivindicar(servicos, caso.agendamento_id, relogio.agora(), None)
+    assert reivindicacao.codigo == "disparado" and reivindicacao.volta is not None
+    erros: list[BaseException] = []
+
+    def registrar() -> None:
+        try:
+            agenda_jobs._registrar_desfecho(servicos, reivindicacao.volta, "resolvido")
+        except BaseException as erro:
+            erros.append(erro)
+
+    with conn_super.transaction():
+        conn_super.execute("SELECT 1 FROM ia.atendimento WHERE atendimento_id = %s FOR UPDATE", (caso.atendimento_id,))
+        fio = threading.Thread(target=registrar)
+        fio.start()
+        prazo = time.monotonic() + 15
+        while not conn_app.execute(
+            "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE%'"
+        ).fetchone()[0]:
+            assert time.monotonic() < prazo, "o registro do desfecho não chegou a esperar o lock do atendimento"
+            time.sleep(0.02)
+        with conn_app.transaction():  # a linha do agendamento tem de estar LIVRE enquanto o atendimento é esperado
+            conn_app.execute("SELECT 1 FROM ia.agendamento WHERE agendamento_id = %s FOR UPDATE NOWAIT", (caso.agendamento_id,))
+    fio.join(15)
+    assert erros == [] and _ag(conn_app, caso.agendamento_id)[2] == "resolvido"
