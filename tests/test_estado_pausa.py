@@ -22,7 +22,7 @@ from ia_atendimento.estado import (
     TransicaoInvalida,
     ler,
 )
-from ia_atendimento.estado_conversa import EstadoConversa, gravar_estado_conversa
+from ia_atendimento.estado_conversa import EstadoConversa, gravar_estado_conversa, registrar_mensagem_do_cliente
 from tests.apoio_agenda import novo_aberto, novo_agendado
 from tests.estado_apoio import CHAT, entrada
 
@@ -305,3 +305,85 @@ def test_iniciar_agendado_so_vale_para_o_gatilho_agendamento(db_conn, relogio, v
             relogio=relogio,
         )
     assert ler(db_conn, r.atendimento_id).estado == "reservado"
+
+
+# --- tetos de quem cria `pausado` (R1-05) ------------------------------------------------------------------------------------------------------
+
+
+def test_os_padroes_dos_tetos_sao_os_do_registro_de_config():
+    from ia_atendimento.chave_registro import PADROES
+    from ia_atendimento.estado_pausa import AGENDA_FOLGA_MIN, AGENDA_MAX_PAUSADOS, AGENDA_TETO_HORAS
+
+    assert (
+        PADROES["agenda_folga_min"],
+        PADROES["agenda_max_pausados"],
+        PADROES["agenda_teto_horas"],
+    ) == (AGENDA_FOLGA_MIN, AGENDA_MAX_PAUSADOS, AGENDA_TETO_HORAS)
+
+
+def test_pausar_recusa_o_pausado_alem_de_agenda_max_pausados_e_libera_quando_um_sai(db_conn, relogio, versoes):
+    pausados = []
+    for _ in range(2):
+        atd, v, _ = novo_aberto(db_conn, relogio, versoes)
+        estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", max_pausados=2, relogio=relogio)
+        pausados.append(atd)
+    terceiro, v3, _ = novo_aberto(db_conn, relogio, versoes)
+    with pytest.raises(estado_pausa.LimiteDePausados, match="agenda_max_pausados = 2"):
+        estado_pausa.pausar(db_conn, terceiro, v3, retoma_em=_retoma(relogio), retoma_fase="E3", max_pausados=2, relogio=relogio)
+    assert ler(db_conn, terceiro).estado == "aberto" and ler(db_conn, terceiro).versao == v3, "recusado: nada mudou"
+    um = ler(db_conn, pausados[0])
+    estado_pausa.sair_da_pausa(db_conn, um.atendimento_id, um.versao, relogio=relogio)  # um acorda: abre vaga
+    estado_pausa.pausar(db_conn, terceiro, v3, retoma_em=_retoma(relogio), retoma_fase="E3", max_pausados=2, relogio=relogio)
+    assert ler(db_conn, terceiro).estado == "pausado"
+
+
+def test_o_teto_de_pausados_vale_para_o_padrao_de_10(db_conn, relogio, versoes):
+    for _ in range(10):
+        atd, v, _ = novo_aberto(db_conn, relogio, versoes)
+        estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+    onze, v11, _ = novo_aberto(db_conn, relogio, versoes)
+    with pytest.raises(estado_pausa.LimiteDePausados):
+        estado_pausa.pausar(db_conn, onze, v11, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+
+
+def test_pausas_concorrentes_nao_passam_juntas_do_teto(banco, relogio, versoes_semeadas_no_banco):
+    """A contagem é feita SOB a trava: sem ela, cinco pausas simultâneas viam 0 pausados e as cinco passavam de `max_pausados = 2`."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    versoes = versoes_semeadas_no_banco
+    with banco.sessao("ia_app_a") as conn:
+        casos = [novo_aberto(conn, relogio, versoes)[:2] for _ in range(5)]
+    largada = Barrier(5)
+
+    def pausar(caso):
+        atd, v = caso
+        with banco.sessao("ia_app_a") as conn:
+            largada.wait(timeout=10)
+            try:
+                estado_pausa.pausar(conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", max_pausados=2, relogio=relogio)
+            except estado_pausa.LimiteDePausados:
+                return "recusado"
+            return "pausado"
+
+    with ThreadPoolExecutor(5) as pool:
+        resultados = [f.result(timeout=30) for f in [pool.submit(pausar, c) for c in casos]]
+    assert sorted(resultados) == ["pausado", "pausado", "recusado", "recusado", "recusado"]
+
+
+def test_pausar_recusa_retoma_em_alem_do_teto_de_23h_da_ultima_mensagem_do_cliente(db_conn, relogio, versoes):
+    atd, v, _ = novo_aberto(db_conn, relogio, versoes)
+    # sem `ultimo_cliente_em` conhecido o teto conta de agora
+    with pytest.raises(EntradaInvalida, match="teto"):
+        estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio, 23.01), retoma_fase="E3", relogio=relogio)
+    # o cliente falou há 5 h: a janela de 24 h fecha em 18 h
+    registrar_mensagem_do_cliente(db_conn, atd, relogio() - timedelta(hours=5), relogio=relogio)
+    with pytest.raises(EntradaInvalida, match="teto"):
+        estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio, 18.01), retoma_fase="E3", relogio=relogio)
+    assert ler(db_conn, atd).estado == "aberto"
+    estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio, 18), retoma_fase="E3", relogio=relogio)  # no teto exato, passa
+    assert ler(db_conn, atd).estado == "pausado"
+    # um 30 dias à frente nunca entra, nem com teto folgado de config
+    outro, vo, _ = novo_aberto(db_conn, relogio, versoes)
+    with pytest.raises(EntradaInvalida, match="teto"):
+        estado_pausa.pausar(db_conn, outro, vo, retoma_em=_retoma(relogio, 24 * 30), retoma_fase="E3", teto_horas=23, relogio=relogio)

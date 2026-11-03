@@ -20,6 +20,7 @@ from ia_atendimento.estado import (
     LEASE_AGUARDANDO_S,
     LEASE_TURNO_S,
     EntradaInvalida,
+    EstadoErro,
     Relogio,
     Resultado,
     Versoes,
@@ -35,10 +36,16 @@ from ia_atendimento.estado import (
 from ia_atendimento.modelos_conversa import Pausa
 
 FASES_PAUSAVEIS: Final = ("E2", "E3", "E4", "E5", "E6", "E8")  # nunca E7 (T7/T8 em voo), nem E0/E1/E9/E10
-AGENDA_FOLGA_MIN: Final = (
-    30  # = padrão de `agenda_folga_min`: o lease de quem dorme vai até `retoma_em` + 30 min (a vigia só devolve depois)
-)
+# padrões das chaves `agenda_*` (um teste confere com o registro): quem chama passa o valor VIGENTE da config
+AGENDA_FOLGA_MIN: Final = 30  # `agenda_folga_min`: o lease de quem dorme vai até `retoma_em` + 30 min (a vigia só devolve depois)
+AGENDA_MAX_PAUSADOS: Final = 10  # `agenda_max_pausados`: pausados ao mesmo tempo, fora de `max_abertos`
+AGENDA_TETO_HORAS: Final = 23  # `agenda_teto_horas`: a volta cabe na janela de 24 h do WhatsApp, contada da última mensagem do cliente
+TRAVA_PAUSAR: Final = "ia_atendimento.pausar"
 FAIXA_AGENDAMENTO: Final = "media"  # faixa do atendimento nascido de um agendamento (sem comissão calculável)
+
+
+class LimiteDePausados(EstadoErro):
+    """Já há `agenda_max_pausados` atendimentos `pausado`: este não pausa (o cliente segue com a IA ou vai ao humano, decisão da B5.7c)."""
 
 
 def pausar(
@@ -50,6 +57,8 @@ def pausar(
     retoma_fase: str,
     agendamento_ref: str | None = None,
     folga_min: int = AGENDA_FOLGA_MIN,
+    max_pausados: int = AGENDA_MAX_PAUSADOS,
+    teto_horas: int = AGENDA_TETO_HORAS,
     relogio: Relogio,
 ) -> int:
     """Caso (a): `aberto|aguardando_cliente → pausado`. O cliente combinou a volta; a IA segue dona do chat e dorme até `retoma_em`.
@@ -58,7 +67,10 @@ def pausar(
     a fase ATUAL é ela (`onde_igual`), e a `pausa{agendamento_ref, retoma_fase}` entra no `estado_conversa` no mesmo UPDATE.
     `lease_ate = retoma_em + folga_min` (o CHECK exige `lease_ate >= retoma_em`): é o que faz o `reaper_lease` pular quem dorme, pois só o
     vê depois da folga, como `retomada_perdida`. Nada aqui encerra ou repassa o `pausado`: `bloqueio_entrada` e o timer das 20:15 o poupam.
-    """
+
+    **Quem cria `pausado` impõe os tetos (R1-05):** `retoma_em` no máximo `teto_horas` (23) depois da última mensagem do cliente
+    (`EntradaInvalida`; sem `ultimo_cliente_em`, depois de agora), e no máximo `max_pausados` (10) pausados ao mesmo tempo
+    (`LimiteDePausados`), contados sob uma trava consultiva da transação (duas pausas concorrentes não passam juntas do teto)."""
     agora = agora_de(relogio)
     if retoma_fase not in FASES_PAUSAVEIS:
         raise EntradaInvalida("retoma_fase fora de E2–E6/E8 (pausa nunca em E7)")
@@ -68,9 +80,29 @@ def pausar(
         raise EntradaInvalida("retoma_em no passado")
     pausa = validar_corpo(Pausa, {"agendamento_ref": agendamento_ref, "retoma_fase": retoma_fase})
     m = _mudancas(estado="pausado", retoma_em=retoma_em, lease_ate=retoma_em + timedelta(minutes=folga_min))
-    return aplicar(
-        conn, atendimento_id, versao, m, agora=agora, de={"aberto", "aguardando_cliente"}, pausa=pausa, onde_igual={"fase": retoma_fase}
-    )
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (TRAVA_PAUSAR,))
+        _conferir_tetos(conn, atendimento_id, agora, retoma_em, max_pausados, teto_horas)
+        return aplicar(
+            conn, atendimento_id, versao, m, agora=agora, de={"aberto", "aguardando_cliente"}, pausa=pausa, onde_igual={"fase": retoma_fase}
+        )
+
+
+def _conferir_tetos(
+    conn: psycopg.Connection, atendimento_id: UUID | str, agora: datetime, retoma_em: datetime, max_pausados: int, teto_horas: int
+) -> None:
+    linha = conn.execute(
+        "SELECT ultimo_cliente_em, (SELECT count(*) FROM ia.atendimento WHERE estado = 'pausado')"
+        " FROM ia.atendimento WHERE atendimento_id = %s",
+        (atendimento_id,),
+    ).fetchone()
+    if linha is None:
+        return  # o `aplicar` diz «não existe» com o erro certo
+    ultimo, pausados = linha
+    if retoma_em > (ultimo or agora) + timedelta(hours=teto_horas):
+        raise EntradaInvalida("retoma_em além do teto (agenda_teto_horas depois da última mensagem do cliente)")
+    if pausados >= max_pausados:
+        raise LimiteDePausados(f"já há {pausados} atendimento(s) pausado(s) (agenda_max_pausados = {max_pausados})")
 
 
 def sair_da_pausa(
