@@ -76,11 +76,11 @@ def test_evento_de_resultado_em_persona_sem_facta_reprova(bruto):
 def test_eventos_possiveis_por_persona_cenario_e_global(bruto_original):
     corpus = c.montar(bruto_original)
     por_id = {p.id: p for p in corpus.todas()}
-    assert regras_duble.eventos_possiveis(por_id["P04"]) == {"resultado_t7_sucesso"}
-    assert "t8_proposta_criada_em_17_min" in regras_duble.eventos_possiveis(por_id["P25"])
-    assert "t13_banco_fechado_antes_do_t7" in regras_duble.eventos_possiveis(por_id["P30"])
-    assert "retry_apos_retry_after" in regras_duble.eventos_possiveis(por_id["P31"])
-    assert regras_duble.eventos_possiveis(por_id["P36"]) == frozenset()
+    assert regras_duble.eventos_possiveis(por_id["P04"], corpus) == {"resultado_t7_sucesso"}
+    assert "t8_proposta_criada_em_17_min" in regras_duble.eventos_possiveis(por_id["P25"], corpus)
+    assert "t13_banco_fechado_antes_do_t7" in regras_duble.eventos_possiveis(por_id["P30"], corpus)
+    assert "retry_apos_retry_after" in regras_duble.eventos_possiveis(por_id["P31"], corpus)
+    assert regras_duble.eventos_possiveis(por_id["P36"], corpus) == frozenset()
 
 
 def test_tx_obrigado_por_evento_silencioso_vem_na_proxima_mensagem(bruto):

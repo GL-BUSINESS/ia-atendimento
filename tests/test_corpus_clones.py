@@ -64,9 +64,8 @@ def test_clone_vale_pela_persona_base_nos_eventos_possiveis(bruto_original):
     assert por_id["P28"].cenario_facta.persona_duble != "indet-criada-5min"  # clone próprio
     esperado = regras_duble.eventos_possiveis(por_id["P24"], corpus)  # a base
     assert "t8_proposta_criada_em_5_min" in esperado and regras_duble.eventos_possiveis(por_id["P28"], corpus) == esperado
-    assert regras_duble.eventos_possiveis(por_id["P28"]) == frozenset(), (
-        "sem o corpus o clone não resolve a base (o chamador tem de passá-lo)"
-    )
+    with pytest.raises(TypeError):  # o corpus é obrigatório: sem ele o clone voltaria vazio em silêncio (R2-13)
+        regras_duble.eventos_possiveis(por_id["P28"])  # type: ignore[call-arg]
 
 
 def test_gabarito_do_clone_e_amarrado_ao_cenario_da_base(bruto):
