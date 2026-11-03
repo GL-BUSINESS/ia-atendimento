@@ -65,11 +65,10 @@ def test_localizar_devolve_o_checkout_quando_acha(tmp_path, monkeypatch):
     assert apoio_irmao.localizar("BANCOS_DUBLE_PATH", ARQUIVO, "bancos-duble") == tmp_path
 
 
-def test_ci_traz_o_irmao_e_exige_a_consistencia_em_vez_de_pular():
-    """R2-11: o CI rodava `pytest` puro e os testes cruzados pulavam. Agora ele faz checkout do bancos-duble, define a variável, liga a exigência e roda o `exigir_irmao.sh`."""
+def test_o_irmao_fica_so_no_check_sh_ate_existir_o_pat():
+    """RG-128: sem `IRMAO_TOKEN` o checkout do irmão derrubava o CI antes do pytest; a exigência fica no `check.sh` local até a B12.2."""
     ci = (RAIZ / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert 'PESSOAS_TESTE_EXIGE_IRMAO: "1"' in ci
-    assert "BANCOS_DUBLE_PATH: ${{ github.workspace }}/irmao/bancos-duble" in ci
-    assert "repository: GL-BUSINESS/bancos-duble" in ci and "path: irmao/bancos-duble" in ci
-    assert "bash scripts/exigir_irmao.sh" in ci and "gerar_pessoas_teste.py --verificar" in ci
-    assert ci.index("path: irmao/bancos-duble") < ci.index("uv run pytest"), "o irmão vem antes do pytest"
+    assert "PESSOAS_TESTE_EXIGE_IRMAO" not in ci and "BANCOS_DUBLE_PATH" not in ci
+    assert "IRMAO_TOKEN" not in ci and "repository:" not in ci and "exigir_irmao.sh" not in ci
+    assert "gerar_pessoas_teste.py --verificar" in ci, "o que não depende do irmão continua no CI"
+    assert "- run: sha256sum -c 0001.sha256\n        working-directory: migrations" in ci

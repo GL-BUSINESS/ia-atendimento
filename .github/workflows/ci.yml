@@ -33,28 +33,17 @@ jobs:
     env:
       IA_TESTE_PG_HOST: localhost
       IA_TESTE_PG_PORT: "5432"
-      # B2.4 (R2-11): a consistência das pessoas de teste com o bancos-duble é parte do portão. O irmão é obrigatório: sem ele o teste cruzado FALHA (não pula).
-      BANCOS_DUBLE_PATH: ${{ github.workspace }}/irmao/bancos-duble
-      PESSOAS_TESTE_EXIGE_IRMAO: "1"
+      # RG-128/RG-119: a consistência com o bancos-duble fica só no scripts/check.sh local até existir o PAT (B12.2); aqui o teste cruzado pula.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: bancos-duble (o irmão da B2.4; o mesmo nome de branch do PR, senão a main)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: GL-BUSINESS/bancos-duble
-          ref: ${{ github.head_ref || 'main' }}
-          path: irmao/bancos-duble
-          token: ${{ secrets.IRMAO_TOKEN }}   # PAT só de leitura do outro repositório privado; sem ele o checkout falha e o CI fica vermelho
-          persist-credentials: false
-      - run: bash scripts/exigir_irmao.sh
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: uv sync --locked   # falha se o uv.lock não bate com o pyproject (--frozen usaria o lock velho em silêncio)
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run python scripts/varredura.py
-      - run: sha256sum -c migrations/0001.sha256
+      - run: sha256sum -c 0001.sha256
         working-directory: migrations
       - run: uv run python scripts/gerar_0002.py --verificar
       - run: uv run python scripts/gerar_pessoas_teste.py --verificar

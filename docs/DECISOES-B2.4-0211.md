@@ -87,7 +87,7 @@ Um commit `fix:` por item, cada um com teste que reprova sem a correção.
 - **Corrigidos (bancos-duble):** R2-01 (pares ordenados); R2-04/R2-05 (mesmos ajustes nos stubs); R2-09 (T1 de 1 a 200 ids, na ordem do pedido, omitindo o desconhecido, 422 no formato `Problema`); R2-07 (cabeçalhos do YAML e do script sem «CPF compartilhado»);
   R2-08 (teste que confere o instantâneo do corpus do `ia` contra o `personas.yaml` daqui); R2-10 (guarda contra `PERSONA_MAX` na faixa dos clones); R2-11 (CI com o irmão).
 - **Deixados (com motivo):** R1-17 (nenhuma persona exercita `nao_perturbe`/`limite_contratos` não nulos: o B5.2 define quais variantes precisa), R1-20 (`por` autodeclarado: limite do MVP da B1.5), R1-21 (TOCTOU do `PUT` e pareamento estrito chat↔pessoa na entrada: muda semântica da B1.5; B1.6/B1.7 com decisão do dono),
-  R1-24 (bump de versão do `pyproject`: v0.3.0). O kit **nunca rodou contra a API real**; o `gitleaks` não rodou em lugar nenhum desta árvore (nem aqui, nem no CI parado); o CI precisa do secret `IRMAO_TOKEN` (PAT só de leitura do outro repositório) para voltar a ficar verde.
+  R1-24 (bump de versão do `pyproject`: v0.3.0). O kit **nunca rodou contra a API real**; o `gitleaks` não rodou em lugar nenhum desta árvore (nem aqui, nem no CI parado); o CI precisa do secret `IRMAO_TOKEN` (PAT só de leitura do outro repositório) para voltar a ficar verde. **Superado (RG-128, RG-119, 03/11):** o passo do irmão saiu do CI e fica só no `check.sh` local até o PAT (B12.2); o gitleaks agora roda e é estrito no `check.sh`.
 
 ## Números
 
