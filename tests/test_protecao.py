@@ -210,3 +210,49 @@ def test_cadeias_com_o_sinal_de_caminho_continuam_lineares():
     for texto in ("a." * 2000, ("a.b/" * 1000), ("ab.ab." * 700), ("x.y:80 " * 570)):
         assert _melhor_de_tres_ms(lambda texto=texto: ha_link(texto)) <= LIMITE_MS
         assert _melhor_de_tres_ms(lambda texto=texto: proteger_texto(texto[:4000], NOMES)) <= LIMITE_MS
+
+
+# --- [NUMERO:n], hora com hrs/hs/min e data com hora (R2-08, R2-07) ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("bruto", "esperado"),
+    [
+        ("quero 5000", "quero [NUMERO:4]"),
+        ("pode ser 3.500?", "pode ser [NUMERO:4]?"),
+        ("250", "[NUMERO:3]"),
+        ("uns 300", "uns [NUMERO:3]"),
+        ("84", "[NUMERO:2]"),
+        ("em 48 fica bom?", "em [NUMERO:2] fica bom?"),
+        ("tem como 12000?", "tem como [NUMERO:5]?"),
+        ("a parcela de 312,45", "a parcela de [NUMERO:3]"),
+        ("nao, quero 3000", "nao, quero [NUMERO:4]"),
+        ("conta 123456-7", "conta [NUMERO:6]"),
+        ("matricula 1234567", "matricula [NUMERO]"),  # 7 dígitos: acima da classe, sem contagem
+    ],
+)
+def test_numero_nu_vira_marcador_com_a_contagem_de_digitos(bruto, esperado):
+    """R2-08: sem palavra ao redor, a grandeza era a única pista de valor × parcela × prazo (8/8 da bateria do revisor perdiam). O NÚMERO não vai."""
+    assert proteger_texto(bruto, ()) == esperado
+
+
+@pytest.mark.parametrize(
+    "fica",
+    ["15hrs", "as 15 hrs", "15hs", "15h30min", "umas 3hs", "06/11 15:30", "dia 12/11 15:30", "quinta 06/11 15:30", "05/11 10:00 ou 11:00"],
+)
+def test_hora_com_hrs_hs_min_e_data_com_hora_ficam(fica):
+    assert proteger_texto(fica, ()) == fica
+
+
+def test_o_marcador_com_contagem_e_idempotente_e_passa_no_portao():
+    from ia_atendimento.contexto import auditar_textos
+
+    uma = proteger_texto("quero 5000 em 36x, parcela 312,45, nasci 12/03/1985", NOMES)
+    assert proteger_texto(uma, NOMES) == uma and "[NUMERO:4]" in uma and "[NUMERO:3]" in uma
+    auditar_textos("", uma, NOMES)
+
+
+def test_o_sistema_explica_o_numero_com_contagem():
+    from ia_atendimento.modulos_fase import SISTEMA
+
+    assert "[NUMERO:n]" in SISTEMA and "parcela" in SISTEMA.split("[NUMERO:n] é um número")[1][:120]

@@ -14,6 +14,7 @@ import pytest
 
 from ia_atendimento import agenda_extrator
 from ia_atendimento.agenda_extrator import VERSAO, ConfigAgenda, extrair
+from ia_atendimento.mascara import mascarar
 
 BRT = ZoneInfo("America/Sao_Paulo")
 CORPUS = Path(__file__).parent / "corpus" / "agenda_frases.jsonl"
@@ -30,14 +31,16 @@ DEV = [f for f in FRASES if not f["holdout"]]
 HOLDOUT = [f for f in FRASES if f["holdout"]]
 
 
-def _rodar(caso: dict):
+def _rodar(caso: dict, *, como_a_conversa_guarda: bool = False):
+    """`como_a_conversa_guarda`: o extrator recebe o texto de `mascarar` (o que `gravar_troca` guarda e `ler_trocas` devolve), a entrada REAL dele."""
     agora = datetime.fromisoformat(caso["agora"])
     ultima = datetime.fromisoformat(caso["ultima_msg"]) if caso["ultima_msg"] else agora
-    return extrair(caso["texto"], agora, ultima, ConfigAgenda(usa_periodos=caso["usa_periodos"]))
+    texto = mascarar(caso["texto"]) if como_a_conversa_guarda else caso["texto"]
+    return extrair(texto, agora, ultima, ConfigAgenda(usa_periodos=caso["usa_periodos"]))
 
 
-def _confere(caso: dict) -> bool:
-    r = _rodar(caso)
+def _confere(caso: dict, *, como_a_conversa_guarda: bool = False) -> bool:
+    r = _rodar(caso, como_a_conversa_guarda=como_a_conversa_guarda)
     return (
         [c.quando for c in r.candidatos] == [datetime.fromisoformat(e) for e in caso["esperado"]]
         and [c.confianca for c in r.candidatos] == caso["confianca"]
@@ -83,6 +86,40 @@ def test_holdout_acerto_minimo_de_95_por_cento(capsys):
     with capsys.disabled():
         print(f"\n[hold-out] {len(HOLDOUT) - len(erros)}/{len(HOLDOUT)} = {taxa:.1%}")
     assert taxa >= 0.95, [(f["id"], f["texto"]) for f in erros]
+
+
+def test_holdout_sobre_a_entrada_real_do_extrator_o_texto_de_mascarar(capsys):
+    """R2-07: o extrator lê o texto que a conversa guarda (`mascarar`), nunca o do prompt (`proteger_texto`). Hold-out 130/130 sobre essa entrada."""
+    erros = [f for f in HOLDOUT if not _confere(f, como_a_conversa_guarda=True)]
+    with capsys.disabled():
+        print(f"\n[hold-out sobre mascarar] {len(HOLDOUT) - len(erros)}/{len(HOLDOUT)}")
+    assert erros == [] and len(HOLDOUT) >= 130, [(f["id"], f["texto"], mascarar(f["texto"])) for f in erros]
+
+
+def test_corpus_inteiro_sobre_o_texto_de_mascarar_nao_perde_nenhum_caso():
+    """`06/11 15:30` virava `[NUMERO]` (8 dígitos) na máscara da B1.2; a isenção de data+hora do agendamento fecha os 390."""
+    erros = [f["id"] for f in FRASES if not _confere(f, como_a_conversa_guarda=True)]
+    assert erros == []
+
+
+@pytest.mark.parametrize(
+    "texto", ["06/11 15:30", "dia 12/11 15:30", "quinta 06/11 15:30", "05/11 10:00 ou 11:00", "segunda 23/11 05:30", "dia 12/11, 9h30"]
+)
+def test_data_com_hora_do_agendamento_nao_vira_numero_na_mascara_de_pii(texto):
+    assert mascarar(texto) == texto
+
+
+@pytest.mark.parametrize(
+    "documento", ["000.000.012-34", "00000001234", "(11) 91234-5678", "11912345678", "01310-100", "cep 01310100", "12345678"]
+)
+def test_documento_e_telefone_continuam_mascarados_depois_da_isencao_de_data_com_hora(documento):
+    assert mascarar(documento) != documento and mascarar(f"dia 06/11 15:30 e {documento}") != f"dia 06/11 15:30 e {documento}"
+
+
+def test_o_extrator_nao_conhece_a_protecao_do_prompt():
+    """O extrator (e o número do pedido) leem `mascarar`; `proteger_texto` é só para o prompt (122/130 = 93,8% se fosse a entrada)."""
+    fonte = Path(agenda_extrator.__file__).read_text(encoding="utf-8")
+    assert "protecao" not in fonte and "proteger_texto" not in fonte
 
 
 # ------------------------------------------------------------------ EM1: zero data inventada

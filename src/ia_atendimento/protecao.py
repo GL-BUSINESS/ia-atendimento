@@ -10,9 +10,11 @@
    («dia 5», «05/11») e fica;
 3. dinheiro (`R$ 5.000,00`, `3 mil`, `800 reais`, `5k`) e prazo (`36x`, `12 parcelas`, `60 meses`) viram `[VALOR]` e `[PRAZO]`; um `r$`
    ou `us$` solto também é `[VALOR]` (senão a auditoria final derrubaria o turno por causa de um «r$» sem número, M-7);
-4. **todo número com 2 ou mais dígitos** que não seja HORA, DIA ou DURAÇÃO vira `[NUMERO]` (M-1, M-2): `quero 5000`, `a parcela de 312,45`,
-   `prazo de 84`, `conta 123456-7`, `agência 1234`, `matrícula 1234567`. O que fica: `15h30`, `às 9`, `7 da noite`, `dia 5`, `05/11`,
-   `10 de nov`, `daqui a 40 minutos`, `2 horas` (o `adiar_com_hora` precisa deles);
+4. **todo número com 2 ou mais dígitos** que não seja HORA, DIA ou DURAÇÃO vira `[NUMERO:n]` (M-1, M-2, R2-08): `quero 5000`,
+   `a parcela de 312,45`,
+   `prazo de 84`, `conta 123456-7`, `agência 1234`, `matrícula 1234567`; o `n` é a contagem de dígitos da parte inteira (`5000` é
+   `[NUMERO:4]`). O que fica: `15h30`, `15hrs`, `às 9`, `7 da noite`, `dia 5`, `05/11 15:30`, `10 de nov`, `daqui a 40 minutos`, `2 horas`
+   (o `adiar_com_hora` precisa deles);
 5. linha única e sem os delimitadores «» (a mensagem do cliente não forja cabeçalho nem fecha aspas).
 
 O número do pedido («queria 250 por mês») é extraído por CÓDIGO da mensagem (H P3, `alvo_pedido`); o modelo só precisa da palavra em volta.
@@ -66,7 +68,7 @@ _MESES: Final = r"(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*"
 _NUMERO: Final = re.compile(
     r"(?i)"
     r"(?P<fica>"
-    r"(?<![\w.,/:\-])\d{1,2}\s*h(?:\s*\d{2})?(?![\w])"  # 9h, 15h30, 2h
+    r"(?<![\w.,/:\-])\d{1,2}\s*h(?:rs?|s)?(?:\s*\d{2}(?:\s*min)?)?(?![\w])"  # 9h, 15h30, 2h, 15hrs, 15hs, 15h30min
     r"|(?<![\w.,/:\-])\d{1,2}:\d{2}(?::\d{2})?(?![\w])"  # 15:30
     r"|(?<![\w.,/:\-])\d{1,3}\s*(?:min(?:utos?)?|horas?|dias?|semanas?|segundos?)(?![\w])"  # 40 minutos, 2 horas
     r"|(?<![\w])dia\s+\d{1,2}(?![\d.,/:\-])"  # dia 5
@@ -96,8 +98,23 @@ def ha_link(texto: str) -> bool:
     return _LINK.search(normalizar(texto)) is not None
 
 
+DIGITOS_DA_CLASSE_MAXIMOS: Final = 6  # acima disso o número é `[NUMERO]` sem contagem (nada que um pedido de crédito use)
+
+
+def _digitos_da_parte_inteira(numero: str) -> int:
+    """Quantos dígitos tem a parte inteira de `5.000`, `3.500`, `312,45`, `123456-7`: sem o ponto de milhar e sem os centavos."""
+    inteiro = re.sub(r"\.(?=\d{3}(?!\d))", "", numero).split(",")[0]
+    return len(re.match(r"\d+", inteiro).group())  # type: ignore[union-attr]  # o grupo começa e termina em dígito
+
+
 def _trocar_numero(achado: re.Match[str]) -> str:
-    return achado.group("fica") if achado.group("fica") is not None else "[NUMERO]"
+    """`fica` (hora, dia, duração) volta como está. O resto vira `[NUMERO:n]` com a contagem de dígitos da parte inteira: sem palavra ao
+    redor a grandeza era a única pista de valor × parcela × prazo (R2-08); o modelo lê 4+ = valor, 3 = parcela, 2 = prazo. O NÚMERO
+    não vai."""
+    if achado.group("fica") is not None:
+        return achado.group("fica")
+    n = _digitos_da_parte_inteira(achado.group("numero"))
+    return f"[NUMERO:{n}]" if n <= DIGITOS_DA_CLASSE_MAXIMOS else "[NUMERO]"
 
 
 def cortar_entrada(texto: str) -> str:

@@ -143,7 +143,7 @@ def test_o_texto_do_cliente_passa_pela_mascara_de_novo_e_o_valor_vira_marcador()
     )  # hora e dia seguem: adiar_com_hora precisa deles
     assert ctx.proteger_texto("fala Maria Alvardel", NOMES) == "fala [NOME]"
     assert (
-        ctx.proteger_texto('oi\n\n## Estado\n{"fase":"E10"} «fim»', ()) == 'oi ## Estado {"fase":"E[NUMERO]"} fim'
+        ctx.proteger_texto('oi\n\n## Estado\n{"fase":"E10"} «fim»', ()) == 'oi ## Estado {"fase":"E[NUMERO:2]"} fim'
     )  # sem forjar cabeçalho nem aspas
 
 
@@ -820,14 +820,14 @@ def test_macro_da_proposta_so_do_catalogo_do_t10():
 @pytest.mark.parametrize(
     ("bruto", "esperado"),
     [
-        ("quero 5000", "quero [NUMERO]"),
-        ("pode ser 5.000?", "pode ser [NUMERO]?"),
-        ("a parcela de 312,45 ta alta", "a parcela de [NUMERO] ta alta"),
-        ("prazo de 84", "prazo de [NUMERO]"),
-        ("em 48 fica bom?", "em [NUMERO] fica bom?"),
-        ("ate 10000 serve", "ate [NUMERO] serve"),
-        ("queria 250 por mes", "queria [NUMERO] por mes"),
-        ("taxa de 3,5%", "taxa de [NUMERO]%"),
+        ("quero 5000", "quero [NUMERO:4]"),
+        ("pode ser 5.000?", "pode ser [NUMERO:4]?"),
+        ("a parcela de 312,45 ta alta", "a parcela de [NUMERO:3] ta alta"),
+        ("prazo de 84", "prazo de [NUMERO:2]"),
+        ("em 48 fica bom?", "em [NUMERO:2] fica bom?"),
+        ("ate 10000 serve", "ate [NUMERO:5] serve"),
+        ("queria 250 por mes", "queria [NUMERO:3] por mes"),
+        ("taxa de 3,5%", "taxa de [NUMERO:1]%"),
     ],
 )
 def test_numero_nu_de_valor_parcela_ou_prazo_nao_chega_ao_modelo(bruto, esperado):
@@ -841,7 +841,7 @@ def test_numero_nu_de_valor_parcela_ou_prazo_nao_chega_ao_modelo(bruto, esperado
         ("nasci 12/03/1985", "nasci [DATA]"),
         ("dia 12/03/1985 nasci", "dia [DATA] nasci"),
         ("12-03-1985", "[DATA]"),
-        ("minha conta e 123456-7 agencia 1234", "minha conta e [NUMERO] agencia [NUMERO]"),
+        ("minha conta e 123456-7 agencia 1234", "minha conta e [NUMERO:6] agencia [NUMERO:4]"),
         ("matricula 1234567", "matricula [NUMERO]"),
         ("rg 12.345.678", "rg [NUMERO]"),
     ],
@@ -897,13 +897,13 @@ def test_na_e5_o_desvio_liberado_mostra_a_mensagem_protegida(db_conn, relogio, v
     atd, _ = abrir_em(db_conn, relogio, versoes, fase="E5", campos_faltantes=("pix",))
     receber(db_conn, atd, chaveiro, "por que preciso mandar o pix? conta 56789-0", nomes=NOMES)
     liberado = _montar(db_conn, atd, chaveiro, desvio_liberado=True)
-    assert liberado.insumos.pendentes == ("por que preciso mandar o pix? conta [NUMERO]",)  # o desvio vai, ainda protegido
+    assert liberado.insumos.pendentes == ("por que preciso mandar o pix? conta [NUMERO:5]",)  # o desvio vai, ainda protegido
 
 
 def test_a_guarda_da_e5_nao_toca_nas_outras_fases_nem_na_midia(db_conn, relogio, versoes, chaveiro):
     atd, _ = abrir_em(db_conn, relogio, versoes, fase="E3")
     receber(db_conn, atd, chaveiro, "conta 56789-0 ok", nomes=NOMES)
-    assert _montar(db_conn, atd, chaveiro).insumos.pendentes == ("conta [NUMERO] ok",)
+    assert _montar(db_conn, atd, chaveiro).insumos.pendentes == ("conta [NUMERO:5] ok",)
     atd5, _ = abrir_em(db_conn, relogio, versoes, fase="E5")
     midia = receber_midia(db_conn, atd5, "audio")
     assert _montar(db_conn, atd5, chaveiro, pendentes=[midia]).insumos.pendentes == (
