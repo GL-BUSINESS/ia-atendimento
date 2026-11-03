@@ -174,7 +174,10 @@ def _mascarar_nomes(texto: str, nomes: Iterable[str]) -> str:
     if not partes:
         return texto
     dobrado = _dobrar(texto)
-    padrao = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(p).replace(r"\ ", r"\s+") for p in partes) + r")(?!\w)")
+    # borda = «não colado a LETRA» (`[^\W\d_]`): `\w` incluía `_` e dígito, e `maria1`, `maria_alvardel` e `_alvardel` escapavam
+    # (revisão B1.4, M-3)
+    letra = r"[^\W\d_]"
+    padrao = re.compile(rf"(?<!{letra})(?:" + "|".join(re.escape(p).replace(r"\ ", r"\s+") for p in partes) + rf")(?!{letra})")
     protegidos = [m.span() for m in _MARCADORES.finditer(texto)]
     trocas: list[Troca] = [
         (inicio, fim, NOME)

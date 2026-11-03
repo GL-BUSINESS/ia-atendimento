@@ -642,3 +642,20 @@ def _encerrar(db_conn, atd) -> None:
         " retoma_em = NULL WHERE atendimento_id = %s",
         (atd,),
     )
+
+
+@pytest.mark.parametrize(
+    "texto", ["maria1", "MARIA1", "maria_alvardel", "alvardel2024", "_alvardel", "Maria_Alvardel", "maria.alvardel", "maria-alvardel"]
+)
+def test_nome_colado_a_underscore_ou_digito_nao_chega_ao_modelo(texto):
+    """M-3 (sonda p1): `_sem_nome` e `proteger_texto` usam a máscara; o nome com `_` ou dígito colado escapava."""
+    assert ctx._sem_nome(texto, NOMES) is False
+    protegido = ctx.proteger_texto(f"sou o {texto} ok", NOMES)
+    assert "maria" not in protegido.lower() and "alvardel" not in protegido.lower() and "[NOME]" in protegido
+
+
+def test_nome_colado_nao_passa_como_folha_de_resultado_nem_como_valor_do_lead():
+    for texto in ("maria1", "maria_alvardel", "alvardel2024"):
+        assert ctx._folha_segura(texto, NOMES) == (False, None)
+    assert ctx._valor_do_lead("origem", "inapp", ("Inapp1",)) == "inapp"  # nome só vale se for a MESMA palavra
+    assert ctx._valor_do_lead("origem", "inapp", ("Inapp",)) is None
