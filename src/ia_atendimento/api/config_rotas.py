@@ -131,12 +131,19 @@ def _conferir_origem(origem: str, nome: str) -> None:
 
 
 def _conferir_chats_teste(ctx: ContextoApi, conn: psycopg.Connection, chats: list[str]) -> None:
-    """08 §5.6: nenhum chat com atendimento anterior `real`/`sombra` (é de cliente) e cada chat de uma pessoa de `pessoas_teste`."""
-    cliente = conn.execute(
-        "SELECT DISTINCT chat_id FROM ia.atendimento WHERE chat_id = ANY(%s) AND modo IN ('real', 'sombra')", (chats,)
+    """08 §5.6: nenhum chat de cliente e cada chat de uma pessoa de `pessoas_teste`.
+
+    É de cliente o chat com atendimento anterior `real`/`sombra`, ou `duble` de pessoa que NÃO é de `pessoas_teste` (o seed de `modo` é
+    `duble`: cliente real que passou pelo orquestrador antes de a IA ser ligada tem atendimento `duble`, R1-06). Atendimento `duble` ou
+    `teste` de pessoa de teste (o harness, o ensaio) não barra.
+    """
+    historico = conn.execute(
+        "SELECT DISTINCT chat_id, modo, pessoa_id FROM ia.atendimento WHERE chat_id = ANY(%s) AND modo IN ('real', 'sombra', 'duble')",
+        (chats,),
     ).fetchall()
-    if cliente:
-        raise ErroApi("chat_de_cliente", campo="valor", detalhe={"quantos": len(cliente)})
+    de_cliente = {chat for chat, modo, pessoa in historico if modo != "duble" or not ctx.pessoas_teste.contem(pessoa)}
+    if de_cliente:
+        raise ErroApi("chat_de_cliente", campo="valor", detalhe={"quantos": len(de_cliente)})
     sem_pessoa = [c for c in chats if ctx.pessoas_teste.pessoa_do_chat(c) is None]
     if sem_pessoa:
         raise ErroApi("pessoa_fora_de_pessoas_teste", campo="valor", detalhe={"quantos": len(sem_pessoa)})

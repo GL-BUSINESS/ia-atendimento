@@ -96,6 +96,24 @@ def test_chats_teste_chat_de_cliente_nao_entra_mesmo_ligado_a_uma_pessoa_de_test
     assert _vigente(ambiente)[1] == []
 
 
+def test_chats_teste_chat_com_historico_duble_de_cliente_nao_entra_mas_o_de_pessoa_de_teste_entra(ambiente):
+    """R1-06: o seed de `modo` é `duble`. Chat de cliente real que passou pelo orquestrador em `duble` (pessoa fora de `pessoas_teste`) NÃO entra em
+    `chats_teste`; o chat que só teve atendimento `duble`/`teste` de pessoa do catálogo (o harness, o ensaio) entra."""
+    _com_catalogo(ambiente, {CHAT_TESTE: "P01"})
+    with ambiente.super() as conn:
+        ff.inserir_atendimento(conn, estado="encerrado", chat_id=CHAT_TESTE, modo="duble", pessoa_id=uuid.UUID(PESSOA))  # pessoa de CLIENTE
+    r = ambiente.put("/config/chats_teste", {"valor": [CHAT_TESTE], "por": POR})
+    assert r.status_code == 422 and _codigo(r) == "chat_de_cliente", r.text
+    assert r.json()["erro"]["detalhe"] == {"quantos": 1}
+    assert _vigente(ambiente)[1] == []
+    with ambiente.super() as conn:
+        conn.execute("DELETE FROM ia.atendimento WHERE chat_id = %s", (CHAT_TESTE,))
+        for modo in ("duble", "teste"):  # histórico só de pessoa de teste: não barra
+            ff.inserir_atendimento(conn, estado="encerrado", chat_id=CHAT_TESTE, modo=modo, pessoa_id=CATALOGO.por_persona("P01").pessoa_id)
+    r = ambiente.put("/config/chats_teste", {"valor": [CHAT_TESTE], "por": POR})
+    assert r.status_code == 200 and r.json()["valor"] == [CHAT_TESTE], r.text
+
+
 def test_chats_teste_so_a_ti_mexe_na_lista_e_fica_registro(ambiente):
     """Só a origem `ti` grava `chats_teste` (n8n, vigia e c360_api tomam 403) e a versão leva quem, o motivo e o instante."""
     _com_catalogo(ambiente, {CHAT_TESTE: "P01"})
