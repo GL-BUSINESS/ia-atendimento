@@ -217,6 +217,58 @@ def rearmar(
     return nova
 
 
+SituacaoDaVoltaPerdida = Literal["nao_falou", "pode_ter_falado"]
+
+
+@dataclass(frozen=True)
+class VoltaPerdidaFechada:
+    """Como ficou o agendamento quando o `reaper_lease` devolveu o lead (R2-03) e qual nota ao consultor é VERDADE nessa situação."""
+
+    situacao: SituacaoDaVoltaPerdida
+    estado_antes: str  # `pendente`, `confirmado`, `disparado` ou `expirado`
+    nota: str  # id do texto em `textos/TEXTOS-PARA-APROVACAO.md`
+
+
+def nota_da_volta_perdida(situacao: SituacaoDaVoltaPerdida, retoma_fase: str | None) -> str:
+    """NT-06 («a IA não retomou») só quando é verdade: a IA NUNCA falou (`expirado`, `confirmado` órfão, `pendente`). Se a volta foi
+    reivindicada (`disparado`) a mensagem PODE ter saído: E8 usa NT-05 («não conseguiu concluir»), as demais fases NT-01 («interrompido por
+    instabilidade; o cliente pode ter escrito sem resposta»). Os textos ainda esperam a aprovação do dono (D36)."""
+    if situacao == "nao_falou":
+        return "NT-06"
+    return "NT-05" if retoma_fase == "E8" else "NT-01"
+
+
+def fechar_volta_perdida(conn: psycopg.Connection, atendimento_id: uuid.UUID | str, *, agora: datetime) -> VoltaPerdidaFechada | None:
+    """O handler de `retomada_perdida`/`agendamento_perdido` (B1.6) chama isto NA TRANSAÇÃO do repasse (ou do aborto), para a linha do
+    agendamento não ficar mentindo: depois do CAS ela diz `disparado/retomou`, e sem isto diria isso PARA SEMPRE, mesmo com o lead repassado
+    (as métricas «repasse por falha da volta» e «resposta após a volta» saem erradas). Fecha o agendamento mais novo do atendimento com
+    resultado PRÓPRIO:
+
+    - `disparado` → desfecho `repassou` (a volta foi reivindicada e se perdeu: a mensagem pode ter saído);
+    - `confirmado` (alarme perdido e o `reaper_lease` chegou antes do `reaper_agenda`) → `cancelado` por `sistema`, passo `cancelado`;
+    - `pendente` (a confirmação nunca veio) → `expirado`, passo `expirado`;
+    - `expirado` (teto de atraso do `retomar`) e `cancelado` já estão fechados: nada a fazer.
+
+    Devolve `None` se o atendimento não tem agendamento. Trava o atendimento antes do agendamento (a ordem de locks de sempre)."""
+    travar_atendimento(conn, uuid.UUID(str(atendimento_id)))
+    achado = conn.execute(
+        "SELECT agendamento_id FROM ia.agendamento WHERE atendimento_id = %s ORDER BY seq DESC LIMIT 1", (atendimento_id,)
+    ).fetchone()
+    if achado is None:
+        return None
+    linha = ler_agendamento(conn, achado[0], travar=True)
+    if linha.estado == "disparado":
+        _transicionar(conn, linha.agendamento_id, linha.versao, de=("disparado",), mudancas={"desfecho_disparo": "repassou"}, agora=agora)
+    elif linha.estado == "confirmado":
+        cancelar(conn, linha.agendamento_id, linha.versao, por="sistema", agora=agora)
+        passo_de_agendamento(conn, linha.atendimento_id, linha.agendamento_id, "cancelado")
+    elif linha.estado == "pendente":
+        _transicionar(conn, linha.agendamento_id, linha.versao, de=("pendente",), mudancas={"estado": "expirado"}, agora=agora)
+        passo_de_agendamento(conn, linha.atendimento_id, linha.agendamento_id, "expirado")
+    situacao: SituacaoDaVoltaPerdida = "pode_ter_falado" if linha.estado == "disparado" else "nao_falou"
+    return VoltaPerdidaFechada(situacao, linha.estado, nota_da_volta_perdida(situacao, linha.retoma_fase))
+
+
 def cancelar(conn: psycopg.Connection, agendamento_id: uuid.UUID | str, versao: int, *, por: CanceladoPor, agora: datetime) -> int:
     """`pendente|confirmado → cancelado`. O `retomar` cancela por `sistema` se o atendimento já não espera a volta."""
     mudancas = {"estado": "cancelado", "cancelado_por": por, "cancelado_em": agora}

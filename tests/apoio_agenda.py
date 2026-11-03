@@ -153,15 +153,22 @@ def estado_do_atendimento(conn: psycopg.Connection, atendimento_id: uuid.UUID) -
     return estado_, versao, lease
 
 
-def tratar_lease_de_referencia(banco: Any, relogio: Any, vistos: list[Any] | None = None):
+def tratar_lease_de_referencia(
+    banco: Any, relogio: Any, vistos: list[Any] | None = None, notas: list[tuple[uuid.UUID, str | None]] | None = None
+):
     """`tratar_lease_vencido` que MUDA o estado de verdade (o da B1.6 fará): `abortar` e `agendamento_perdido` abortam o `reservado`; o resto
-    repassa. Substitui o espião que só anotava: com ele, um `pausar` que deixasse o lease curto demais passaria despercebido (R1-06)."""
+    repassa. Substitui o espião que só anotava: com ele, um `pausar` que deixasse o lease curto demais passaria despercebido (R1-06).
+
+    Na MESMA transação fecha a linha do agendamento (`fechar_volta_perdida`, R2-03) e anota a nota ao consultor que é verdade (`notas`)."""
     from tests import fixtures_fila as ff
 
     async def tratar(lease: Any) -> None:
         if vistos is not None:
             vistos.append(lease)
-        with ff.abrir(banco) as conn:
+        with ff.abrir(banco) as conn, conn.transaction():
+            fechada = ae.fechar_volta_perdida(conn, lease.atendimento_id, agora=relogio.agora())
+            if notas is not None:
+                notas.append((lease.atendimento_id, fechada.nota if fechada else None))
             versao = conn.execute("SELECT versao FROM ia.atendimento WHERE atendimento_id = %s", (lease.atendimento_id,)).fetchone()[0]
             if lease.acao in ("abortar", "agendamento_perdido"):
                 estado.abortar(conn, lease.atendimento_id, versao, motivo=lease.acao, relogio=relogio.agora)
