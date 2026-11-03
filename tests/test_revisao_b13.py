@@ -415,13 +415,25 @@ async def test_n4_rodar_worker_reconcilia_na_subida_e_usa_concorrencia_4(conninf
     app = criar(conninfo_app)
     visto: dict[str, object] = {}
 
-    async def falso_run_worker(**opcoes: object) -> None:
-        visto.update(opcoes)
+    class WorkerFalso:
+        worker_id = None
+        shutdown_graceful_timeout = None
 
-    monkeypatch.setattr(app, "run_worker_async", falso_run_worker)
+        def stop(self) -> None: ...
+
+        async def run(self) -> None: ...
+
+    def falso_novo_worker(_app: object, **opcoes: object) -> WorkerFalso:
+        visto.update(opcoes)
+        return WorkerFalso()
+
+    monkeypatch.setattr(fila, "_novo_worker", falso_novo_worker)
     servicos = montar_servicos(banco, RelogioFalso(U(2026, 11, 13, 0, 16)), Chamadas())  # 21:16 locais, bloqueio ainda false
     await fila.rodar_worker(app, servicos)
     assert visto["concurrency"] == 4
+    assert visto["stalled_worker_timeout"] == fila.HEARTBEAT_PRESO_S, (
+        "a poda de worker só depois da margem da fila (R1-01, revisão automática)"
+    )
     assert config_vigente(conn_app, "bloqueio_entrada").valor is True
     await fila.rodar_worker(app, servicos, concurrency=2)
     assert visto["concurrency"] == 2  # o chamador manda
@@ -447,10 +459,16 @@ async def test_n7_falha_na_reconciliacao_da_subida_nao_derruba_o_worker(conninfo
     app = criar(conninfo_app)
     subiu: list[bool] = []
 
-    async def falso_run_worker(**opcoes: object) -> None:
-        subiu.append(True)
+    class WorkerFalso:
+        worker_id = None
+        shutdown_graceful_timeout = None
 
-    monkeypatch.setattr(app, "run_worker_async", falso_run_worker)
+        def stop(self) -> None: ...
+
+        async def run(self) -> None:
+            subiu.append(True)
+
+    monkeypatch.setattr(fila, "_novo_worker", lambda _app, **opcoes: WorkerFalso())
 
     @contextmanager
     def quebrada():

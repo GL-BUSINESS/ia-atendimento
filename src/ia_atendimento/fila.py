@@ -26,15 +26,22 @@ from typing import Any
 import procrastinate
 import psycopg
 from procrastinate import exceptions as pexc
-from procrastinate.jobs import Status as JobStatus
+from procrastinate.worker import Worker
 from psycopg import ProgrammingError
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from ia_atendimento import agenda_jobs, jobs
 from ia_atendimento.calendario import BLOQUEIO_DATAPREV_EM, DATAPREV_ATE, HORA_BLOQUEIO_ENTRADA, cron_utc
 from ia_atendimento.chave import ConfigCorrida
-from ia_atendimento.prontidao import HEARTBEAT_MAX_S
 from ia_atendimento.relogio import Relogio
+from ia_atendimento.worker_vivo import (
+    HEARTBEAT_PRESO_S,
+    INTERVALO_VIGIA_S,
+    TOLERANCIA_VIGIA_S,
+    WorkerPerdeuOBatimento,
+    liberar_jobs_presos,
+    vigiar_batimento,
+)
 
 log = logging.getLogger(__name__)
 SEARCH_PATH = "procrastinate,public"
@@ -48,7 +55,6 @@ RETRY_FILA = procrastinate.RetryStrategy(max_attempts=5, wait=30, retry_exceptio
 RETRY_BLOQUEIO = procrastinate.RetryStrategy(max_attempts=5, wait=30, retry_exceptions={psycopg.Error, OSError, ConfigCorrida})
 # 03:30 em São Paulo: fim da madrugada, longe do horário de atendimento
 HORA_PODA_LOCAL = time(3, 30)
-HEARTBEAT_PRESO_S = HEARTBEAT_MAX_S * 2  # worker sem batimento há 60 s é dado como morto (o do Procrastinate poda com 30 s e não conta)
 
 
 def conninfo_da_fila(database_url: str) -> str:
@@ -141,9 +147,6 @@ def _tarefas_da_agenda(bp: procrastinate.Blueprint) -> dict[str, Any]:
     @bp.task(name="reaper_agenda", pass_context=True, queueing_lock="reaper_agenda")
     async def reaper_agenda(contexto: procrastinate.JobContext, timestamp: int) -> None:
         async def enfileirar(v: agenda_jobs.Vencido) -> None:
-            # `doing` de worker morto segura o lock do chat para sempre: dá-lo como falho antes de enfileirar de novo
-            for job_id in v.travados:
-                await contexto.app.job_manager.finish_job_by_id_async(job_id, JobStatus.FAILED, delete_job=False)
             await enfileirar_retomar(contexto.app, v.agendamento_id, v.atendimento_id, v.chat_id)
 
         await agenda_jobs.executar_reaper_agenda(_servicos(contexto), enfileirar)
@@ -373,31 +376,33 @@ async def agendar_bloqueio_dataprev(app: procrastinate.App, relogio: Relogio) ->
     return await _enfileirar(app, "bloqueio_dataprev", {"queueing_lock": trava, "schedule_at": BLOQUEIO_DATAPREV_EM})
 
 
-async def liberar_jobs_presos(app: procrastinate.App) -> list[int]:
-    """Dá como `failed` todo job `doing` cujo worker morreu (sem batimento há `HEARTBEAT_PRESO_S`, ou já podado: `worker_id` NULL).
-
-    Um worker que leva `SIGKILL` (deploy) deixa o job `doing` para sempre, e o `lock=chat:` dele segura TODO job posterior do chat: o
-    turno do cliente nunca sai e o `reaper_lease` não enxerga o chat (`NOT EXISTS job doing no chat`). Vale para qualquer tarefa
-    (`retomar`, `turno`, `lembrete`, `iniciar`...). `failed`, não `todo`: a tarefa pode já ter feito o efeito (a volta já reivindicou o
-    agendamento), e quem repete é o negócio (`reaper_agenda`, `reaper_lease`), nunca a fila. Devolve os ids; só ids no log.
-    """
-    presos = await app.job_manager.get_stalled_jobs(seconds_since_heartbeat=HEARTBEAT_PRESO_S)
-    liberados = []
-    for job in presos:
-        await app.job_manager.finish_job_by_id_async(job.id, JobStatus.FAILED, delete_job=False)
-        liberados.append(job.id)
-    if liberados:
-        log.warning("jobs presos de worker morto dados como falhos: %s", liberados)
-    return liberados
+def _novo_worker(app: procrastinate.App, **opcoes: Any) -> Worker:
+    """O que `app.run_worker_async` faz por dentro, mas devolvendo o `Worker` (a vigia do batimento precisa do `worker_id` e do `stop`)."""
+    app.perform_import_paths()
+    return Worker(app=app, **opcoes)
 
 
 async def rodar_worker(app: procrastinate.App, servicos: jobs.Servicos, **opcoes: Any) -> None:
     """Worker com os `Servicos` no contexto. Na subida reconcilia o bloqueio das 20:15 (se a tarefa perdeu o tick, fecha a casa agora).
-    `opcoes` vão ao `run_worker_async` (`wait=False` nos testes)."""
+    `opcoes` vão ao `Worker` (`wait=False` nos testes); `vigia_intervalo_s` e `vigia_tolerancia_s` são da vigia do batimento.
+
+    O worker poda os mortos com `stalled_worker_timeout = HEARTBEAT_PRESO_S` (o padrão, 30 s, deixaria `worker_id` NULL no job de um
+    worker só lento antes da margem da fila) e uma vigia o PARA, abortando os jobs em voo, se ele perder a própria linha ou o batimento
+    (`WorkerPerdeuOBatimento`: o processo sai com erro e o supervisor o reinicia)."""
     try:
         await asyncio.to_thread(jobs.reconciliar_bloqueio_diario, servicos)
     except psycopg.Error as erro:  # a periódica de 5 min repete; um soluço de banco não pode impedir o worker de subir
         log.warning("reconciliação do bloqueio na subida falhou (%s)", type(erro).__name__)
+    intervalo, tolerancia = opcoes.pop("vigia_intervalo_s", INTERVALO_VIGIA_S), opcoes.pop("vigia_tolerancia_s", TOLERANCIA_VIGIA_S)
     contexto = {**opcoes.pop("additional_context", {}), "servicos": servicos}
     opcoes.setdefault("concurrency", CONCORRENCIA_PADRAO)
-    await app.run_worker_async(additional_context=contexto, **opcoes)
+    opcoes.setdefault("stalled_worker_timeout", HEARTBEAT_PRESO_S)
+    worker = _novo_worker(app, additional_context=contexto, **opcoes)
+    vigia = asyncio.create_task(vigiar_batimento(app, worker, intervalo_s=intervalo, tolerancia_s=tolerancia), name="vigia_do_batimento")
+    try:
+        await worker.run()
+    finally:
+        vigia.cancel()
+        await asyncio.gather(vigia, return_exceptions=True)
+    if vigia.done() and not vigia.cancelled() and vigia.exception() is None:
+        raise WorkerPerdeuOBatimento(vigia.result())

@@ -531,8 +531,9 @@ def test_reaper_agenda_seleciona_so_o_confirmado_vencido_sem_job_vivo(conn_app, 
     estado_pausa.sair_da_pausa(conn_app, aberto.atendimento_id, _estado(conn_app, aberto.atendimento_id)[1], relogio=relogio.agora)
 
     vencidos = {v.agendamento_id: v for v in agenda_jobs.selecionar_vencidos(conn_app, dispara + timedelta(minutes=1))}
-    assert set(vencidos) == {sem_job.agendamento_id, rodando_morto.agendamento_id, ja_acabou.agendamento_id}
-    assert vencidos[rodando_morto.agendamento_id].travados == (travado,) and vencidos[sem_job.agendamento_id].travados == ()
+    assert set(vencidos) == {sem_job.agendamento_id, ja_acabou.agendamento_id}
+    assert rodando_morto.agendamento_id not in vencidos, "`doing` conta como vivo até a `jobs_presos` dá-lo como falho (uma só autoridade)"
+    assert travado
     assert vencidos[sem_job.agendamento_id].chat_id == sem_job.chat_id
     assert ainda_cedo.agendamento_id not in vencidos and aberto.agendamento_id not in vencidos  # fora da hora / fora da espera
     assert agenda_jobs.selecionar_vencidos(conn_app, dispara - timedelta(seconds=1)) == []
@@ -655,7 +656,10 @@ async def test_em4_restart_com_tres_confirmados_sem_perda_nem_duplicidade(connin
     # worker 2 (outro processo, outro app): o `reaper_agenda` da periódica e as filas que sobraram
     worker2 = criar(conninfo_app)
     async with worker2.open_async():
-        await worker2.tasks["ia:reaper_agenda"].defer_async(timestamp=int(relogio.agora().timestamp()))
+        await worker2.tasks["ia:jobs_presos"].defer_async(timestamp=int(relogio.agora().timestamp()))  # a periódica geral ...
+        await worker2.tasks["ia:reaper_agenda"].defer_async(
+            timestamp=int(relogio.agora().timestamp())
+        )  # ... e a da agenda, no mesmo minuto
         for _ in range(6):
             await rodar(worker2, servicos)
             if set(voltas.ids) == ids:

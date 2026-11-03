@@ -14,8 +14,8 @@
   `reaper_lease` devolve o lead (`retomada_perdida`).
 - **`reaper_agenda`** (por minuto): `confirmado` com `dispara_em` vencido, atendimento ainda à espera (`pausado`, ou `reservado` de
   agendamento) e **sem job vivo** (`todo`, ou `doing` de worker com batimento) ⇒ enfileira o `retomar` de verdade. É a rede de quem perdeu o
-  job na queda do worker. Um `doing` de worker MORTO é dado como `failed` antes (`Vencido.travados`): ele segue segurando o `lock=chat:` e o
-  novo job nunca sairia da fila.
+  job na queda do worker. Um `doing` conta como job vivo ATÉ a periódica `jobs_presos` (`worker_vivo.py`) dá-lo como falho: só ela decide
+  quem morreu, com uma margem e uma instrução atômica; o `reaper_agenda` seguinte já não vê o job e enfileira de novo.
 - **Teto de atraso (R1-03):** o lease do atendimento é `dispara_em + folga`. Depois dele o `retomar` NÃO entrega a volta (a hora combinada
   já passou; a janela de 08:30–19:00 e as 24 h do WhatsApp podem ter estourado): marca o agendamento `expirado` e deixa o lead para o
   `reaper_lease` (`retomada_perdida`), que o devolve ao humano. Quem chega primeiro (este job ou o `reaper_lease`) decide; o outro desiste.
@@ -35,7 +35,6 @@ import psycopg
 from ia_atendimento import agenda_estado as ae
 from ia_atendimento.estado_erros import ConflitoVersao, TransicaoInvalida
 from ia_atendimento.jobs import LIMITE_LOTE, ServicoNaoConfigurado, Servicos, Volta, configurado
-from ia_atendimento.prontidao import HEARTBEAT_MAX_S
 
 PREFIXO_ALARME: Final = "retomar:"
 PREFIXO_EXEC: Final = "retomar_exec:"
@@ -139,32 +138,26 @@ class Vencido:
     atendimento_id: uuid.UUID
     chat_id: str
     dispara_em: datetime
-    travados: tuple[int, ...] = ()  # jobs `doing` deste agendamento cujo worker morreu (sem batimento): a fila deve dá-los como falhos
 
 
-# job vivo = `todo` (alarme ou job de verdade esperando) ou `doing` de worker com batimento; `doing` de worker morto (queda) não conta
+# job vivo = `todo` (alarme ou job de verdade esperando) ou `doing`; o `doing` de worker morto sai daqui quando `jobs_presos` o falha
 _SQL_VENCIDOS: Final = """
-SELECT g.agendamento_id, g.atendimento_id, g.chat_id, g.dispara_em,
-  array(SELECT j.id FROM procrastinate.procrastinate_jobs j LEFT JOIN procrastinate.procrastinate_workers w ON w.id = j.worker_id
-        WHERE j.queueing_lock IN (%(alarme)s || g.agendamento_id::text, %(exec)s || g.agendamento_id::text) AND j.status = 'doing'
-          AND (w.last_heartbeat IS NULL OR w.last_heartbeat < now() - make_interval(secs => %(batimento)s)) ORDER BY j.id) AS travados
-FROM ia.agendamento g
+SELECT g.agendamento_id, g.atendimento_id, g.chat_id, g.dispara_em FROM ia.agendamento g
 JOIN ia.atendimento a ON a.atendimento_id = g.atendimento_id
 WHERE g.estado = 'confirmado' AND g.dispara_em <= %(agora)s
   AND ((g.entrada = 'pausa_ia' AND a.estado = 'pausado')
        OR (g.entrada = 'dialogo_agendar' AND a.estado = 'reservado' AND a.gatilho = 'agendamento'))
   AND NOT EXISTS (
-    SELECT 1 FROM procrastinate.procrastinate_jobs j LEFT JOIN procrastinate.procrastinate_workers w ON w.id = j.worker_id
-    WHERE j.queueing_lock IN (%(alarme)s || g.agendamento_id::text, %(exec)s || g.agendamento_id::text)
-      AND (j.status = 'todo' OR (j.status = 'doing' AND w.last_heartbeat >= now() - make_interval(secs => %(batimento)s))))
+    SELECT 1 FROM procrastinate.procrastinate_jobs j
+    WHERE j.queueing_lock IN (%(alarme)s || g.agendamento_id::text, %(exec)s || g.agendamento_id::text) AND j.status IN ('todo', 'doing'))
 ORDER BY g.dispara_em LIMIT %(limite)s
 """  # fmt: skip
 
 
 def selecionar_vencidos(conn: psycopg.Connection, agora: datetime, limite: int = LIMITE_LOTE) -> list[Vencido]:
     """`confirmado` vencido, ainda à espera e sem job vivo: o que a queda do worker (ou um job que falhou antes de reivindicar) deixou."""
-    params = {"agora": agora, "alarme": PREFIXO_ALARME, "exec": PREFIXO_EXEC, "batimento": HEARTBEAT_MAX_S, "limite": limite}
-    return [Vencido(*r[:4], tuple(r[4])) for r in conn.execute(_SQL_VENCIDOS, params)]
+    params = {"agora": agora, "alarme": PREFIXO_ALARME, "exec": PREFIXO_EXEC, "limite": limite}
+    return [Vencido(*r) for r in conn.execute(_SQL_VENCIDOS, params)]
 
 
 def _vencidos(servicos: Servicos) -> list[Vencido]:
