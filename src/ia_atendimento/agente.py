@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -68,6 +69,8 @@ from ia_atendimento.turno import (
 
 PROVEDOR_FIREWORKS_US: Final = "fireworks-us"
 RETENTATIVAS_DE_FERRAMENTA: Final = 1
+RETENTATIVAS_DO_SDK: Final = 0  # a segunda chance do turno é o `output_retries`; o SDK não repete 429/5xx/conexão por baixo (M-9, B-1)
+TIMEOUT_PADRAO_S: Final = 8.0  # sem `Settings` (ex.: ProvedorFalso): o mesmo teto do `Settings.modelo_timeout_s`
 TOKENS_DE_SAIDA_DO_FALSO: Final = 90
 CARACTERES_POR_TOKEN_DO_FALSO: Final = 3
 _ERROS_DO_PROVEDOR: Final = (AgentRunError, httpx.HTTPError, OpenAIError, TimeoutError)
@@ -133,6 +136,10 @@ class ResolvedorModelo:
         self._cliente_http = cliente_http  # injetável: os testes põem um transporte simulado aqui
         observabilidade.registrar_segredo(settings.modelo_api_key_1)
 
+    @property
+    def settings(self) -> Settings:
+        return self._settings
+
     def __repr__(self) -> str:
         return f"ResolvedorModelo(modelo={self._settings.modelo_nome!r}, roteador={self._settings.modelo_roteador!r})"
 
@@ -145,7 +152,7 @@ class ResolvedorModelo:
         cliente = AsyncOpenAI(
             base_url=s.modelo_base_url_1,
             api_key=s.modelo_api_key_1.get_secret_value(),
-            max_retries=s.modelo_tentativas_http,
+            max_retries=RETENTATIVAS_DO_SDK,
             timeout=s.modelo_timeout_s,
             http_client=self._cliente_http,
         )
@@ -186,14 +193,17 @@ class ProvedorFalso:
     roteiro: Roteiro
     uso: RequestUsage | None = None
     falha: Exception | None = None
+    atraso_s: float = 0.0  # a resposta demora (provar o tempo-limite do turno)
     chamadas: int = 0
     vistos: list[str] = field(default_factory=list)
 
     def resolver(self, modelo: str, provedor: str, raciocinio: bool) -> Model:
         return FunctionModel(self._responder, model_name=f"falso:{modelo}")
 
-    def _responder(self, mensagens: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    async def _responder(self, mensagens: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         self.chamadas += 1
+        if self.atraso_s:
+            await asyncio.sleep(self.atraso_s)
         usuario = _texto_do_usuario(mensagens)
         self.vistos.append(f"{info.instructions or ''}\n{usuario}")
         if self.falha is not None:
@@ -246,6 +256,7 @@ def criar_agente(
     `PROJECAO_DAS_FERRAMENTAS` (senão `FerramentaSemProjecao`, antes de qualquer chamada) e o retorno só volta ao modelo projetado e
     auditado."""
     tools, capacidades = registrar(ferramentas or {})
+    settings = settings or getattr(provedor, "settings", None)  # o `ResolvedorModelo` leva o dele: o tempo e o preço não ficam calados
     modelo = provedor.resolver(modelo_faixa.modelo, modelo_faixa.provedor, modelo_faixa.raciocinio)
     agente: Agent[Deps, Turno] = Agent(
         modelo,
@@ -259,7 +270,9 @@ def criar_agente(
     instrumento = instrumentacao or observabilidade.instrumentacao_atual()
     if instrumento is not None:
         agente.instrument = instrumento
-    timeout = settings.modelo_timeout_s * (OUTPUT_RETRIES + 1) if settings else None
+    timeout = (settings.modelo_timeout_s if settings else TIMEOUT_PADRAO_S) * (
+        OUTPUT_RETRIES + 1
+    )  # o turno inteiro: toda tentativa de saída
     return AgenteDoTurno(agente, modelo_faixa, settings.precos() if settings else precos, timeout, tuple(ferramentas or ()))
 
 

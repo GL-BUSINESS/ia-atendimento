@@ -56,7 +56,7 @@ URL do modelo em https (http só em localhost) e **nunca** `deepseek.com` nem `a
 | `API_TOKEN` | token da API de entrada |
 | `MODELO_ROTEADOR` | roteador só-EUA (`…/routers/deepseek-<versão>-us`, o do `MODELO_NOME`); outro valor derruba o boot |
 | `MODELO_RACIOCINIO_OFF` | como desligar o raciocínio no `extra_body`: `reasoning_effort_none` (padrão) ou `thinking_disabled`. **HIPÓTESE até a A2.9** |
-| `MODELO_TEMPERATURA`, `MODELO_MAX_TOKENS`, `MODELO_TIMEOUT_S`, `MODELO_TENTATIVAS_HTTP` | chamada ao modelo (0,3 · 400 · 20 s · 1 retentativa do SDK, sempre no MESMO provedor) |
+| `MODELO_TEMPERATURA`, `MODELO_MAX_TOKENS`, `MODELO_TIMEOUT_S` | chamada ao modelo (0,3 · 400 · 8 s, teto de 10 s; sem retentativa do SDK, só o `output_retries=1`) |
 | `PRECO_IN_USD`, `PRECO_CACHE_USD`, `PRECO_OUT_USD`, `CAMBIO` | custo por turno (US$/1M tokens e R$/US$); padrões do estudo G §4. Zero ou negativo derruba o boot |
 | `PHOENIX_ENDPOINT` | traces (banco `ia_obs`); vazio = não exporta |
 | `PHOENIX_PROJETO`, `PHOENIX_API_KEY` | projeto (padrão `ia-atendimento`) e chave do Phoenix, se ele exigir (`SecretStr`) |

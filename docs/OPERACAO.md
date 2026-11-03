@@ -106,7 +106,7 @@ do ambiente (nomes em `.env.example`; segredos só no `.env` ou no arquivo 0600 
 | `MODELO_API_KEY_1` | — | `SecretStr`, ≥ 16 caracteres; sai de `Settings` e vai só no cabeçalho `Authorization` da chamada; o scrubber a troca por `[SEGREDO]` em span e log |
 | `MODELO_RACIOCINIO_OFF` | `reasoning_effort_none` | **HIPÓTESE.** `reasoning_effort_none` envia `{"reasoning_effort": "none"}`; `thinking_disabled` envia `{"thinking": {"type": "disabled"}}`. A **A2.9** diz qual o V4.1 Flash no Fireworks aceita: trocar aqui, sem mexer em código |
 | `MODELO_TEMPERATURA`, `MODELO_MAX_TOKENS` | `0.3`, `400` | saída ≤ 220 tokens (H §3.1) com folga para o JSON do `Turno`; vai como `max_tokens` |
-| `MODELO_TIMEOUT_S`, `MODELO_TENTATIVAS_HTTP` | `20`, `1` | tempo por chamada e retentativas do SDK (429/5xx/conexão) **no mesmo provedor**; não existe segundo provedor |
+| `MODELO_TIMEOUT_S` | `8` (máx. 10) | tempo de UMA chamada, no cliente HTTP e no turno; o turno inteiro tem esse tempo × 2 (`output_retries=1`). O SDK **não** repete 429/5xx/conexão (`max_retries=0`); não existe segundo provedor. Calibrar na A2.9 |
 | `PRECO_IN_USD`, `PRECO_CACHE_USD`, `PRECO_OUT_USD`, `CAMBIO` | `0.45`, `0.009`, `1.80`, `5.3346` | US$/1M tokens do Fireworks só-EUA (estudo G §4) e câmbio de `premissas.json`; grava `custo_brl` no passo `decisao` (contrato 08 §9). ≤ 0 derruba o boot. **Conciliar com a fatura** |
 | `PHOENIX_ENDPOINT` | vazio | vazio = nada é exportado (nem provedor de traces é criado). Com valor: OTLP/HTTP em `<endpoint>/v1/traces`, sem credencial na URL |
 | `PHOENIX_PROJETO`, `PHOENIX_API_KEY` | `ia-atendimento`, vazio | a chave, se existir, vai como `Authorization: Bearer` |

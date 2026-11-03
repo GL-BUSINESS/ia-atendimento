@@ -71,7 +71,7 @@ def _chamada_de_ferramenta(nome: str) -> httpx.Response:
 
 
 def _agente(rede: RedeSimulada, ferramentas: dict[str, Any]):
-    s = settings_de_teste(modelo_tentativas_http=0)
+    s = settings_de_teste()
     return criar_agente(ResolvedorModelo(s, cliente_http=rede.cliente()), MODELO, ferramentas, settings=s)
 
 

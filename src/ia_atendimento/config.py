@@ -82,8 +82,10 @@ class Settings(BaseSettings):
     modelo_raciocinio_off: Literal["reasoning_effort_none", "thinking_disabled"] = "reasoning_effort_none"
     modelo_temperatura: float = Field(default=0.3, ge=0, le=1)
     modelo_max_tokens: int = Field(default=400, ge=64, le=2000)  # H §3.1: saída ≤ 220 tokens; folga para o JSON do Turno
-    modelo_timeout_s: float = Field(default=20.0, gt=0, le=120)  # tempo total do turno no modelo (H: p95 ≤ 4 s; a reserva é o repasse)
-    modelo_tentativas_http: int = Field(default=1, ge=0, le=3)  # retentativas do SDK (429/5xx/conexão) DENTRO do mesmo provedor
+    # Tempo de UMA chamada ao modelo, no cliente HTTP e no turno (H: p95 ≤ 4 s; a reserva é o repasse). Teto de 10 s: provedor pendurado
+    # não segura o atendimento. Nenhuma retentativa do SDK (`max_retries=0`): a segunda chance é só o `output_retries=1` (M-9).
+    # Calibrar na A2.9.
+    modelo_timeout_s: float = Field(default=8.0, gt=0, le=10)
     # Preços (contrato 08 §9): ausentes não existem (têm padrão) e ≤ 0 derrubam o boot.
     preco_in_usd: Decimal = Field(default=PRECO_IN_USD, gt=0, le=PRECO_MAXIMO)
     preco_cache_usd: Decimal = Field(default=PRECO_CACHE_USD, gt=0, le=PRECO_MAXIMO)
