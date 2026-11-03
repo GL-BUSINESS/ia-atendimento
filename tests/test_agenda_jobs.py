@@ -38,6 +38,7 @@ from tests.apoio_agenda import (
     novo_agendado,
     novo_worker,
     pausado_confirmado,
+    tratar_lease_de_referencia,
 )
 from tests.apoio_api import CHAT, EspiaDeFila, corpo_de_agendamento
 from tests.fixtures_fila import Chamadas, jobs_por_status, montar_servicos
@@ -259,7 +260,7 @@ async def test_desligada_noturna_nao_encerra_pausado(ambiente, banco, conn_super
 
     relogio.definir(datetime(2026, 11, 17, 23, 15, 1, tzinfo=UTC))  # 20:15:01 em São Paulo
     chamadas = Chamadas()
-    servicos = montar_servicos(banco, relogio, chamadas)
+    servicos = montar_servicos(banco, relogio, chamadas, tratar_lease_vencido=tratar_lease_de_referencia(banco, relogio, chamadas.leases))
     app = criar(ff.conninfo(banco))
     async with app.open_async():
         await app.tasks["ia:bloqueio_2015"].defer_async(timestamp=int(relogio.agora().timestamp()))
@@ -274,26 +275,44 @@ async def test_desligada_noturna_nao_encerra_pausado(ambiente, banco, conn_super
             await rodar(app, servicos)
     with ff.abrir(banco) as conn:
         assert config_vigente(conn, "bloqueio_entrada").valor is True
-        assert {a: _estado(conn, a) for a in antes} == antes, "ninguém mudou de estado nem de versão durante a noite"
+        # o bloqueio e o reaper REAIS (o handler de lease também muda estado): quem tem lease vencido (o `aberto`, de 5 min) foi devolvido ...
+        assert (
+            _estado(conn, aberto)[0] == "repassando" and _estado(conn, aguardando) == antes[aguardando]
+        )  # (o aguardando tem lease de 96 h)
+        # ... e quem dorme, não: o `pausado` segue intacto, com a mesma versão, a noite inteira
+        assert _estado(conn, pausado.atendimento_id) == antes[pausado.atendimento_id] == ("pausado", antes[pausado.atendimento_id][1])
     assert [j[0] for j in jobs_por_status(conn_super) if "encerrar" in j[0]] == [], (
         "nenhum encerrar_por_chave (alarme ou real) foi agendado"
     )
     assert pausado.atendimento_id not in {lease.atendimento_id for lease in chamadas.leases}, "o reaper de lease poupa quem dorme"
+    assert {lease.atendimento_id for lease in chamadas.leases} == {aberto}, "e viu o aberto de lease vencido: o reaper estava vivo"
 
     # o mesmo `PUT bloqueio_entrada` pela API também não encerra ninguém; a parada leve manual encerra, pausado incluso (decisão D15)
     ambiente.ligar()
     r = ambiente.put("/config/bloqueio_entrada", {"valor": True, "por": POR})
     assert r.json()["efeitos"] == {"encerrar_por_chave_agendados": 0} and ambiente.fila.encerramentos == []
     r = ambiente.put("/config/ia_ativa", {"valor": False, "por": POR, "motivo": "parada leve de ensaio"})
-    assert r.json()["efeitos"] == {"encerrar_por_chave_agendados": 3}
-    assert pausado.atendimento_id in {a for a, _, _ in ambiente.fila.encerramentos}
+    assert r.json()["efeitos"] == {"encerrar_por_chave_agendados": 2}  # o aguardando e o pausado (o aberto já foi repassado pelo reaper)
+    assert {a for a, _, _ in ambiente.fila.encerramentos} == {pausado.atendimento_id, aguardando}
 
-    # e só quando o lease da pausa vence (retoma_em + 30 min), com a volta perdida, o reaper de lease a vê
-    manha = amanha_0900 + timedelta(minutes=31)
+    # e só quando o lease da pausa vence (retoma_em + 30 min), com a volta perdida, o reaper de lease a vê e a devolve
+    relogio.definir(amanha_0900 + timedelta(minutes=31))
+    async with app.open_async():
+        await app.tasks["ia:reaper_lease"].defer_async(timestamp=int(relogio.agora().timestamp()) + 1)
+        await rodar(app, servicos)
+    assert [lease.acao for lease in chamadas.leases if lease.atendimento_id == pausado.atendimento_id] == ["retomada_perdida"]
     with ff.abrir(banco) as conn:
-        assert [lease.acao for lease in jobs.selecionar_leases_vencidos(conn, manha) if lease.atendimento_id == pausado.atendimento_id] == [
-            "retomada_perdida"
-        ]
+        assert _estado(conn, pausado.atendimento_id)[0] == "repassando"
+
+
+def test_so_o_aberto_e_o_aguardando_expiram_por_tempo_o_pausado_dorme():
+    """Contrato para a B1.6: o `expirar_parados` real filtra por `jobs.ESTADOS_EXPIRAVEIS`. Fora da parada leve MANUAL (`ESTADOS_DA_PARADA_LEVE`,
+    que inclui `pausado`), nada encerra quem dorme."""
+    from ia_atendimento.api.config_rotas import ESTADOS_DA_PARADA_LEVE
+
+    assert {"aberto", "aguardando_cliente"} == jobs.ESTADOS_EXPIRAVEIS
+    assert {"pausado", "reservado", "repassando", "encerrado"}.isdisjoint(jobs.ESTADOS_EXPIRAVEIS)
+    assert "pausado" in ESTADOS_DA_PARADA_LEVE and set(jobs.ESTADOS_EXPIRAVEIS) < set(ESTADOS_DA_PARADA_LEVE)
 
 
 # --- retomar: a reivindicação (CAS) ---------------------------------------------------------------------------------------------------------

@@ -40,6 +40,9 @@ DIAS_COFRE = 1
 DIAS_ATENDIMENTO = 365
 JANELA_DO_BLOQUEIO = timedelta(hours=11, minutes=30)  # 20:15 -> 07:45, quando o Danilo abre a entrada
 STATUS_CONCLUIDOS = ("succeeded", "cancelled", "aborted")
+# Estados que `expirar_parados` (B1.6) pode encerrar por tempo. `pausado` (dorme até `retoma_em`, M-Q2) e o `reservado` de agendamento
+# NÃO entram: só a parada leve MANUAL (`ia_ativa=false`, `config_rotas.ESTADOS_DA_PARADA_LEVE`) encerra `pausado`, e a vigia o devolve.
+ESTADOS_EXPIRAVEIS = frozenset({"aberto", "aguardando_cliente"})
 
 
 class ServicoNaoConfigurado(RuntimeError):
