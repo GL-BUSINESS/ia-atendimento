@@ -1,0 +1,375 @@
+{
+ "versao": 1,
+ "fonte": "forma de Oferta/ParPropostasPessoa/ResultadoPropostasPessoa/PessoaResumo/ResumosPessoas (cliente360.json); saida de FontePessoasTeste em agora_referencia",
+ "relativo": {
+  "valid_until_s": 7200,
+  "regra": "valid_until = agora + 2 h, calculado ao servir; lido_em/criada_em/business_date também seguem o relógio. Os instantes abaixo valem só para agora_referencia"
+ },
+ "agora_referencia": "2026-11-17T15:00:00Z",
+ "casos": {
+  "P01": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000001",
+      "nome": "Zuleide Alvimar",
+      "cpf_mascarado": "***.***.***-91",
+      "cpf": "00000000191",
+      "status_atendimento": null,
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "FACTA",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6000011",
+       "pessoa_id": "00000000-0000-7000-8000-000000000001",
+       "banco": "FACTA",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "3000.00",
+        "valor_parcela": "186.90",
+        "prazo_meses": 24,
+        "tabela_identificador": "115716",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0623"
+       },
+       "atributos_cadastrais": {
+        "nome": "Zuleide Alvimar",
+        "telefone": "550090000001"
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000011",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.012000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0623"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6000011"
+      }
+     }
+    ],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000001",
+    "atribuicao": {
+     "versao": 1,
+     "site_profile_id": null
+    }
+   }
+  },
+  "P13": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000013",
+      "nome": "Euclides Ulaardel",
+      "cpf_mascarado": "***.***.***-28",
+      "cpf": "00000007528",
+      "status_atendimento": null,
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "FACTA",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6000131",
+       "pessoa_id": "00000000-0000-7000-8000-000000000013",
+       "banco": "FACTA",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "4000.00",
+        "valor_parcela": "173.20",
+        "prazo_meses": 48,
+        "tabela_identificador": "115716",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0433"
+       },
+       "atributos_cadastrais": {
+        "nome": "Euclides Ulaardel",
+        "telefone": "550090000075"
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000131",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.012000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0433"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6000131"
+      }
+     },
+     {
+      "banco": "C6",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6000132",
+       "pessoa_id": "00000000-0000-7000-8000-000000000013",
+       "banco": "C6",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "4800.00",
+        "valor_parcela": "197.76",
+        "prazo_meses": 60,
+        "tabela_identificador": "800077",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0412"
+       },
+       "atributos_cadastrais": {
+        "nome": "Euclides Ulaardel",
+        "telefone": "550090000075"
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000132",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.010000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0412"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6000132"
+      }
+     }
+    ],
+    "varias_ofertas": true,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000013",
+    "atribuicao": {
+     "versao": 1,
+     "site_profile_id": null
+    }
+   }
+  },
+  "P14": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000014",
+      "nome": "Maristela Walardel",
+      "cpf_mascarado": "***.***.***-53",
+      "cpf": "00000000353",
+      "status_atendimento": null,
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "FACTA",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6000141",
+       "pessoa_id": "00000000-0000-7000-8000-000000000014",
+       "banco": "FACTA",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "3500.00",
+        "valor_parcela": "151.55",
+        "prazo_meses": 48,
+        "tabela_identificador": "115716",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0433"
+       },
+       "atributos_cadastrais": {
+        "nome": "Maristela Walardel",
+        "telefone": "550090000003"
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000141",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.012000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0433"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6000141"
+      }
+     },
+     {
+      "banco": "3RN",
+      "produto": "CLT",
+      "caso": "sem_oferta",
+      "contratos": [],
+      "oferta_ativa": null,
+      "alvo_sugerido": null
+     }
+    ],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000014",
+    "atribuicao": {
+     "versao": 1,
+     "site_profile_id": null
+    }
+   }
+  },
+  "P-M18": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000118",
+      "nome": "Marcia Helolim",
+      "cpf_mascarado": "***.***.***-25",
+      "cpf": "00000001325",
+      "status_atendimento": null,
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "FACTA",
+      "produto": "CLT",
+      "caso": "sem_oferta",
+      "contratos": [],
+      "oferta_ativa": null,
+      "alvo_sugerido": null
+     },
+     {
+      "banco": "C6",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6001182",
+       "pessoa_id": "00000000-0000-7000-8000-000000000118",
+       "banco": "C6",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "3000.00",
+        "valor_parcela": "157.80",
+        "prazo_meses": 36,
+        "tabela_identificador": "800077",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0526"
+       },
+       "atributos_cadastrais": {
+        "nome": "Marcia Helolim",
+        "telefone": "550090000013"
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6001182",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.010000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0526"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6001182"
+      }
+     }
+    ],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000118",
+    "atribuicao": {
+     "versao": 1,
+     "site_profile_id": null
+    }
+   }
+  },
+  "desconhecida": {
+   "resumo": {
+    "itens": []
+   },
+   "propostas": {
+    "encontrado": false,
+    "pares": [],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z"
+   }
+  }
+ }
+}

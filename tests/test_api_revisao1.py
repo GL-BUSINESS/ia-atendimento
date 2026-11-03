@@ -278,7 +278,8 @@ def test_o_wheel_leva_as_migracoes_como_dados_do_pacote():
 
     raiz = Path(__file__).resolve().parent.parent
     wheel = tomllib.loads((raiz / "pyproject.toml").read_text())["tool"]["hatch"]["build"]["targets"]["wheel"]
-    assert wheel["force-include"] == {"migrations": "ia_atendimento/migrations"}
+    assert wheel["force-include"]["migrations"] == "ia_atendimento/migrations"  # o /readyz confere o checksum contra esta pasta
+    assert wheel["force-include"]["fixtures"] == "ia_atendimento/fixtures"  # fixtures de 3RN/C6/360 do modo duble (B2.4)
 
 
 # --- R1-30, R1-11, R1-25, R1-20 -------------------------------------------------------------------------------------------------------------

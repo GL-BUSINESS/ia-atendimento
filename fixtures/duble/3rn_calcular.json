@@ -1,0 +1,45 @@
+{
+ "versao": 1,
+ "fonte": "forma de /3rn/calcular (3rn-api app/routers/consulta.py, _calcular e _step1_sim); valores sinteticos",
+ "eco_cpf": "`cpf` ecoa o pedido: o arquivo traz 00000000000 e o gateway o troca pelo CPF consultado",
+ "padrao": "calculado",
+ "por_persona": {
+  "P14": "sem_simulacao"
+ },
+ "casos": {
+  "calculado": {
+   "http": 200,
+   "corpo": {
+    "success": true,
+    "cpf": "00000000000",
+    "fonte_sim": "cache",
+    "tabela": "FGL 102",
+    "valorFinanciado": 3500.0,
+    "valorLiquido": 3290.0,
+    "parcela": 155.05,
+    "prazo": 48,
+    "coeficiente_tabela": 0.008
+   }
+  },
+  "sem_simulacao": {
+   "http": 200,
+   "corpo": {
+    "success": false,
+    "cpf": "00000000000",
+    "etapa": "vinculos",
+    "status": "SIM_AUSENTE",
+    "motivo": "Sem simulação válida em trn.sim para este CPF — com nao_repagar, a consulta de vínculos (paga) não é refeita."
+   }
+  },
+  "reprovado": {
+   "http": 200,
+   "corpo": {
+    "success": true,
+    "cpf": "00000000000",
+    "etapa": "vinculos",
+    "status": "REPROVADO",
+    "motivo": "Sem itens de simulação disponíveis para este CPF."
+   }
+  }
+ }
+}
