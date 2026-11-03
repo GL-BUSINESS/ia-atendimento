@@ -15,7 +15,10 @@
 - **`reaper_agenda`** (por minuto): `confirmado` com `dispara_em` vencido, atendimento ainda à espera (`pausado`, ou `reservado` de
   agendamento) e **sem job vivo** (`todo`, ou `doing` de worker com batimento) ⇒ enfileira o `retomar` de verdade. É a rede de quem perdeu o
   job na queda do worker. Um `doing` de worker MORTO é dado como `failed` antes (`Vencido.travados`): ele segue segurando o `lock=chat:` e o
-  novo job nunca sairia da fila. Limitado pelo lease: depois de `retoma_em + folga` o atendimento sai de `pausado` e o reaper para.
+  novo job nunca sairia da fila.
+- **Teto de atraso (R1-03):** o lease do atendimento é `dispara_em + folga`. Depois dele o `retomar` NÃO entrega a volta (a hora combinada
+  já passou; a janela de 08:30–19:00 e as 24 h do WhatsApp podem ter estourado): marca o agendamento `expirado` e deixa o lead para o
+  `reaper_lease` (`retomada_perdida`), que o devolve ao humano. Quem chega primeiro (este job ou o `reaper_lease`) decide; o outro desiste.
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ PREFIXO_EXEC: Final = "retomar_exec:"
 FOLGA_REARME: Final = timedelta(
     seconds=5
 )  # o alarme `cedo` nunca volta antes de agora + 5 s (relógio da app atrasado não vira laço quente)
-Codigo = Literal["disparado", "inexistente", "nao_confirmado", "fora_do_estado", "cedo", "perdeu"]
+Codigo = Literal["disparado", "inexistente", "nao_confirmado", "fora_do_estado", "cedo", "expirado", "perdeu"]
 
 
 @dataclass(frozen=True)
@@ -62,13 +65,13 @@ def _reivindicar(servicos: Servicos, agendamento_id: uuid.UUID, agora: datetime,
     with servicos.abrir_conexao() as conn, conn.transaction():
         # ordem de locks: atendimento, depois agendamento (a mesma da API e da B5.7c); o CAS por `versao` continua sendo a prova
         dono = conn.execute(
-            "SELECT a.atendimento_id, a.estado, a.gatilho, a.chat_id FROM ia.atendimento a"
+            "SELECT a.atendimento_id, a.estado, a.gatilho, a.chat_id, a.lease_ate FROM ia.atendimento a"
             " WHERE a.atendimento_id = (SELECT atendimento_id FROM ia.agendamento WHERE agendamento_id = %s) FOR UPDATE",
             (agendamento_id,),
         ).fetchone()
         if dono is None:
             return Reivindicacao("inexistente")
-        atendimento_id, estado, gatilho, chat_id = dono
+        atendimento_id, estado, gatilho, chat_id, lease_ate = dono
         linha = ae.ler_agendamento(conn, agendamento_id, travar=True)
         if linha.estado != "confirmado" or linha.dispara_em is None:
             return Reivindicacao("nao_confirmado")  # pendente (a confirmação ainda não veio), ou já disparado/cancelado/expirado
@@ -78,6 +81,11 @@ def _reivindicar(servicos: Servicos, agendamento_id: uuid.UUID, agora: datetime,
             return Reivindicacao("fora_do_estado")  # alguém tirou o atendimento da espera: não se fala com o cliente
         if linha.dispara_em > agora:
             return Reivindicacao("cedo", dispara_em=linha.dispara_em)
+        # teto de atraso (R1-03): o lease é `dispara_em + folga`; passou dele, quem decide é a vigia
+        if lease_ate is not None and agora > lease_ate:
+            ae.expirar(conn, agendamento_id, linha.versao, agora=agora)
+            ae.passo_de_agendamento(conn, atendimento_id, agendamento_id, "expirado")
+            return Reivindicacao("expirado")
         try:
             ae.disparar(conn, agendamento_id, linha.versao, agora=agora, job_id=job_id)
         except (ConflitoVersao, TransicaoInvalida):

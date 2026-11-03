@@ -378,6 +378,47 @@ async def test_relogio_da_app_atrasado_nao_vira_laco_quente(conninfo_app, conn_a
     assert voltas.ids == [caso.agendamento_id] and _ag(conn_app, caso.agendamento_id)[:3] == ("disparado", 3, "retomou")
 
 
+async def test_retomar_muito_depois_da_hora_nao_entrega_a_volta_marca_expirado_e_o_lead_e_da_vigia(banco, conn_app, relogio, versoes):
+    """R1-03: queda longa do worker. 5 h depois (14:00 → 19:00 em SP, fora da janela de 08:30–19:00 do dia seguinte e perto das 24 h do WhatsApp)
+    a volta NÃO sai: `expirado`, passo `expirado`, atendimento intocado; o `reaper_lease` vê `retomada_perdida` e o `reaper_agenda` para."""
+    dispara = relogio.agora() + timedelta(hours=2)
+    caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara, fase="E5")
+    antes = _estado(conn_app, caso.atendimento_id)
+    voltas = Voltas()
+    servicos = _servicos(banco, relogio, voltas)
+    relogio.definir(dispara + timedelta(hours=5))
+    assert [v.agendamento_id for v in agenda_jobs.selecionar_vencidos(conn_app, relogio.agora())] == [caso.agendamento_id]
+    assert await agenda_jobs.executar_retomar(servicos, caso.agendamento_id, _reagendar_ignorando) == "expirado"
+    assert voltas.recebidas == [], "a volta não é entregue tarde"
+    assert _ag(conn_app, caso.agendamento_id)[:3] == ("expirado", 3, None)
+    assert conn_app.execute(
+        "SELECT disparado_em, cancelado_por FROM ia.agendamento WHERE agendamento_id = %s", (caso.agendamento_id,)
+    ).fetchone() == (None, None)
+    assert _passos(conn_app, caso.atendimento_id) == ["expirado"] and _estado(conn_app, caso.atendimento_id) == antes
+    assert [(lease.atendimento_id, lease.acao) for lease in jobs.selecionar_leases_vencidos(conn_app, relogio.agora())] == [
+        (caso.atendimento_id, "retomada_perdida")
+    ]  # o lead segue `pausado` com o lease vencido: devolvê-lo ao humano é do reaper de lease
+    assert agenda_jobs.selecionar_vencidos(conn_app, relogio.agora()) == [], "o reaper_agenda não insiste"
+    assert await agenda_jobs.executar_retomar(servicos, caso.agendamento_id, _reagendar_ignorando) == "nao_confirmado"
+
+
+@pytest.mark.parametrize(
+    ("depois", "esperado"),
+    [
+        (timedelta(minutes=29, seconds=59), "disparado"),
+        (timedelta(minutes=30), "disparado"),
+        (timedelta(minutes=30, seconds=1), "expirado"),
+    ],
+)
+async def test_o_teto_de_atraso_e_o_lease_retoma_em_mais_folga(banco, conn_app, relogio, versoes, depois, esperado):
+    dispara = relogio.agora() + timedelta(hours=2)
+    caso = agendado_confirmado(
+        conn_app, relogio.agora, versoes, dispara_em=dispara
+    )  # caso (b): o `reservado` de vida longa tem o mesmo teto
+    relogio.definir(dispara + depois)
+    assert await agenda_jobs.executar_retomar(_servicos(banco, relogio, Voltas()), caso.agendamento_id, _reagendar_ignorando) == esperado
+
+
 async def test_retomar_de_pendente_ou_inexistente_nao_faz_nada(banco, conn_app, relogio, versoes):
     agora = relogio.agora()
     atd, _v, _c = novo_agendado(conn_app, agora, versoes, retoma_em=agora + timedelta(hours=1))

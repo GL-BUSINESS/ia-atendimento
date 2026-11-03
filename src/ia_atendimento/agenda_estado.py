@@ -130,6 +130,12 @@ def registrar_desfecho(conn: psycopg.Connection, agendamento_id: uuid.UUID | str
     return _transicionar(conn, agendamento_id, atual.versao, de=("disparado",), mudancas={"desfecho_disparo": desfecho}, agora=agora)
 
 
+def expirar(conn: psycopg.Connection, agendamento_id: uuid.UUID | str, versao: int, *, agora: datetime) -> int:
+    """`confirmado → expirado`: a hora combinada passou do teto de atraso (o lease do atendimento já venceu) e a volta NÃO sai. O lead é do
+    `reaper_lease` (`retomada_perdida`), que o devolve ao humano. O CHECK de `expirado` só exige `cancelado_por` e `disparado_em` nulos."""
+    return _transicionar(conn, agendamento_id, versao, de=("confirmado",), mudancas={"estado": "expirado"}, agora=agora)
+
+
 def cancelar(conn: psycopg.Connection, agendamento_id: uuid.UUID | str, versao: int, *, por: CanceladoPor, agora: datetime) -> int:
     """`pendente|confirmado → cancelado`. O `retomar` cancela por `sistema` se o atendimento já não espera a volta."""
     mudancas = {"estado": "cancelado", "cancelado_por": por, "cancelado_em": agora}
