@@ -826,3 +826,36 @@ def test_segundo_pedido_no_mesmo_chat_nao_cria_segundo_agendamento_ativo(ambient
     outro = ambiente.post("/agendamentos", corpo_de_agendamento(datetime_post="2026-11-17T11:56:00-03:00"))  # outra chave, mesmo chat
     assert outro.status_code == 409 and outro.json()["erro"]["codigo"] == "chat_ocupado"
     assert [ambiente.escalar(f"SELECT count(*) FROM {t}") for t in ("ia.atendimento", "ia.agendamento")] == [1, 1]
+
+
+async def test_a_volta_carrega_a_versao_do_atendimento_como_cerca(banco, conn_app, relogio, versoes):
+    """R2-01: `Volta.atendimento_versao` é a versão lida sob o lock do claim (o claim não a muda). A volta superada (a fila a deu por morta, um
+    turno ou repasse mexeu depois) escreve com ela e leva `ConflitoVersao`; a volta em dia passa."""
+    dispara = relogio.agora() + timedelta(hours=2)
+    caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)
+    versao_antes = _estado(conn_app, caso.atendimento_id)[1]
+    voltas = Voltas()
+    relogio.definir(dispara + timedelta(seconds=1))
+    assert await agenda_jobs.executar_retomar(_servicos(banco, relogio, voltas), caso.agendamento_id, _reagendar_ignorando) == "disparado"
+    (volta,) = voltas.recebidas
+    assert volta.atendimento_versao == versao_antes == _estado(conn_app, caso.atendimento_id)[1], (
+        "o claim não incrementa a versão do atendimento"
+    )
+    # alguém (turno, repasse, renovação) mexeu DEPOIS do claim: a escrita da volta, com a versão do claim, é recusada e nada muda
+    estado.aplicar(
+        conn_app, caso.atendimento_id, volta.atendimento_versao, estado.Mudancas(turnos=1), agora=relogio.agora()
+    )  # o turno do cliente
+    antes = _estado(conn_app, caso.atendimento_id)
+    with pytest.raises(estado.ConflitoVersao):
+        estado_pausa.sair_da_pausa(conn_app, caso.atendimento_id, volta.atendimento_versao, relogio=relogio.agora)
+    assert _estado(conn_app, caso.atendimento_id) == antes and antes[0] == "pausado"
+
+
+async def test_a_volta_em_dia_sai_da_pausa_com_a_versao_do_claim(banco, conn_app, relogio, versoes):
+    dispara = relogio.agora() + timedelta(hours=2)
+    caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)
+    voltas = Voltas()
+    relogio.definir(dispara + timedelta(seconds=1))
+    await agenda_jobs.executar_retomar(_servicos(banco, relogio, voltas), caso.agendamento_id, _reagendar_ignorando)
+    estado_pausa.sair_da_pausa(conn_app, caso.atendimento_id, voltas.recebidas[0].atendimento_versao, relogio=relogio.agora)
+    assert _estado(conn_app, caso.atendimento_id)[0] == "aberto"

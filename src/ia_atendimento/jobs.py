@@ -98,6 +98,10 @@ class Volta:
     entrada: str  # `pausa_ia` = caso (a), atendimento `pausado` · `dialogo_agendar` = caso (b), `reservado` que nunca tocou o chat
     retoma_fase: str | None
     dispara_em: datetime
+    # `versao` do atendimento lida SOB o lock do claim (o claim não a incrementa): é a CERCA da volta. A primeira escrita
+    # (`sair_da_pausa`, `iniciar_agendado`) usa esta versão; se um turno ou repasse mexeu depois do claim, leva `ConflitoVersao` e a
+    # volta superada não escreve nem envia por cima (R2-01).
+    atendimento_versao: int
 
 
 @dataclass(frozen=True)

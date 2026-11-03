@@ -79,7 +79,7 @@ def _reivindicar(servicos: Servicos, agendamento_id: uuid.UUID, agora: datetime,
         except (ConflitoVersao, TransicaoInvalida):
             return Reivindicacao("perdeu")
         ae.passo_de_agendamento(conn, atendimento_id, agendamento_id, "disparado")
-        volta = Volta(agendamento_id, atendimento_id, chat_id, linha.entrada, linha.retoma_fase, linha.dispara_em)
+        volta = Volta(agendamento_id, atendimento_id, chat_id, linha.entrada, linha.retoma_fase, linha.dispara_em, dono.versao)
         return Reivindicacao("disparado", volta=volta)
 
 
