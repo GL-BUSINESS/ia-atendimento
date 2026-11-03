@@ -19,6 +19,7 @@ from typing import Annotated, Any, Final
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ia_atendimento.pessoas_teste.arquivo import PessoasTesteInvalidas
+from ia_atendimento.pessoas_teste.catalogo import catalogo_padrao
 from ia_atendimento.pessoas_teste.fonte import MODOS_COM_FIXTURES, ForaDoModoDeTeste
 from ia_atendimento.pessoas_teste.formas import (
     C6Simular,
@@ -85,6 +86,13 @@ class _ArquivoDeBanco(_Fechado):
             raise ValueError("`eco_cpf` explica que `cpf` ecoa o pedido")
         return self
 
+    @model_validator(mode="after")
+    def _personas_do_catalogo(self) -> _ArquivoDeBanco:
+        fora = sorted(set(self.por_persona) - {p.persona_id for p in catalogo_padrao().pessoas})
+        if fora:
+            raise ValueError(f"`por_persona` cita persona fora do catálogo: {fora}")
+        return self
+
 
 class Arquivo3rn(_ArquivoDeBanco):
     casos: dict[str, Caso3rn]
@@ -94,6 +102,15 @@ class Arquivo3rn(_ArquivoDeBanco):
     def _referencias(self) -> Arquivo3rn:
         if not {self.padrao, *self.por_persona.values()} <= set(self.casos):
             raise ValueError("`padrao` e `por_persona` apontam para casos que existem")
+        return self
+
+    @model_validator(mode="after")
+    def _todo_caso_ecoa_nao_repagar(self) -> Arquivo3rn:
+        """A IA chama o `/3rn/calcular` com `nao_repagar: true` (nunca repaga a consulta de vínculos); o servidor ecoa o campo em
+        TODA resposta do handler: fixture sem o eco é uma resposta que o 3rn-api não produz, e `SIM_AUSENTE` só existe nesse modo."""
+        sem_eco = sorted(nome for nome, caso in self.casos.items() if caso.corpo.nao_repagar is not True)
+        if sem_eco:
+            raise ValueError(f"casos do 3RN sem o eco `nao_repagar: true`: {sem_eco}")
         return self
 
 
@@ -114,7 +131,7 @@ class FixturesDuble(_Fechado):
     c6: ArquivoC6
 
     def calcular_3rn(self, persona_id: str, cpf: str, modo: str) -> tuple[int, dict[str, Any]]:
-        """`POST /3rn/calcular` da persona: o caso dela (P14: sem simulação) ou o padrão (calculado). (HTTP, corpo), `cpf` = o do pedido."""
+        """`POST /3rn/calcular` (modo `nao_repagar`) da persona: `calculado` com par 3RN ativo; senão `SIM_AUSENTE`."""
         return _servir(self.tres_rn, persona_id, cpf, modo)
 
     def simular_c6(self, persona_id: str, cpf: str, modo: str) -> tuple[int, dict[str, Any]]:
@@ -127,6 +144,11 @@ def _servir(arquivo: Arquivo3rn | ArquivoC6, persona_id: str, cpf: str, modo: st
         raise ForaDoModoDeTeste(f"fixtures de bancos só valem em duble|teste (modo pedido: {modo!r})")
     if len(cpf) != 11 or not cpf.isdigit():
         raise ValueError("cpf com 11 dígitos")
+    pessoa = catalogo_padrao().por_persona(persona_id)
+    if pessoa is None:
+        raise ValueError("persona fora do catálogo de pessoas de teste")
+    if cpf != pessoa.cpf_digitos:
+        raise ValueError("o CPF não é o da persona de teste (fixture nunca responde por CPF de cliente)")
     caso = arquivo.casos[arquivo.por_persona.get(persona_id, arquivo.padrao)]
     corpo = caso.corpo.model_dump(mode="json", exclude_unset=True)
     return caso.http, {**corpo, "cpf": cpf}

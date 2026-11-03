@@ -182,7 +182,11 @@ class ResumosPessoas(_Fechada):
 
 
 class Calcular3rnCalculado(_Fechada):
-    """Sucesso (`consulta.py`, `_calcular`, o `return` final): o recálculo na tabela que a consulta escolheu."""
+    """Sucesso (`consulta.py`, `_calcular`, o `return` final): o recálculo na tabela que a consulta escolheu.
+
+    No modo da IA (`nao_repagar: true`) a resposta ECOA `"nao_repagar": true` (`_ecoar_nao_repagar`: «a prova, para o chamador, de que ESTE
+    3rn-api entendeu o campo»); com outra tabela ou taxa ecoa também `regra_id`, `taxa_pedida` e `taxa` (a que a AJIN devolveu).
+    """
 
     success: Literal[True]
     cpf: Cpf11
@@ -193,23 +197,39 @@ class Calcular3rnCalculado(_Fechada):
     parcela: float | None
     prazo: int | None
     coeficiente_tabela: float | None
+    nao_repagar: Literal[True] | None = None
+    regra_id: str | None = None
+    taxa_pedida: float | None = None
+    taxa: float | None = None
 
 
 class Calcular3rnSemCalculo(_Fechada):
-    """Não houve cálculo: o passo de vínculos (Step 1) ou o recálculo (Step 2) devolveu um desfecho em vez de valores.
+    """Não houve cálculo: o recálculo (Step 2) ou a validação do prazo devolveu um desfecho em vez de valores.
 
-    `SIM_AUSENTE` é o caminho do `nao_repagar` (sem simulação em `trn.sim` a consulta paga NÃO é refeita): `success:false`, `vinculos`.
-    `REPROVADO`/`PROCESSANDO`/`ERRO...` vêm do `_step1_sim` (`success:true`, `etapa:vinculos`) ou de `tratar_erro_api` (`success:false`).
+    No modo da IA (`nao_repagar: true`, o único em que as fixtures existem) o passo de vínculos (Step 1) NUNCA roda online, então:
+    `SIM_AUSENTE` (sem simulação em `trn.sim` a consulta paga NÃO é refeita): `success:false`, `etapa:"vinculos"`; prazo fora da tabela ou
+    acima do teto do vínculo: `success:false`, `status:"REPROVADO"` com `tabela`, `prazoMaximo` e `prazosDisponiveis`, SEM `etapa`; erro do
+    Step 2 (`tratar_erro_api`): `etapa:"calculo"` e `success:false` (`PROCESSANDO` na falha de rede é `success:true`). Todas ecoam
+    `"nao_repagar": true`.
     """
 
     success: bool
     cpf: Cpf11
-    status: Literal["SIM_AUSENTE", "REPROVADO", "PROCESSANDO", "ERRO", "ERRO_AUTH", "MARGEM_INSUFICIENTE"]
+    status: Literal["SIM_AUSENTE", "REPROVADO", "PROCESSANDO", "ERRO", "ERRO_AUTH"]
     motivo: str
     etapa: Literal["vinculos", "calculo"] | None = None
     tabela: str | None = None
     prazoMaximo: int | None = None
     prazosDisponiveis: list[int] | None = None
+    nao_repagar: Literal[True] | None = None
+
+    @model_validator(mode="after")
+    def _forma_real(self) -> Calcular3rnSemCalculo:
+        if self.status == "SIM_AUSENTE" and (self.success or self.etapa != "vinculos"):
+            raise ValueError("SIM_AUSENTE é `success:false` na etapa `vinculos`")
+        if self.prazosDisponiveis is not None and self.status != "REPROVADO":
+            raise ValueError("`prazosDisponiveis` só acompanha o REPROVADO de prazo fora da tabela")
+        return self
 
 
 # ----------------------------------------------------------------------------------------------------------- C6: POST /c6/oferta/simular

@@ -1,11 +1,9 @@
 {
- "versao": 1,
- "fonte": "forma de /3rn/calcular (3rn-api app/routers/consulta.py, _calcular e _step1_sim); valores sinteticos",
+ "versao": 2,
+ "fonte": "forma de /3rn/calcular com nao_repagar (3rn-api app/routers/consulta.py, calcular/_calcular/_ecoar_nao_repagar); valores sinteticos",
  "eco_cpf": "`cpf` ecoa o pedido: o arquivo traz 00000000000 e o gateway o troca pelo CPF consultado",
- "padrao": "calculado",
- "por_persona": {
-  "P14": "sem_simulacao"
- },
+ "padrao": "sem_simulacao",
+ "por_persona": {},
  "casos": {
   "calculado": {
    "http": 200,
@@ -18,7 +16,8 @@
     "valorLiquido": 3290.0,
     "parcela": 155.05,
     "prazo": 48,
-    "coeficiente_tabela": 0.008
+    "coeficiente_tabela": 0.008,
+    "nao_repagar": true
    }
   },
   "sem_simulacao": {
@@ -28,17 +27,26 @@
     "cpf": "00000000000",
     "etapa": "vinculos",
     "status": "SIM_AUSENTE",
-    "motivo": "Sem simulação válida em trn.sim para este CPF — com nao_repagar, a consulta de vínculos (paga) não é refeita."
+    "motivo": "Sem simulação válida em trn.sim para este CPF — com nao_repagar, a consulta de vínculos (paga) não é refeita.",
+    "nao_repagar": true
    }
   },
-  "reprovado": {
+  "prazo_indisponivel": {
    "http": 200,
    "corpo": {
-    "success": true,
+    "success": false,
     "cpf": "00000000000",
-    "etapa": "vinculos",
     "status": "REPROVADO",
-    "motivo": "Sem itens de simulação disponíveis para este CPF."
+    "tabela": "FGL 102",
+    "prazoMaximo": 60,
+    "prazosDisponiveis": [
+     24,
+     36,
+     48,
+     60
+    ],
+    "motivo": "Prazo 72x indisponível para a tabela \"FGL 102\". Prazos aceitos: 24x, 36x, 48x, 60x.",
+    "nao_repagar": true
    }
   }
  }

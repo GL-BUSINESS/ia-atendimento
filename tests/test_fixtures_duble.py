@@ -60,7 +60,7 @@ def test_fixtures_duble_validam_contra_o_schema_pydantic_da_forma(fixtures):
     """Os três arquivos carregam, e carregam pelo diretório do checkout (o wheel leva o mesmo, `force-include`)."""
     assert modulo.diretorio_padrao() == DIRETORIO
     assert set(fixtures.cliente360.casos) == {"P01", "P13", "P14", "P-M18", "desconhecida"}
-    assert {"calculado", "sem_simulacao", "reprovado"} <= set(fixtures.tres_rn.casos) and {"sem_oferta"} <= set(fixtures.c6.casos)
+    assert {"calculado", "sem_simulacao", "prazo_indisponivel"} <= set(fixtures.tres_rn.casos) and {"sem_oferta"} <= set(fixtures.c6.casos)
     for caso in fixtures.tres_rn.casos.values():
         assert isinstance(caso.corpo, Calcular3rnCalculado | Calcular3rnSemCalculo)
     for caso in fixtures.c6.casos.values():
@@ -114,9 +114,15 @@ MUTACOES: list[tuple[str, str, Any]] = [
     ("cliente360_oferta.json", "resumo com cpf mascarado errado", lambda d: _com(d, ["casos", "P01", "resumo", "itens", 0, "cpf_mascarado"], "***.***.***-9")),
     ("cliente360_oferta.json", "resumo sem cpf", lambda d: _sem(d, ["casos", "P01", "resumo", "itens", 0, "cpf"])),
     ("3rn_calcular.json", "3rn: status fora do vocabulário", lambda d: _com(d, ["casos", "sem_simulacao", "corpo", "status"], "TALVEZ")),
+    ("3rn_calcular.json", "3rn: SIM_AUSENTE sem o eco nao_repagar", lambda d: _sem(d, ["casos", "sem_simulacao", "corpo", "nao_repagar"])),
+    ("3rn_calcular.json", "3rn: calculado sem o eco nao_repagar", lambda d: _sem(d, ["casos", "calculado", "corpo", "nao_repagar"])),
+    ("3rn_calcular.json", "3rn: eco nao_repagar falso", lambda d: _com(d, ["casos", "calculado", "corpo", "nao_repagar"], False)),
+    ("3rn_calcular.json", "3rn: SIM_AUSENTE com success true", lambda d: _com(d, ["casos", "sem_simulacao", "corpo", "success"], True)),
+    ("3rn_calcular.json", "3rn: SIM_AUSENTE sem etapa vinculos", lambda d: _sem(d, ["casos", "sem_simulacao", "corpo", "etapa"])),
+    ("3rn_calcular.json", "3rn: persona do corpus que não existe", lambda d: _com(d, ["por_persona", "P99"], "calculado")),
     ("3rn_calcular.json", "3rn: calculado sem parcela", lambda d: _sem(d, ["casos", "calculado", "corpo", "parcela"])),
     ("3rn_calcular.json", "3rn: campo inventado", lambda d: _com(d, ["casos", "calculado", "corpo", "comissao"], 1.0)),
-    ("3rn_calcular.json", "3rn: persona aponta caso inexistente", lambda d: _com(d, ["por_persona", "P14"], "nao_existe")),
+    ("3rn_calcular.json", "3rn: persona aponta caso inexistente", lambda d: _com(d, ["por_persona", "P13"], "nao_existe")),
     ("3rn_calcular.json", "3rn: cpf de 10 dígitos", lambda d: _com(d, ["casos", "calculado", "corpo", "cpf"], "0000000019")),
     ("c6_simular.json", "c6: simulado sem simulacao", lambda d: _com(d, [*C6_SIMULADO, "simulacao"], None)),
     ("c6_simular.json", "c6: result desconhecido", lambda d: _com(d, [*C6_SIMULADO, "result"], "quase")),
@@ -185,24 +191,57 @@ def test_fixtures_duble_p13_oferta_ativa_no_c6_roda_ate_o_t5(fixtures):
 
 
 def test_fixtures_duble_p14_sem_oferta_no_3rn_roda_ate_o_t5(fixtures):
-    """P14 cita o 3RN: T3 mostra o par SEM oferta e o T5 do 3RN não calcula (`SIM_AUSENTE`, sem refazer a consulta paga)."""
+    """P14 cita o 3RN: T3 não tem oferta ativa no 3RN e o T5 do 3RN (modo `nao_repagar`) devolve `SIM_AUSENTE` COM o eco, sem refazer a consulta paga."""
     catalogo = catalogo_padrao()
     fonte = FontePessoasTeste(catalogo, RelogioFalso(datetime(2026, 11, 19, 12, 10, tzinfo=UTC)))
     t3 = ResultadoPropostasPessoa.model_validate(fonte.propostas(catalogo.por_persona("P14").pessoa_id, "teste"))
-    tres = next(par for par in t3.pares if par.banco == "3RN")
-    assert tres.caso == "sem_oferta" and tres.oferta_ativa is None and not t3.varias_ofertas
+    assert not [par for par in t3.pares if par.banco == "3RN" and par.oferta_ativa is not None] and not t3.varias_ofertas
 
     http, corpo = fixtures.calcular_3rn("P14", CPF_P14, "teste")
     sem = Calcular3rnSemCalculo.model_validate(corpo)
-    assert (http, sem.success, sem.status, sem.etapa, sem.cpf) == (200, False, "SIM_AUSENTE", "vinculos", CPF_P14)
+    assert (http, sem.success, sem.status, sem.etapa, sem.cpf, sem.nao_repagar) == (200, False, "SIM_AUSENTE", "vinculos", CPF_P14, True)
+    assert corpo["nao_repagar"] is True, "o 3rn-api ecoa o campo em toda resposta do /calcular com nao_repagar"
+
+
+def test_fixtures_duble_3rn_formas_reais_do_3rn_api_sao_aceitas_e_o_eco_e_exigido():
+    """Respostas reais do `/3rn/calcular` (3rn-api@9b20d44, `calcular`/`_calcular`/`validar_prazo_tabela`), cada uma com o eco; sem o eco, com campo a mais
+    ou fora do vocabulário, o modelo recusa (e o arquivo de fixture, que exige o eco em todos os casos)."""
+    reais = {
+        "SIM_AUSENTE": {"success": False, "cpf": "00000000191", "etapa": "vinculos", "status": "SIM_AUSENTE", "motivo": "Sem simulação válida", "nao_repagar": True},
+        "prazo fora da tabela": {
+            "success": False, "cpf": "00000000191", "status": "REPROVADO", "motivo": 'Prazo 72x indisponível para a tabela "FGL 102".', "tabela": "FGL 102",
+            "prazoMaximo": 60, "prazosDisponiveis": [24, 36, 48, 60], "nao_repagar": True,
+        },
+        "erro do Step 2": {"success": False, "cpf": "00000000191", "etapa": "calculo", "status": "ERRO", "motivo": "Erro de conexão 3RN", "nao_repagar": True},
+        "rede instável": {"success": True, "cpf": "00000000191", "etapa": "calculo", "status": "PROCESSANDO", "motivo": "Rede instável: timeout", "nao_repagar": True},
+    }  # fmt: skip
+    for rotulo, corpo in reais.items():
+        assert Calcular3rnSemCalculo.model_validate(corpo).nao_repagar is True, rotulo
+    calculado = {
+        "success": True, "cpf": "00000000191", "fonte_sim": "cache", "tabela": "FGL 102", "valorFinanciado": 3500.0, "valorLiquido": 3290.0, "parcela": 155.05,
+        "prazo": 48, "coeficiente_tabela": 0.008, "nao_repagar": True,
+    }  # fmt: skip
+    com_outra_tabela = {**calculado, "regra_id": "0f3d6a9e-1c2b-4d5e-8f70-123456789abc", "taxa_pedida": 4.98, "taxa": 4.98}
+    assert Calcular3rnCalculado.model_validate(com_outra_tabela).taxa_pedida == 4.98
+    with pytest.raises(ValidationError):
+        Calcular3rnSemCalculo.model_validate({**reais["SIM_AUSENTE"], "success": True})
+    with pytest.raises(ValidationError):
+        Calcular3rnSemCalculo.model_validate({**reais["SIM_AUSENTE"], "status": "MARGEM_INSUFICIENTE"})  # não é desfecho do /calcular
+    with pytest.raises(ValidationError):
+        Calcular3rnSemCalculo.model_validate({**reais["erro do Step 2"], "prazosDisponiveis": [24]})
 
 
 def test_fixtures_duble_outra_persona_cai_no_padrao(fixtures):
-    """Quem não tem caso próprio: o 3RN devolve o recálculo (calculado) e o C6 devolve «sem oferta» (404), como o `c6-api`."""
-    http, corpo = fixtures.calcular_3rn("P01", "00000000191", "duble")
-    calculado = Calcular3rnCalculado.model_validate(corpo)
-    assert (http, calculado.parcela, calculado.prazo) == (200, 155.05, 48)
-    http, corpo = fixtures.simular_c6("P01", "00000000191", "duble")
+    """Quem não tem caso próprio: o 3RN devolve `SIM_AUSENTE` (sem simulação guardada ele não paga outra consulta) e o C6 devolve «sem oferta»
+    (404), como o `c6-api`. O recálculo bem-sucedido só vale para quem tem par 3RN com oferta ativa (ninguém, hoje)."""
+    cpf = catalogo_padrao().por_persona("P01").cpf_digitos
+    http, corpo = fixtures.calcular_3rn("P01", cpf, "duble")
+    sem = Calcular3rnSemCalculo.model_validate(corpo)
+    assert (http, sem.status, sem.success, sem.nao_repagar) == (200, "SIM_AUSENTE", False, True)
+    assert fixtures.tres_rn.padrao == "sem_simulacao" and fixtures.tres_rn.por_persona == {}
+    calculado = Calcular3rnCalculado.model_validate(fixtures.tres_rn.casos["calculado"].corpo.model_dump(mode="json", exclude_unset=True))
+    assert (calculado.parcela, calculado.prazo, calculado.nao_repagar) == (155.05, 48, True)
+    http, corpo = fixtures.simular_c6("P01", cpf, "duble")
     sem_oferta = C6Simular.model_validate(corpo)
     assert (http, sem_oferta.result, sem_oferta.success, sem_oferta.simulacao) == (404, "sem_oferta", True, None)
 
@@ -210,6 +249,11 @@ def test_fixtures_duble_outra_persona_cai_no_padrao(fixtures):
 def test_fixtures_duble_cpf_eco_e_modo(fixtures):
     """O `cpf` da resposta é o do pedido (o arquivo traz 00000000000); em `real`/`sombra` a fixture se recusa; CPF malformado não passa."""
     assert fixtures.calcular_3rn("P01", "00000000191", "duble")[1]["cpf"] == "00000000191"
+    for fora in ("00000000272", "52998224725"):  # CPF de OUTRA persona e CPF de cliente: a fixture só responde pelo CPF da própria persona
+        with pytest.raises(ValueError, match="CPF não é o da persona"):
+            fixtures.calcular_3rn("P01", fora, "duble")
+    with pytest.raises(ValueError, match="fora do catálogo"):
+        fixtures.simular_c6("P99", "00000000191", "duble")
     assert modulo.CPF_ECO == "00000000000" and fixtures.c6.casos["sem_oferta"].corpo.cpf == modulo.CPF_ECO
     for modo in ("real", "sombra"):
         with pytest.raises(ForaDoModoDeTeste):
@@ -224,7 +268,7 @@ def test_fixtures_duble_cpf_eco_e_modo(fixtures):
 def test_fixtures_duble_so_persona_do_corpus_tem_caso_proprio(fixtures):
     personas = {p.persona_id for p in catalogo_padrao().pessoas}
     assert set(fixtures.tres_rn.por_persona) <= personas and set(fixtures.c6.por_persona) <= personas
-    assert set(fixtures.tres_rn.por_persona) == {"P14"} and set(fixtures.c6.por_persona) == {"P13", "P-M18"}
+    assert set(fixtures.tres_rn.por_persona) == set() and set(fixtures.c6.por_persona) == {"P13", "P-M18"}
 
 
 # --- cliente360_oferta.json: o exemplo e o relativo -----------------------------------------------------------------------------------
