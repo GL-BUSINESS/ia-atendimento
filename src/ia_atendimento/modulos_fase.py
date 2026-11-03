@@ -108,11 +108,16 @@ _DESCRICAO_TX: Final[Mapping[str, str]] = MappingProxyType(
         "TX-41": "é seguro, é golpe?",
     }
 )
+# Na E2 a oferta ainda não foi mostrada (Q1): o estado não traz `oferta_ref`, então o modelo não tem o que copiar (B-6 da revisão).
+_FERRAMENTAS_NA_E2: Final[Mapping[str, str]] = MappingProxyType(
+    {"T3": "T3 oferta_ativa: a condição disponível agora. Sem argumentos nesta fase (a oferta ainda não foi mostrada: não há oferta_ref)."}
+)
 _FERRAMENTAS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "T2": "T2 estado_oportunidade: o estado do lead (oferta, digitação, contrato). Argumentos: nenhum.",
-        "T3": "T3 oferta_ativa: a condição disponível agora. Argumentos: oferta_ref (copie do estado).",
-        "T5": "T5 simular: outras opções para o pedido do cliente. Argumentos: oferta_ref (do estado) e alvo (valor, parcela ou prazo).",
+        "T3": "T3 oferta_ativa: a condição disponível agora. Argumentos: oferta_ref (o apelido que está no estado, como oferta-1).",
+        "T5": "T5 simular: outras opções para o pedido do cliente. Argumentos: oferta_ref (o apelido do estado) e alvo (valor, parcela "
+        "ou prazo).",
         "T10": "T10 status_proposta: onde está a proposta enviada (só leitura). Argumentos: nenhum.",
     }
 )
@@ -138,5 +143,5 @@ def esquemas_das_ferramentas(fase: Fase) -> str:
     if not nomes:
         return "## Ferramentas desta fase\nNenhuma: não peça ferramenta."
     return "## Ferramentas desta fase (pedir pelo campo ferramenta, ação usar_ferramenta)\n" + "\n".join(
-        f"- {_FERRAMENTAS[n]}" for n in nomes
+        f"- {(_FERRAMENTAS_NA_E2 if fase == 'E2' else {}).get(n, _FERRAMENTAS[n])}" for n in nomes
     )

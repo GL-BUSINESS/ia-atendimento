@@ -680,3 +680,61 @@ def test_env_vazio_do_phoenix_e_sem_chave_e_gemini_nao_exige_o_roteador_do_deeps
     )  # o resolvedor é que recusa o par (MVP: só DeepSeek)
     with pytest.raises(ProvedorNaoConfigurado):
         ResolvedorModelo(settings_de_teste(modelo_nome="gemini-2.5-flash")).resolver("gemini-2.5-flash", PROVEDOR_FIREWORKS_US, False)
+
+
+# --- texto livre sem promessa nem link sem esquema; argumentos só apelidos (B-9, B-11) ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Sua proposta está aprovada.",
+        "Está garantido, pode confiar.",
+        "Temos garantia total.",
+        "Foi APROVADO pelo banco",
+        "Veja em meusite.com.br/oferta",
+        "Acesse oferta.link agora",
+        "Custa R $ mil",
+        "Custa R＄ mil",  # largura total
+        "Custa ｒ$ mil",
+        "Fale em contato@banco.example",
+    ],
+)
+def test_texto_livre_barra_promessa_link_sem_esquema_e_moeda_disfarcada(texto):
+    """B-9: o T15 determinístico (B5) é a barreira de verdade, mas o `Turno` já recusa o que é barato de recusar."""
+    with pytest.raises(ValidationError):
+        _turno(texto=texto)
+
+
+@pytest.mark.parametrize(
+    "texto", ["Entendi, vou te ajudar.", "Posso ver a condição para você?", "Obrigado pelo tempo, {{nome}}.", "Sem pressa."]
+)
+def test_texto_livre_normal_continua_passando(texto):
+    assert _turno(texto=texto).texto == texto
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"valor": "50000"},  # o número do pedido é extraído por código
+        {"oferta_ref": "0194a8b0-2f7e-4c3a-9d41-6b1f0c2e7a55"},  # id real: o modelo só conhece o apelido
+        {"oferta_ref": "R$ 5.000,00"},
+        {"oferta_ref": "oferta-123"},
+        {"opcao_ref": "oferta-1"},  # apelido de outro tipo
+        {"alvo": "50000"},
+        {"alvo": "taxa"},
+        {"cpf": "12345678909"},
+    ],
+)
+def test_argumentos_de_ferramenta_so_apelido_e_alvo(args):
+    """B-11: `args` aceitava qualquer token de até 9 dígitos; o modelo podia passar `valor:"50000"` ao gateway."""
+    with pytest.raises(ValidationError):
+        _turno(acao="usar_ferramenta", ferramenta={"nome": "T5", "args": args})
+
+
+def test_argumentos_de_ferramenta_validos():
+    f = _turno(
+        acao="usar_ferramenta", ferramenta={"nome": "T5", "args": {"oferta_ref": "oferta-1", "opcao_ref": "opcao-2", "alvo": "parcela"}}
+    ).ferramenta
+    assert (f.args.oferta_ref, f.args.opcao_ref, f.args.alvo) == ("oferta-1", "opcao-2", "parcela")
+    assert _turno(acao="usar_ferramenta", ferramenta={"nome": "T10"}).ferramenta.args.oferta_ref is None

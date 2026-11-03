@@ -31,7 +31,6 @@ from ia_atendimento.mascara import mascarar
 from ia_atendimento.modelos_conversa import Fase
 from ia_atendimento.passos import MOTIVOS_DE_DECISAO, DecisaoModelo, Faixa, criar
 from ia_atendimento.passos import Codigo40 as CodigoSemPii
-from ia_atendimento.tipos import Referencia
 
 # --- vocabulário do Turno (H §2.2; `tests/test_agente.py` o compara com o da F3) ---------------------------------------------------------
 
@@ -121,6 +120,13 @@ SEIS_CASAS: Final = Decimal("0.000001")  # `passo.custo_brl` é numeric(14,6)
 # --- Turno -------------------------------------------------------------------------------------------------------------------------------
 
 
+# Promessa e link sem esquema que o texto livre não pode ter (H P5, invariante I9): o resto («aprovado», «garantido») é do T15
+# determinístico (B5).
+_PROMESSA: Final = re.compile(r"(?i)\b(?:aprovad[oa]s?|garantid[oa]s?|garantia)\b")
+_LINK_SEM_ESQUEMA: Final = re.compile(r"(?i)\b[a-z0-9-]+\.(?:com|net|org|br|io|app|me|link|ly)\b")
+_MOEDA_COM_ESPACO: Final = re.compile(r"(?i)\b(?:r|us)\s*\$")
+
+
 def _texto_livre_valido(texto: str) -> str:
     desconhecidos = {n for n in _PLACEHOLDER.findall(texto) if n not in PLACEHOLDERS_DO_TEXTO}
     if desconhecidos:
@@ -130,8 +136,15 @@ def _texto_livre_valido(texto: str) -> str:
         raise ValueError("chave solta: placeholder malformado")
     if any(unicodedata.category(c).startswith("N") for c in resto):
         raise ValueError("texto livre sem dígito: número, valor e prazo só por placeholder (H P3)")
-    if any(proibido in resto.lower() for proibido in _TEXTO_PROIBIDO):
+    normalizado = unicodedata.normalize("NFKC", resto).lower()  # «R＄» e «ｒ$» (largura total) viram «r$»
+    if (
+        any(proibido in normalizado for proibido in _TEXTO_PROIBIDO)
+        or _MOEDA_COM_ESPACO.search(normalizado)
+        or _LINK_SEM_ESQUEMA.search(normalizado)
+    ):
         raise ValueError("texto livre sem «R$», e-mail nem link: só por placeholder")
+    if _PROMESSA.search(normalizado):
+        raise ValueError("texto livre sem promessa («aprovado», «garantido»): o código decide o que se promete")
     if mascarar(resto) != resto:
         raise ValueError("texto livre com dado pessoal")
     return texto
@@ -146,15 +159,25 @@ def _enxugar_schema(schema: dict[str, Any]) -> None:
         propriedade.pop("default", None)  # o modelo não precisa saber o padrão; `required` já diz o que é obrigatório
 
 
+class ArgsDaFerramenta(BaseModel):
+    """Os únicos argumentos que o modelo passa a uma ferramenta: o APELIDO que o contexto deu (`oferta-1`, `opcao-2`) e o `alvo` do
+    pedido. O número do
+    pedido é extraído por código (H P3): `{"valor": "50000"}` não passa (B-11)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True, json_schema_extra=_enxugar_schema)
+
+    oferta_ref: Annotated[str, StringConstraints(pattern=r"^oferta-[0-9]{1,2}$")] | None = None
+    opcao_ref: Annotated[str, StringConstraints(pattern=r"^opcao-[0-9]{1,2}$")] | None = None
+    alvo: AlvoPedido | None = None
+
+
 class FerramentaPedida(BaseModel):
-    """A ferramenta que o modelo quer usar: o nome é validado contra a fase; os argumentos são só referências opacas."""
+    """A ferramenta que o modelo quer usar: o nome é validado contra a fase; os argumentos são só apelidos e o alvo (`ArgsDaFerramenta`)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True, json_schema_extra=_enxugar_schema)
 
     nome: Annotated[str, StringConstraints(pattern=r"^T([1-9]|1[0-5])$")]
-    args: Annotated[dict[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,29}$")], Referencia], Field(max_length=4)] = Field(
-        default_factory=dict
-    )
+    args: ArgsDaFerramenta = Field(default_factory=ArgsDaFerramenta)
 
 
 class Turno(BaseModel):

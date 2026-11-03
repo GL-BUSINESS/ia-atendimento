@@ -955,3 +955,10 @@ def test_prompt_de_emoji_estoura_o_teto_e_e_cortado_em_vez_de_passar_batido(db_c
     assert cheio.tokens_total > ctx.TETO_TOKENS  # com o estimador antigo (0,37 token por emoji) isto dava < 3.000 e passava sem cortar
     cortado = _montar(db_conn, atd, chaveiro)
     assert cortado.cortes and cortado.tokens_total <= ctx.TETO_TOKENS
+
+
+def test_na_e2_a_ferramenta_t3_nao_manda_copiar_um_oferta_ref_que_o_estado_nao_tem():
+    """B-6: na E2 o estado não traz oferta (Q1); o bloco 3 mandava copiar `oferta_ref` e o modelo inventava a referência."""
+    e2, e3 = esquemas_das_ferramentas("E2"), esquemas_das_ferramentas("E3")
+    assert "T3" in e2 and "oferta_ref" in e2 and "não há oferta_ref" in e2 and "apelido" not in e2
+    assert "apelido que está no estado" in e3 and "não há oferta_ref" not in e3
