@@ -387,3 +387,21 @@ def test_pausar_recusa_retoma_em_alem_do_teto_de_23h_da_ultima_mensagem_do_clien
     outro, vo, _ = novo_aberto(db_conn, relogio, versoes)
     with pytest.raises(EntradaInvalida, match="teto"):
         estado_pausa.pausar(db_conn, outro, vo, retoma_em=_retoma(relogio, 24 * 30), retoma_fase="E3", teto_horas=23, relogio=relogio)
+
+
+def test_a_chave_pausa_acrescenta_32_bytes_sem_referencia_e_91_com_o_uuid_do_agendamento(db_conn, relogio, versoes):
+    """R1-10: o número da DECISOES (era «~60») medido. O validador Python de 2 KB (`modelos_conversa`) NÃO enxerga a `pausa`, que entra por
+    `jsonb_set`: um estado com mais de 2.048 - 91 bytes não pausa (`TransicaoInvalida atendimento_conversa_check`). O processador deve manter folga."""
+
+    def tamanho(atendimento_id) -> int:
+        return db_conn.execute(
+            "SELECT octet_length(estado_conversa::text) FROM ia.atendimento WHERE atendimento_id = %s", (atendimento_id,)
+        ).fetchone()[0]
+
+    medidas = []
+    for ref in (None, str(uuid.uuid4())):
+        atd, v, _ = novo_aberto(db_conn, relogio, versoes, fase="E3")
+        antes = tamanho(atd)
+        estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", agendamento_ref=ref, relogio=relogio)
+        medidas.append(tamanho(atd) - antes)
+    assert medidas == [32, 91]

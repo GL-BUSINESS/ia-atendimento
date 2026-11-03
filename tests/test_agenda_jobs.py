@@ -774,3 +774,55 @@ def test_registrar_desfecho_trava_o_atendimento_antes_do_agendamento(banco, conn
             conn_app.execute("SELECT 1 FROM ia.agendamento WHERE agendamento_id = %s FOR UPDATE NOWAIT", (caso.agendamento_id,))
     fio.join(15)
     assert erros == [] and _ag(conn_app, caso.agendamento_id)[2] == "resolvido"
+
+
+# --- BAIXOS da revisão 1 (R1-10, R1-11, R1-14) -------------------------------------------------------------------------------------------------
+
+
+def test_post_usa_agenda_folga_min_da_config_e_nao_o_padrao_de_30(ambiente):
+    """R1-11 (M1): a API ignorava `agenda_folga_min` sem que nenhum teste visse (só se testava a folga de 30)."""
+    ambiente.ligar()
+    ambiente.configurar("agenda_folga_min", 45)
+    r = ambiente.post("/agendamentos", corpo_de_agendamento())
+    assert r.status_code == 201
+    retoma, lease = ambiente.consultar(
+        "SELECT retoma_em, lease_ate FROM ia.atendimento WHERE atendimento_id = %s", (r.json()["atendimento_id"],)
+    )[0]
+    assert lease - retoma == timedelta(minutes=45)
+
+
+def test_o_422_de_retoma_fase_vem_antes_das_recusas_de_config(ambiente):
+    """R1-11 (M2), D11: com a agenda e a IA desligadas (o seed), `retoma_fase=E3` é 422 `validacao`, não 409 `agenda_desligada`."""
+    r = ambiente.post("/agendamentos", corpo_de_agendamento(retoma_fase="E3"))
+    assert r.status_code == 422 and r.json()["erro"]["campo"] == "retoma_fase"
+    assert (
+        ambiente.post("/agendamentos", corpo_de_agendamento()).json()["erro"]["codigo"] == "agenda_desligada"
+    )  # com E8, a recusa de config vale
+
+
+def test_reaper_agenda_tem_queueing_lock_e_periodicas_atrasadas_nao_empilham(conninfo_app, conn_super):
+    """R1-11 (M3): sem o `queueing_lock` o teste não via nada; um tick atrasado empilharia outro `reaper_agenda` atrás do primeiro."""
+    from procrastinate import exceptions as pexc
+
+    app = criar(conninfo_app)
+    assert app.tasks["ia:reaper_agenda"].queueing_lock == "reaper_agenda"
+
+    async def duas_vezes() -> None:
+        async with app.open_async():
+            await app.tasks["ia:reaper_agenda"].defer_async(timestamp=1)
+            with pytest.raises(pexc.AlreadyEnqueued):
+                await app.tasks["ia:reaper_agenda"].defer_async(timestamp=2)
+
+    asyncio.run(duas_vezes())
+    assert (
+        conn_super.execute("SELECT count(*) FROM procrastinate.procrastinate_jobs WHERE task_name = 'ia:reaper_agenda'").fetchone()[0] == 1
+    )
+
+
+def test_segundo_pedido_no_mesmo_chat_nao_cria_segundo_agendamento_ativo(ambiente):
+    """R1-14: o invariante «um ativo por atendimento» pelo caminho do POST (o teste do banco só provava o índice): o atendimento `reservado` tranca o chat."""
+    ambiente.ligar()
+    assert ambiente.post("/agendamentos", corpo_de_agendamento()).status_code == 201
+    outro = ambiente.post("/agendamentos", corpo_de_agendamento(datetime_post="2026-11-17T11:56:00-03:00"))  # outra chave, mesmo chat
+    assert outro.status_code == 409 and outro.json()["erro"]["codigo"] == "chat_ocupado"
+    assert [ambiente.escalar(f"SELECT count(*) FROM {t}") for t in ("ia.atendimento", "ia.agendamento")] == [1, 1]
