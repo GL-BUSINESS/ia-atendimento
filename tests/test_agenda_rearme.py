@@ -183,3 +183,28 @@ async def test_os_desfechos_validos_da_volta_continuam_aceitos(banco, conn_app, 
     relogio.definir(dispara + timedelta(seconds=1))
     resultado = await agenda_jobs.executar_retomar(_servicos(banco, relogio, Voltas(desfecho=devolvido)), caso.agendamento_id, _sem_alarme)
     assert resultado == "disparado" and _ag(conn_app, caso.agendamento_id)[5] == (devolvido or "retomou")
+
+
+def test_o_limite_de_rearmes_e_o_dois_da_decisao_do_dono():
+    """R2-08 (X2): o teste do limite era paramétrico no próprio símbolo; o «2» do dono (M-Q3) fica fixado aqui."""
+    assert ae.MAX_REARMES == 2
+
+
+async def test_o_rearme_nunca_encurta_o_lease_mesmo_com_a_folga_reduzida_na_config(banco, conn_app, relogio, versoes):
+    """R2-08 (X1): `agenda_folga_min` pode DIMINUIR entre a pausa (folga 30) e o rearme (folga 1). O lease novo (hora nova + 1 min) seria menor que o
+    velho (dispara + 30 min): `lease_so_cresce` o mantém, senão o `reaper_lease` devolveria o lead antes da hora do rearme combinada pelo lease antigo."""
+    dispara = relogio.agora() + timedelta(hours=2)
+    caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)
+    lease_velho = _atd(conn_app, caso.atendimento_id)[2]
+    relogio.definir(dispara + timedelta(seconds=1))
+    nova_hora = relogio.agora() + timedelta(minutes=10)
+    servicos = _servicos(banco, relogio, Voltas(sequencia=[Adiar(nova_hora, "tentar_de_novo")]))
+    servicos.leitor().registrar(conn_app, "agenda_folga_min", 1, "teste", motivo="folga reduzida")
+
+    async def reagendar(_: float) -> None: ...
+
+    assert await agenda_jobs.executar_retomar(servicos, caso.agendamento_id, reagendar) == "disparado"
+    estado_atd, retoma_em, lease = _atd(conn_app, caso.atendimento_id)
+    assert (estado_atd, retoma_em) == ("pausado", nova_hora)
+    assert nova_hora + timedelta(minutes=1) < lease_velho, "pré-condição: a folga nova daria um lease MENOR"
+    assert lease == lease_velho, "o lease não encurta"
