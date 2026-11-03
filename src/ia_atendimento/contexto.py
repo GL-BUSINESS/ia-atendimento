@@ -37,6 +37,7 @@ from uuid import UUID
 
 import psycopg
 
+from ia_atendimento.chave_registro import BANCOS
 from ia_atendimento.cifra import ChaveDesconhecida, Chaveiro
 from ia_atendimento.conversa import NomesIndisponiveis, ler_trocas
 from ia_atendimento.estado import ler as ler_atendimento
@@ -46,7 +47,7 @@ from ia_atendimento.mascara import mascarar
 from ia_atendimento.modelos_conversa import EstadoConversa
 from ia_atendimento.modulos_fase import FASES_SEM_TURNO_DO_MODELO, SISTEMA, esquemas_das_ferramentas, modulo_da_fase
 from ia_atendimento.tokens import ESTIMADOR_PADRAO, EstimadorDeTokens
-from ia_atendimento.turno import Turno, formato_do_turno
+from ia_atendimento.turno import PLACEHOLDERS_DO_TEXTO, Turno, formato_do_turno
 
 TETO_TOKENS: Final = 4000  # H §3.1: teto duro de entrada
 TROCAS_NO_PROMPT: Final = 3
@@ -69,6 +70,8 @@ CABECALHO_RESULTADOS: Final = "## Resultado das ferramentas neste turno"
 # parcela ou valor ficam de fora (são valores). Chave fora daqui não chega ao prompt, e valor fora da regra da SUA chave é descartado,
 # sem aviso e sem eco.
 LEAD_ENUMS: Final[Mapping[str, frozenset[str]]] = {
+    # catálogo fechado de `chave_registro` (FACTA, 3RN, C6): o padrão `[A-Z0-9_]+` deixava passar `R_1500` e `200_300` (M-4)
+    "banco": frozenset(BANCOS),
     "origem": frozenset({"inapp", "leilao"}),  # H §3.6
     "ultimo_sentido": frozenset({"in", "out"}),  # n §1: quem falou por último
     "tipo_ultima_fala": frozenset({"texto", "audio", "imagem", "documento", "sticker", "localizacao", "outro"}),  # igual a `msg_tipo`
@@ -76,14 +79,11 @@ LEAD_ENUMS: Final[Mapping[str, frozenset[str]]] = {
         {"proposta_vista", "simulou", "tela_dados", "saiu_da_tela", "desconhecida"}
     ),  # n §3.1 (e); B6.2 fixa os códigos (L3)
 }
-LEAD_PADROES: Final[Mapping[str, re.Pattern[str]]] = {
-    "banco": re.compile(r"^[A-Z0-9_]{1,32}$"),  # igual a `EntradaAtendimento.banco` e a `OfertaCorrente.banco`
-}
 LIMITES_INTEIROS_DO_LEAD: Final[Mapping[str, int]] = {
     "idade_do_lead_min": 9999,  # minutos desde a simulação
     "etapas_do_robo_concluidas": 20,  # quantas etapas do in-app o lead já fez
 }
-PERFIL_PARA_O_MODELO: Final = tuple(sorted({*LEAD_ENUMS, *LEAD_PADROES, *LIMITES_INTEIROS_DO_LEAD}))
+PERFIL_PARA_O_MODELO: Final = tuple(sorted({*LEAD_ENUMS, *LIMITES_INTEIROS_DO_LEAD}))
 FASES_COM_VALORES: Final = frozenset({"E3", "E4", "E5", "E6", "E7", "E8"})  # Q1: antes da E3 nem a oferta aparece no estado
 PLACEHOLDERS_DA_FASE: Final[Mapping[str, tuple[str, ...]]] = {
     "E2": ("nome",),
@@ -97,19 +97,26 @@ PLACEHOLDERS_DA_FASE: Final[Mapping[str, tuple[str, ...]]] = {
 }
 # Resultado de ferramenta ao modelo: SÓ o que está aqui (`True` = folha permitida; dict = objeto/lista de objetos). Valor em reais, prazo,
 # coeficiente, comissão e motivo cru do banco não estão em nenhuma lista: não passam, mesmo que a ferramenta os devolva.
+# Onde há catálogo fechado a regra é o `frozenset` do domínio (valor fora dele some); `True` = folha de forma segura (minúscula, sem
+# cara de número).
+# Macros da proposta: estudo F (T10) e dicionário ST-00…05 de TEXTOS-PARA-APROVACAO.
+MACROS_DA_PROPOSTA: Final = frozenset({"pendente", "em_analise", "aguardando_pagamento", "pago", "cancelado", "estornado"})
 PROJECAO_DAS_FERRAMENTAS: Final[Mapping[str, Mapping[str, Any]]] = {
     "T2": {"status": True, "etapa": True, "contrato_vivo": True, "proposta_viva": True},
-    "T3": {"oferta_ref": True, "status": True, "versao": True, "vencida": True, "mudou": True, "placeholders": True},
-    "T5": {"opcoes": {"opcao_ref": True, "dentro_da_alcada": True, "placeholders": True}, "sem_opcao": True, "acima_do_maximo": True},
-    "T10": {"macro": True, "status": True},
+    "T3": {"oferta_ref": True, "status": True, "versao": True, "vencida": True, "mudou": True, "placeholders": PLACEHOLDERS_DO_TEXTO},
+    "T5": {
+        "opcoes": {"opcao_ref": True, "dentro_da_alcada": True, "placeholders": PLACEHOLDERS_DO_TEXTO},
+        "sem_opcao": True,
+        "acima_do_maximo": True,
+    },
+    "T10": {"macro": MACROS_DA_PROPOSTA, "status": True},
 }
 MAX_ITENS_DE_LISTA: Final = 5
 MAX_INTEIRO_DE_RESULTADO: Final = 99  # contador; acima disso pode ser valor, prazo ou id (ver o teste de projeção)
-# SÓ minúsculas: maiúscula tem de ser pedida pela regra da chave (ver LEAD_PADROES), nunca alargada para todos os resultados de ferramenta
+# SÓ minúsculas: maiúscula tem de ser pedida pela regra da chave (ver `LEAD_ENUMS`), nunca alargada para todos os resultados de ferramenta
 _FOLHA_TEXTO: Final = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,39}$")
-_PARECE_NUMERO: Final = re.compile(
-    r"^[0-9][0-9.,:-]*$|[0-9][.,][0-9]{2}(?![0-9])"
-)  # «5000.00», «1,5»: dinheiro ou taxa disfarçados de código
+# «5000.00», «5000_00», «r5000», «1,5»: dinheiro, taxa ou número disfarçados de código. `_` conta como separador numérico (M-5).
+_PARECE_NUMERO: Final = re.compile(r"^[0-9][0-9.,:_-]*$|[0-9][.,_][0-9]{2}(?![0-9])|^[a-z]{0,3}_?[0-9]{3,}")
 _ALIAS_DE_REF: Final = {"oferta_ref": "oferta", "opcao_ref": "opcao"}
 
 _DINHEIRO: Final = re.compile(
@@ -367,7 +374,8 @@ def _estado_para_o_modelo(
     if contadores := estado.contadores.model_dump(exclude_defaults=True):
         corpo["contadores"] = contadores
     if (oferta := estado.oferta_corrente) is not None and estado.fase in FASES_COM_VALORES:
-        corpo["oferta"] = {"ref": apelidos.de("oferta", oferta.oferta_id), "banco": oferta.banco, "versao": oferta.oferta_versao}
+        banco = oferta.banco if oferta.banco in BANCOS else "OUTRO"  # o `OfertaCorrente` aceita `[A-Z0-9_]+`: no prompt só o catálogo
+        corpo["oferta"] = {"ref": apelidos.de("oferta", oferta.oferta_id), "banco": banco, "versao": oferta.oferta_versao}
     if placeholders := PLACEHOLDERS_DA_FASE.get(estado.fase):
         corpo["placeholders"] = list(placeholders)
     if estado.opcoes_t5:
@@ -394,7 +402,7 @@ def _sem_nome(texto: str, nomes: Collection[str]) -> bool:
 
 
 def _valor_do_lead(chave: str, valor: Any, nomes: Collection[str]) -> Any:
-    """O valor da chave do `perfil` se obedece à regra DA PRÓPRIA CHAVE (enum, padrão ou limite inteiro); senão `None` (descartado).
+    """O valor da chave do `perfil` se obedece à regra DA PRÓPRIA CHAVE (enum fechado ou limite inteiro); senão `None` (descartado).
     Inteiro só em chave com limite inteiro (um `{"banco": 5000}` não passa) e `bool` nunca (é `int` em Python)."""
     if valor is None or isinstance(valor, bool):
         return None
@@ -402,10 +410,7 @@ def _valor_do_lead(chave: str, valor: Any, nomes: Collection[str]) -> Any:
         return valor if isinstance(valor, int) and 0 <= valor <= LIMITES_INTEIROS_DO_LEAD[chave] else None
     if not isinstance(valor, str) or not _sem_nome(valor, nomes):
         return None
-    if chave in LEAD_ENUMS:
-        return valor if valor in LEAD_ENUMS[chave] else None
-    padrao = LEAD_PADROES.get(chave)
-    return valor if padrao is not None and padrao.fullmatch(valor) and not _PARECE_NUMERO.search(valor) else None
+    return valor if valor in LEAD_ENUMS.get(chave, frozenset()) else None
 
 
 def _folha_segura(valor: Any, nomes: Collection[str] = ()) -> tuple[bool, Any]:
@@ -420,7 +425,16 @@ def _folha_segura(valor: Any, nomes: Collection[str] = ()) -> tuple[bool, Any]:
     return False, None
 
 
+def _no_dominio(valor: Any, dominio: frozenset[str]) -> bool:
+    return isinstance(valor, str) and valor in dominio
+
+
 def _projetar(valor: Any, regra: Any, chave: str, apelidos: Apelidos, nomes: Collection[str]) -> tuple[bool, Any]:
+    if isinstance(regra, frozenset):  # domínio fechado: texto ou lista de textos, e só o que está no catálogo
+        if isinstance(valor, (list, tuple)):
+            itens = [v for v in valor if _no_dominio(v, regra)][:MAX_ITENS_DE_LISTA]
+            return bool(itens), itens
+        return _no_dominio(valor, regra), valor
     if regra is True:
         if isinstance(valor, (list, tuple)):
             itens = [item for ok, item in (_folha_segura(v, nomes) for v in valor[:MAX_ITENS_DE_LISTA]) if ok]
@@ -532,6 +546,8 @@ def ler_do_prompt(usuario: str) -> tuple[str | None, tuple[str, ...]]:
 __all__ = [
     "CABECALHO_PENDENTES",
     "FASES_COM_VALORES",
+    "LEAD_ENUMS",
+    "MACROS_DA_PROPOSTA",
     "PERFIL_PARA_O_MODELO",
     "PLACEHOLDERS_DA_FASE",
     "PROJECAO_DAS_FERRAMENTAS",

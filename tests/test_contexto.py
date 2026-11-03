@@ -659,3 +659,79 @@ def test_nome_colado_nao_passa_como_folha_de_resultado_nem_como_valor_do_lead():
         assert ctx._folha_segura(texto, NOMES) == (False, None)
     assert ctx._valor_do_lead("origem", "inapp", ("Inapp1",)) == "inapp"  # nome só vale se for a MESMA palavra
     assert ctx._valor_do_lead("origem", "inapp", ("Inapp",)) is None
+
+
+# --- banco do catálogo e folhas por domínio fechado (M-4, M-5; sonda p1) -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "disfarce",
+    [
+        "R_1500",
+        "R_1500_00",
+        "1500_00",
+        "5000_00",
+        "200_300",
+        "RS_5000",
+        "MARIA1",
+        "ALVARDEL_1",
+        "12345",
+        "1234567",
+        "0000_0001",
+        "R1500",
+        "A1500",
+        "BMG",
+    ],
+)
+def test_banco_fora_do_catalogo_ou_disfarcado_de_valor_nao_chega_ao_modelo(disfarce):
+    """M-4: `^[A-Z0-9_]{1,32}$` deixava `R_1500`, `200_300` e `MARIA1` passarem pela chave `banco`; só vale `chave_registro.BANCOS`."""
+    assert ctx._valor_do_lead("banco", disfarce, NOMES) is None
+
+
+@pytest.mark.parametrize("banco", ["FACTA", "3RN", "C6"])
+def test_os_tres_bancos_do_catalogo_passam(banco):
+    assert ctx._valor_do_lead("banco", banco, NOMES) == banco
+
+
+def test_banco_da_oferta_corrente_fora_do_catalogo_vira_outro(db_conn, relogio, versoes, chaveiro):
+    oferta = OfertaCorrente(banco="RS_5000", oferta_id=OFERTA_ID, oferta_versao=2)
+    atd, _ = abrir_em(db_conn, relogio, versoes, fase="E3", oferta_corrente=oferta)
+    receber(db_conn, atd, chaveiro, "oi", nomes=NOMES)
+    estado = json.loads(_montar(db_conn, atd, chaveiro).insumos.estado)
+    assert estado["oferta"]["banco"] == "OUTRO" and "RS_5000" not in json.dumps(estado)
+
+
+@pytest.mark.parametrize(
+    "folha",
+    [
+        "5000_00", "r5000", "rs5000", "valor_5000_00", "parcela_312_45", "1234_5678_9012", "reprovada_margem_1234_56", "1500_", "5.000,00", "5000.00",
+        "12:30", "1500-00", "maria1", "maria_alvardel",
+    ],
+)  # fmt: skip
+def test_folha_de_resultado_com_cara_de_numero_ou_nome_e_rejeitada(folha):
+    assert ctx._folha_segura(folha, NOMES) == (False, None)
+
+
+@pytest.mark.parametrize("folha", ["ativa", "em_analise", "oferta_ativa", "t3", "aguardando_pagamento", "v2", "proposta_viva"])
+def test_folha_de_resultado_de_forma_segura_continua_passando(folha):
+    assert ctx._folha_segura(folha, NOMES) == (True, folha)
+
+
+def test_placeholders_do_resultado_so_do_conjunto_fechado_dos_tx():
+    """M-5: `placeholders` aceitava qualquer folha (`5000_00` chegou ao corpo real da E2); agora só os 11 nomes que o código sabe resolver."""
+    t3 = {"placeholders": ["valor_liberado", "valor_parcela", "prazo", "5000_00", "cpf", "valor_liberado_real", "nome"]}
+    assert json.loads(ctx.projetar_resultado({"T3": t3}, ctx.Apelidos())) == {
+        "T3": {"placeholders": ["valor_liberado", "valor_parcela", "prazo", "nome"]}
+    }
+    assert ctx.projetar_resultado({"T3": {"placeholders": ["5000_00", "cpf"]}}, ctx.Apelidos()) == ""  # nada válido: a chave nem aparece
+    t5 = {"opcoes": [{"opcao_ref": "x1", "placeholders": ["prazo", "5000_00"]}]}
+    assert json.loads(ctx.projetar_resultado({"T5": t5}, ctx.Apelidos())) == {
+        "T5": {"opcoes": [{"opcao_ref": "opcao-1", "placeholders": ["prazo"]}]}
+    }
+
+
+def test_macro_da_proposta_so_do_catalogo_do_t10():
+    for macro in ("pendente", "em_analise", "aguardando_pagamento", "pago", "cancelado", "estornado"):
+        assert json.loads(ctx.projetar_resultado({"T10": {"macro": macro}}, ctx.Apelidos())) == {"T10": {"macro": macro}}
+    for ruim in ("pago_por_fulano", "pago_5000_00", "PAGO", "maria", 5):
+        assert ctx.projetar_resultado({"T10": {"macro": ruim}}, ctx.Apelidos()) == "", ruim
