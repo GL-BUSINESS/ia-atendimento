@@ -15,8 +15,19 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
     `scripts/gerar_pessoas_teste.py [--verificar]` gera tudo do corpus e entra no `check.sh`.
   - **Kit** `~/retomada-2809/fila-2910/ia/config/chats-teste.sh` (`gerar|aplicar|limpar`, `--ensaio`/`--confirmo`; `PUT /config/chats_teste` só com o token da TI e `versao_esperada`; nada rodou em produção). `docs/OPERACAO.md` §9.
   - **Testes** (`tests/test_pessoas_teste.py`, `tests/test_pessoas_teste_api.py`, `tests/test_fixtures_duble.py`): `test_chats_teste_so_com_pessoa_de_teste`, `test_mensagem_de_teste_prefixada_TESTE`,
-    `test_pessoas_teste_cobrem_todas_as_personas`, `test_valid_until_relativo`; `pytest -k fixtures_duble` (41, com 30 mutações de forma) e `-k pessoas_teste`. 2.252 → 2.317 passed (2.316 e +1 skip sem `BANCOS_DUBLE_PATH`; o skip de PyYAML e os 3 xfail estritos como antes).
+    `test_pessoas_teste_cobrem_todas_as_personas`, `test_valid_until_relativo`; `pytest -k fixtures_duble` (41, com 30 mutações de forma) e `-k pessoas_teste`. 2.252 → 2.317 passed na primeira entrega (contagem final na revisão 1, abaixo).
   - **Não muda a API**: a ligação `chats_teste` ↔ `pessoas_teste` e a restrição à TI já eram da B1.5; esta etapa acrescenta o catálogo real, os testes que a fecham e o kit.
+  - **Revisão 1 da B2.4 (`docs/REVISAO-B2.4-0311.md`: 0 crítico, 2 ALTO, 12 MÉDIO, 10 BAIXO)**, um commit `fix:` por item:
+    - **R1-01/R1-07 (ALTO):** o `/3rn/calcular` no modo `nao_repagar` ecoa `"nao_repagar": true` (e `regra_id`/`taxa_pedida`/`taxa`) em toda resposta; a fixture e os modelos não tinham o eco e o `SIM_AUSENTE` do P14 era uma resposta que o servidor nunca produz.
+      Agora o eco é exigido em todo caso do arquivo, o padrão é `SIM_AUSENTE`, o `REPROVADO` de vínculos (impossível no modo) deu lugar ao de prazo fora da tabela, e a fixture só responde pelo CPF da própria persona.
+    - **R1-02 (ALTO):** o `check.sh` abre com `scripts/exigir_irmao.sh` e FALHA sem `BANCOS_DUBLE_PATH` (antes o teste cruzado era skip e o portão dizia OK); `PESSOAS_TESTE_EXIGE_IRMAO=1` transforma o skip em falha.
+    - **R1-03/04/15/16:** T1/T3 na forma real do 360 (`atribuicao.versao` 0, par ausente em vez de `sem_oferta` vazio, `ContratoNaFoto` e `com_contrato` para o P59, chaves nulas da `Oferta`, «não encontrado» com `pessoa_id`/`atribuicao` nulos, T1 sem `status_atendimento`).
+    - **R1-06:** `PUT /config/chats_teste` também barra chat com atendimento `duble` de pessoa fora de `pessoas_teste` (o seed de `modo` é `duble`).
+    - **R1-09:** um CPF por persona (84 distintos; 39 clones de persona no dublê, `000.000.1nn`) e prazo da oferta = prazo do `aprovado-N`; o validador do corpus ganhou as regras (CPF repetido entre quaisquer personas; prazo ≠ cenário); o clone vale pela base nos eventos do gabarito e no hold-out.
+    - **R1-08:** `kits/chats-teste.sh` (cópia em `~/retomada-2809`): `aplicar` faz merge e guarda a lista anterior, `limpar` restaura, `--motivo` obrigatório, só WireGuard/loopback; 13 testes contra uma API falsa em processo.
+    - **R1-05/R1-12:** `OPERACAO.md` §9 diz «três travas por código + uma pendente» (o `Canal` ainda não chama «[TESTE]»); o texto proposto para a emenda do contrato 08 §6/§5.6 e a regra «a fonte de T1/T3 é decidida pelo `modo_efetivo`» estão em `DECISOES-B2.4-0211.md` (o contrato não foi editado).
+    - **R1-13/18/19/24:** `exemplo_cliente360` (o golden não é fonte servível), telefone só em `5500 9000-00nn`, CPF de exemplo montado nos testes, `business_date` = dia da criação. **Deixados** (R1-14 parcial, R1-17, R1-20, R1-21, R1-23): ver as DECISOES.
+    - Contagem final (`bash scripts/check.sh` com `BANCOS_DUBLE_PATH`): **2.252 → 2.369 passed** (1 skip de PyYAML e 3 xfail estritos como antes).
 
 - **B1.5, API de entrada (T7) + migração 0004** (`feat/b1-5-api-entrada`; `docs/DECISOES-B1.5-3010.md`; a versão do `pyproject` não muda, entra na v0.3.0):
   - **Migração `0004_anexo_rpa_e_espelho`** (D5 e D6 do contrato 08 §11, aditiva): `ia.fn_anexar_rpa(bigint, text)` `SECURITY DEFINER` (dono `ia_owner`, `search_path = pg_catalog, ia`,

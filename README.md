@@ -24,7 +24,7 @@ Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este re
 | API de entrada: 13 rotas do contrato 08, auth por token e HMAC do gateway, erros sem eco — B1.5 | `src/ia_atendimento/api/` | `tests/test_api*.py`, `tests/test_contrato_api.py`, `tests/test_corrida.py` |
 | Mensagem recebida (uma função para webhook e RPA) e casamento webhook × RPA — B1.5 | `src/ia_atendimento/mensagens.py` | `tests/test_contrato_api.py`, `tests/test_mensagens.py` |
 | Agendamento («Vou fazer depois»), faixa de esforço, `pessoas_teste` (arquivo `{pessoas, chats}`), enfileirador e segredos em arquivo 0600 — B1.5 | `agendamento.py`, `esforco.py`, `pessoas_teste/arquivo.py`, `enfileirador.py`, `segredos.py` | `tests/test_api*.py`, `tests/test_enfileirador.py`, `tests/test_segredos.py`, `tests/test_ambiente_api.py` |
-| `pessoas_teste`: 84 pessoas sintéticas (uma por `persona_id` da F3), oferta FACTA ativa com `valid_until` relativo servida em `duble\|teste` (T1/T3), «[TESTE]», formas medidas e `fixtures/duble/` de 360, 3RN e C6 — B2.4 | `src/ia_atendimento/pessoas_teste/`, `fixtures/duble/`, `scripts/gerar_pessoas_teste.py` | `tests/test_pessoas_teste*.py`, `tests/test_fixtures_duble.py` |
+| `pessoas_teste`: 84 pessoas sintéticas (uma por `persona_id` da F3, um CPF cada), oferta FACTA ativa com `valid_until` relativo servida em `duble\|teste` (T1/T3), «[TESTE]», formas medidas, `fixtures/duble/` de 360, 3RN e C6 e o kit `chats-teste.sh` — B2.4 | `src/ia_atendimento/pessoas_teste/`, `fixtures/duble/`, `kits/chats-teste.sh`, `scripts/gerar_pessoas_teste.py` | `tests/test_pessoas_teste*.py`, `tests/test_fixtures_duble.py`, `tests/test_corpus_clones.py`, `tests/test_kit_chats_teste.py`, `tests/test_exige_irmao.py` |
 
 ## Como rodar
 
@@ -33,7 +33,7 @@ Requisitos: `uv`, Python 3.13 (o `uv` instala), `docker` com a imagem `postgres:
 
 ```bash
 uv sync                      # dependências pinadas (uv.lock)
-bash scripts/check.sh        # portão local: ruff, varredura, checksum da 0001, 0002 em dia, pessoas_teste/fixtures em dia, pytest com tempo medido
+BANCOS_DUBLE_PATH=<checkout do bancos-duble> bash scripts/check.sh   # portão local: ruff, varredura, checksum da 0001, 0002 em dia, pessoas_teste/fixtures em dia, pytest com tempo medido (a variável é obrigatória: a consistência com o bancos-duble é parte do portão)
 uv run pytest -q             # só os testes
 bash scripts/aplicar_migracoes_local.sh [--manter]   # aplica 0001+0002 num Postgres descartável e mostra o ledger
 ```
