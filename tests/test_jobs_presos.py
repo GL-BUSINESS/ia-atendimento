@@ -16,6 +16,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import psycopg
 import pytest
 from croniter import croniter
 
@@ -25,6 +26,7 @@ from ia_atendimento.worker_vivo import (
     HEARTBEAT_PRESO_S,
     TOLERANCIA_VIGIA_S,
     WorkerPerdeuOBatimento,
+    derrubado_pela_linha_sumida,
     motivo_de_abortar,
     vigiar_batimento,
 )
@@ -306,3 +308,63 @@ async def test_worker_com_o_banco_inalcancavel_se_aborta_depois_da_tolerancia():
     worker = WorkerFalso()
     motivo = await asyncio.wait_for(vigiar_batimento(AppSemBanco(), worker, intervalo_s=0.01, tolerancia_s=0.1), 5)  # type: ignore[arg-type]
     assert motivo == "banco_inalcancavel" and worker.parado and worker.shutdown_graceful_timeout == 0
+
+
+# --- a linha some no meio de um fetch (R2-02, corrida vista no teste do processo real) --------------------------------------------------------------
+
+
+class _WorkerQueCai:
+    """Worker cujo `run()` cai com `ConnectorException` embrulhando o erro de banco dado, como o `fetch_job` com a linha do worker apagada."""
+
+    worker_id = None  # o Worker já zera o id quando `run()` levanta
+    shutdown_graceful_timeout = None
+
+    def __init__(self, causa: BaseException) -> None:
+        self.causa = causa
+
+    def stop(self) -> None: ...
+
+    async def run(self) -> None:
+        from procrastinate.exceptions import ConnectorException
+
+        raise ConnectorException from self.causa
+
+
+def _fk_de_worker_real(conn_super) -> psycopg.errors.ForeignKeyViolation:
+    """A violação de FK DE VERDADE (job apontando para worker inexistente): é o erro que o `fetch_job` recebe quando a linha foi podada."""
+    with pytest.raises(psycopg.errors.ForeignKeyViolation) as erro:
+        conn_super.execute(
+            "INSERT INTO procrastinate.procrastinate_jobs (queue_name, task_name, status, worker_id)"
+            " VALUES ('default', 'ia:turno', 'doing', 987654)"
+        )
+    return erro.value
+
+
+async def test_fetch_derrubado_pela_linha_sumida_tem_o_mesmo_veredito_da_vigia(conninfo_app, conn_super, banco, relogio, monkeypatch):
+    from procrastinate.exceptions import ConnectorException
+
+    servicos = montar_servicos(banco, relogio, Chamadas())
+    app = criar(conninfo_app)
+    async with app.open_async():
+        fk = _fk_de_worker_real(conn_super)
+        monkeypatch.setattr(fila, "_novo_worker", lambda _app, **__: _WorkerQueCai(fk))
+        with pytest.raises(WorkerPerdeuOBatimento, match="linha_sumiu"):
+            await fila.rodar_worker(app, servicos)
+        # outra queda de banco (rede, timeout) sobe como está: nada de mascarar erro como «linha sumiu»
+        monkeypatch.setattr(fila, "_novo_worker", lambda _app, **__: _WorkerQueCai(psycopg.OperationalError("rede")))
+        with pytest.raises(ConnectorException):
+            await fila.rodar_worker(app, servicos)
+    assert derrubado_pela_linha_sumida(ConnectorException()) is False
+
+
+def test_so_a_fk_do_worker_conta_como_linha_sumida(conn_super):
+    """Outra FK (ex.: `procrastinate_events.job_id`) não é a linha do worker."""
+    from procrastinate.exceptions import ConnectorException
+
+    with pytest.raises(psycopg.errors.ForeignKeyViolation) as outra:
+        conn_super.execute("INSERT INTO procrastinate.procrastinate_events (job_id, type) VALUES (987654, 'started')")
+    erro = ConnectorException()
+    erro.__cause__ = outra.value
+    assert derrubado_pela_linha_sumida(erro) is False
+    erro.__cause__ = _fk_de_worker_real(conn_super)
+    assert derrubado_pela_linha_sumida(erro) is True

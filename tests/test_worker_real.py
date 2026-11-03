@@ -93,7 +93,8 @@ def test_a_vigia_do_processo_real_para_o_worker_com_codigo_3_se_a_linha_dele_som
         conn.execute("DELETE FROM procrastinate.procrastinate_workers")  # outro worker o podou
     assert processo.wait(45) == 3, log.read_text()[-2500:]
     texto = log.read_text()
-    assert "perdeu o batimento (linha_sumiu)" in texto and "worker parado pela vigia do batimento" in texto
+    # a vigia (10 s) ou o `fetch_job` derrubado pela FK (corrida com um job periódico): o veredito e a saída são os mesmos
+    assert "linha_sumiu" in texto and "worker parado pela vigia do batimento (linha_sumiu)" in texto
     assert "ia_app_a:x@" not in texto, "a URL do banco não aparece no log"
 
 

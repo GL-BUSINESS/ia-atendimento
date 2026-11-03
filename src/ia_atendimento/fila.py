@@ -26,6 +26,7 @@ from typing import Any
 import procrastinate
 import psycopg
 from procrastinate import exceptions as pexc
+from procrastinate.exceptions import ConnectorException
 from procrastinate.worker import Worker
 from psycopg import ProgrammingError
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -40,6 +41,7 @@ from ia_atendimento.worker_vivo import (
     INTERVALO_VIGIA_S,
     TOLERANCIA_VIGIA_S,
     WorkerPerdeuOBatimento,
+    derrubado_pela_linha_sumida,
     liberar_jobs_presos,
     vigiar_batimento,
 )
@@ -403,6 +405,11 @@ async def rodar_worker(app: procrastinate.App, servicos: jobs.Servicos, **opcoes
     vigia = asyncio.create_task(vigiar_batimento(app, worker, intervalo_s=intervalo, tolerancia_s=tolerancia), name="vigia_do_batimento")
     try:
         await worker.run()
+    except ConnectorException as erro:  # a linha sumiu no meio de um `fetch_job` (FK): o mesmo veredito da vigia, não um erro genérico
+        if derrubado_pela_linha_sumida(erro):
+            log.error("o fetch do worker caiu na FK do worker_id: a linha dele foi podada por outro worker (linha_sumiu)")
+            raise WorkerPerdeuOBatimento("linha_sumiu") from None
+        raise
     finally:
         vigia.cancel()
         await asyncio.gather(vigia, return_exceptions=True)

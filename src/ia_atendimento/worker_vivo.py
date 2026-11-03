@@ -18,6 +18,7 @@ import logging
 from typing import Any, Final, Protocol
 
 import procrastinate
+import psycopg
 
 from ia_atendimento.prontidao import HEARTBEAT_MAX_S
 
@@ -66,6 +67,15 @@ async def liberar_jobs_presos(app: procrastinate.App, *, limite_s: float = HEART
     if liberados:
         log.warning("jobs presos de worker morto dados como falhos: %s", liberados)
     return liberados
+
+
+def derrubado_pela_linha_sumida(erro: BaseException) -> bool:
+    """A queda é o `fetch_job` batendo na FK `procrastinate_jobs.worker_id → procrastinate_workers` porque OUTRO worker podou a linha deste?
+    O Procrastinate embrulha o erro do banco em `ConnectorException`; a causa é a `ForeignKeyViolation` do `worker_id`. `rodar_worker` dá a
+    essa queda o mesmo veredito da vigia (`linha_sumiu`, saída 3): o resultado não depende de quem chegou primeiro, a vigia ou o `fetch`.
+    (O `worker_id` do `Worker` já foi zerado quando `run()` levanta, então não dá para reconsultar a linha: a causa é o sinal.)"""
+    causa = erro.__cause__
+    return isinstance(causa, psycopg.errors.ForeignKeyViolation) and "worker" in (causa.diag.constraint_name or "")
 
 
 def motivo_de_abortar(*, existe: bool, idade_s: float | None, sem_resposta_ha_s: float, tolerancia_s: float) -> str | None:
