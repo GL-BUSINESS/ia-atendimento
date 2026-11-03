@@ -15,7 +15,6 @@
       "nome": "Zuleide Alvimar",
       "cpf_mascarado": "***.***.***-91",
       "cpf": "00000000191",
-      "status_atendimento": null,
       "vendedor": null,
       "nao_perturbe": null,
       "limite_contratos": null
@@ -42,6 +41,14 @@
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
        "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
        "economia": {
         "forma": "payload_clt_v1",
         "valor_liberado": "3000.00",
@@ -75,7 +82,7 @@
     "lido_em": "2026-11-17T15:00:00Z",
     "pessoa_id": "00000000-0000-7000-8000-000000000001",
     "atribuicao": {
-     "versao": 1,
+     "versao": 0,
      "site_profile_id": null
     }
    }
@@ -88,7 +95,6 @@
       "nome": "Euclides Ulaardel",
       "cpf_mascarado": "***.***.***-28",
       "cpf": "00000007528",
-      "status_atendimento": null,
       "vendedor": null,
       "nao_perturbe": null,
       "limite_contratos": null
@@ -115,6 +121,14 @@
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
        "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
        "economia": {
         "forma": "payload_clt_v1",
         "valor_liberado": "4000.00",
@@ -160,6 +174,14 @@
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
        "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
        "economia": {
         "forma": "payload_clt_v1",
         "valor_liberado": "4800.00",
@@ -193,7 +215,7 @@
     "lido_em": "2026-11-17T15:00:00Z",
     "pessoa_id": "00000000-0000-7000-8000-000000000013",
     "atribuicao": {
-     "versao": 1,
+     "versao": 0,
      "site_profile_id": null
     }
    }
@@ -206,7 +228,6 @@
       "nome": "Maristela Walardel",
       "cpf_mascarado": "***.***.***-53",
       "cpf": "00000000353",
-      "status_atendimento": null,
       "vendedor": null,
       "nao_perturbe": null,
       "limite_contratos": null
@@ -233,6 +254,14 @@
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
        "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
        "economia": {
         "forma": "payload_clt_v1",
         "valor_liberado": "3500.00",
@@ -260,21 +289,13 @@
        "tipo": "oferta",
        "id": "6000141"
       }
-     },
-     {
-      "banco": "3RN",
-      "produto": "CLT",
-      "caso": "sem_oferta",
-      "contratos": [],
-      "oferta_ativa": null,
-      "alvo_sugerido": null
      }
     ],
     "varias_ofertas": false,
     "lido_em": "2026-11-17T15:00:00Z",
     "pessoa_id": "00000000-0000-7000-8000-000000000014",
     "atribuicao": {
-     "versao": 1,
+     "versao": 0,
      "site_profile_id": null
     }
    }
@@ -287,7 +308,6 @@
       "nome": "Marcia Helolim",
       "cpf_mascarado": "***.***.***-25",
       "cpf": "00000001325",
-      "status_atendimento": null,
       "vendedor": null,
       "nao_perturbe": null,
       "limite_contratos": null
@@ -297,14 +317,6 @@
    "propostas": {
     "encontrado": true,
     "pares": [
-     {
-      "banco": "FACTA",
-      "produto": "CLT",
-      "caso": "sem_oferta",
-      "contratos": [],
-      "oferta_ativa": null,
-      "alvo_sugerido": null
-     },
      {
       "banco": "C6",
       "produto": "CLT",
@@ -322,6 +334,14 @@
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
        "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
        "economia": {
         "forma": "payload_clt_v1",
         "valor_liberado": "3000.00",
@@ -355,7 +375,108 @@
     "lido_em": "2026-11-17T15:00:00Z",
     "pessoa_id": "00000000-0000-7000-8000-000000000118",
     "atribuicao": {
-     "versao": 1,
+     "versao": 0,
+     "site_profile_id": null
+    }
+   }
+  },
+  "P59": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000059",
+      "nome": "Abel Calelim",
+      "cpf_mascarado": "***.***.***-21",
+      "cpf": "00000004421",
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "FACTA",
+      "produto": "CLT",
+      "caso": "com_contrato",
+      "contratos": [
+       {
+        "contrato": {
+         "contrato_id": "6000595",
+         "pessoa_id": "00000000-0000-7000-8000-000000000059",
+         "banco": "FACTA",
+         "produto": "CLT",
+         "referencia_banco": "9000044",
+         "origem_contratacao": "site",
+         "macro": "pendente",
+         "pacote_versao": 1,
+         "versao": 1,
+         "criada_em": "2026-11-17T14:45:00Z",
+         "oferta_id": "6000599",
+         "adocao": null,
+         "status_nativo_codigo": "12",
+         "status_nativo_texto": "12 - AGUARDANDO ASSINATURA DIGITAL"
+        },
+        "terminal": false,
+        "consome_oferta_ativa": false
+       }
+      ],
+      "oferta_ativa": {
+       "oferta_id": "6000591",
+       "pessoa_id": "00000000-0000-7000-8000-000000000059",
+       "banco": "FACTA",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "ultima_consulta_em": "2026-11-17T14:45:00Z",
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "3000.00",
+        "valor_parcela": "147.90",
+        "prazo_meses": 36,
+        "tabela_identificador": "115716",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0493"
+       },
+       "atributos_cadastrais": {
+        "nome": "Abel Calelim",
+        "telefone": "550090000044"
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000591",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.012000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0493"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "contrato",
+       "id": "6000595"
+      }
+     }
+    ],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000059",
+    "atribuicao": {
+     "versao": 0,
      "site_profile_id": null
     }
    }
@@ -368,7 +489,9 @@
     "encontrado": false,
     "pares": [],
     "varias_ofertas": false,
-    "lido_em": "2026-11-17T15:00:00Z"
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": null,
+    "atribuicao": null
    }
   }
  }

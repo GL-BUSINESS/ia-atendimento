@@ -59,7 +59,7 @@ def _grava(tmp_path: Path, bruto: dict[str, dict[str, Any]]) -> Path:
 def test_fixtures_duble_validam_contra_o_schema_pydantic_da_forma(fixtures):
     """Os três arquivos carregam, e carregam pelo diretório do checkout (o wheel leva o mesmo, `force-include`)."""
     assert modulo.diretorio_padrao() == DIRETORIO
-    assert set(fixtures.cliente360.casos) == {"P01", "P13", "P14", "P-M18", "desconhecida"}
+    assert set(fixtures.cliente360.casos) == {"P01", "P13", "P14", "P-M18", "P59", "desconhecida"}
     assert {"calculado", "sem_simulacao", "prazo_indisponivel"} <= set(fixtures.tres_rn.casos) and {"sem_oferta"} <= set(fixtures.c6.casos)
     for caso in fixtures.tres_rn.casos.values():
         assert isinstance(caso.corpo, Calcular3rnCalculado | Calcular3rnSemCalculo)
@@ -93,6 +93,7 @@ def _com(dados: dict[str, Any], caminho: list[str | int], valor: Any) -> None:
 
 OFERTA = ["casos", "P01", "propostas", "pares", 0, "oferta_ativa"]
 C6_SIMULADO = ["casos", "simulado_P13", "corpo"]
+PAR_P59 = ["casos", "P59", "propostas", "pares", 0]
 MUTACOES: list[tuple[str, str, Any]] = [
     # (arquivo, rótulo, função que estraga o dicionário)
     ("cliente360_oferta.json", "oferta sem valid_until", lambda d: _sem(d, [*OFERTA, "valid_until"])),
@@ -113,6 +114,20 @@ MUTACOES: list[tuple[str, str, Any]] = [
     ("cliente360_oferta.json", "encontrado:false com pares", lambda d: _com(d, ["casos", "desconhecida", "propostas", "pares"], [{"x": 1}])),
     ("cliente360_oferta.json", "resumo com cpf mascarado errado", lambda d: _com(d, ["casos", "P01", "resumo", "itens", 0, "cpf_mascarado"], "***.***.***-9")),
     ("cliente360_oferta.json", "resumo sem cpf", lambda d: _sem(d, ["casos", "P01", "resumo", "itens", 0, "cpf"])),
+    ("cliente360_oferta.json", "oferta sem a chave nula superseded_causa", lambda d: _sem(d, [*OFERTA, "superseded_causa"])),
+    ("cliente360_oferta.json", "oferta sem a chave nula lead_id", lambda d: _sem(d, [*OFERTA, "lead_id"])),
+    ("cliente360_oferta.json", "T3 sem atribuicao", lambda d: _sem(d, ["casos", "P01", "propostas", "atribuicao"])),
+    ("cliente360_oferta.json", "não encontrado sem pessoa_id", lambda d: _sem(d, ["casos", "desconhecida", "propostas", "pessoa_id"])),
+    ("cliente360_oferta.json", "não encontrado sem atribuicao", lambda d: _sem(d, ["casos", "desconhecida", "propostas", "atribuicao"])),
+    ("cliente360_oferta.json", "não encontrado com pessoa_id", lambda d: _com(d, ["casos", "desconhecida", "propostas", "pessoa_id"], "00000000-0000-7000-8000-000000000001")),
+    ("cliente360_oferta.json", "par sem oferta e sem contrato (no 360 o par é ausente)", lambda d: (_com(d, [*PAR_P59, "oferta_ativa"], None), _com(d, [*PAR_P59, "contratos"], []))),
+    ("cliente360_oferta.json", "com_contrato declarado so_oferta", lambda d: _com(d, [*PAR_P59, "caso"], "so_oferta")),
+    ("cliente360_oferta.json", "com_contrato sem alvo_sugerido do contrato", lambda d: _com(d, [*PAR_P59, "alvo_sugerido"], None)),
+    ("cliente360_oferta.json", "contrato pendente marcado terminal", lambda d: _com(d, [*PAR_P59, "contratos", 0, "terminal"], True)),
+    ("cliente360_oferta.json", "contrato sem referencia_banco", lambda d: _sem(d, [*PAR_P59, "contratos", 0, "contrato", "referencia_banco"])),
+    ("cliente360_oferta.json", "contrato com campo fora do contrato", lambda d: _com(d, [*PAR_P59, "contratos", 0, "contrato", "pct_empresa"], "1")),
+    ("cliente360_oferta.json", "contrato macro desconhecido", lambda d: _com(d, [*PAR_P59, "contratos", 0, "contrato", "macro"], "quase_pago")),
+    ("cliente360_oferta.json", "contrato consome a oferta ativa sem ser dela", lambda d: _com(d, [*PAR_P59, "contratos", 0, "consome_oferta_ativa"], True)),
     ("3rn_calcular.json", "3rn: status fora do vocabulário", lambda d: _com(d, ["casos", "sem_simulacao", "corpo", "status"], "TALVEZ")),
     ("3rn_calcular.json", "3rn: SIM_AUSENTE sem o eco nao_repagar", lambda d: _sem(d, ["casos", "sem_simulacao", "corpo", "nao_repagar"])),
     ("3rn_calcular.json", "3rn: calculado sem o eco nao_repagar", lambda d: _sem(d, ["casos", "calculado", "corpo", "nao_repagar"])),
@@ -302,6 +317,7 @@ def test_fixtures_duble_formas_nao_inventam_campo_nem_perdem_obrigatorio_do_cont
         "Oferta": formas.Oferta, "PayloadEconomicoCltV1": formas.PayloadEconomicoCltV1, "ParPropostasPessoa": formas.ParPropostasPessoa,
         "ResultadoPropostasPessoa": formas.ResultadoPropostasPessoa, "PessoaResumo": formas.PessoaResumo, "ResumosPessoas": formas.ResumosPessoas,
         "AtributosCadastraisOferta": formas.AtributosCadastraisOferta, "NaoPerturbe": formas.NaoPerturbe, "LimiteContratos": formas.LimiteContratos,
+        "ContratoNaFoto": formas.ContratoNaFoto, "Contrato": formas.Contrato,
     }  # fmt: skip
     for nome, modelo in pares.items():
         esquema = esquemas[nome]
@@ -309,3 +325,5 @@ def test_fixtures_duble_formas_nao_inventam_campo_nem_perdem_obrigatorio_do_cont
         assert campos <= set(esquema["properties"]), f"{nome}: campo fora do contrato: {sorted(campos - set(esquema['properties']))}"
         obrigatorios = {c for c, f in modelo.model_fields.items() if f.is_required()}
         assert set(esquema.get("required", [])) <= obrigatorios, f"{nome}: obrigatório do contrato ausente no modelo"
+    # `Contrato`: os opcionais que o modelo aceita são EXATAMENTE os do esquema (um opcional novo no contrato reprova aqui, em vez de passar calado)
+    assert set(formas.Contrato.model_fields) | formas.OPCIONAIS_DO_CONTRATO == set(esquemas["Contrato"]["properties"])

@@ -87,12 +87,12 @@ def test_pessoas_teste_cobrem_todas_as_personas(catalogo, corpo):
 def test_pessoas_teste_oferta_facta_ativa_segue_o_perfil_da_persona(catalogo, corpo):
     """Oferta FACTA ativa ⇔ `perfil.oferta_facta_ativa`; valor e prazo são os do perfil; a parcela é valor × coeficiente da tabela 115716."""
     for persona in corpo.todas():
-        facta = next(par for par in catalogo.por_persona(persona.id).pares if par.banco == "FACTA")
+        facta = next((par for par in catalogo.por_persona(persona.id).pares if par.banco == "FACTA"), None)
         perfil = persona.perfil
         if not perfil.oferta_facta_ativa:
-            assert facta.economia is None and facta.oferta_id is None, persona.id
+            assert facta is None, f"{persona.id}: sem oferta FACTA o par é AUSENTE (no 360 o par só nasce de oferta ativa ou contrato)"
             continue
-        assert facta.economia is not None
+        assert facta is not None and facta.economia is not None
         assert int(float(facta.economia.valor_liberado)) == perfil.valor_pre_aprovado_brl, persona.id
         assert facta.economia.prazo_meses == perfil.prazo_oferta_x, persona.id
         esperado = round(perfil.valor_pre_aprovado_brl * float(facta.economia.coeficiente_financeiro), 2)
@@ -108,27 +108,74 @@ def test_pessoas_teste_todas_as_personas_leem_t1_e_t3(catalogo, fonte, modo):
         assert resumo.itens[0].cpf == pessoa.cpf_digitos
         propostas = ResultadoPropostasPessoa.model_validate(fonte.propostas(pessoa.pessoa_id, modo))
         assert propostas.encontrado and propostas.pessoa_id == str(pessoa.pessoa_id)
+        assert [p.banco for p in propostas.pares] == [par.banco for par in pessoa.pares], pessoa.persona_id
         com_oferta = [par for par in pessoa.pares if par.economia is not None]
         assert [p.banco for p in propostas.pares if p.oferta_ativa] == [par.banco for par in com_oferta], pessoa.persona_id
-        assert {p.caso for p in propostas.pares} <= {"so_oferta", "sem_oferta"}
+        assert {p.caso for p in propostas.pares} <= {"so_oferta", "com_contrato"}
+        assert propostas.atribuicao.versao == 0 and propostas.atribuicao.site_profile_id is None, "pessoa sem atribuição: versao 0 (R1-03)"
 
 
-def test_pessoas_teste_p13_tem_oferta_no_c6_e_p14_nao_tem_no_3rn(catalogo, fonte):
+def test_pessoas_teste_p13_tem_oferta_no_c6_e_p14_nao_tem_par_no_3rn(catalogo, fonte):
+    """«Sem oferta no 3RN» (P14) é o par AUSENTE, como no 360 real: o par só nasce de oferta ativa ou de contrato (R1-04)."""
     p13 = {p["banco"]: p for p in fonte.propostas(catalogo.por_persona("P13").pessoa_id, "duble")["pares"]}
     assert p13["FACTA"]["caso"] == "so_oferta" and p13["C6"]["caso"] == "so_oferta" and p13["C6"]["oferta_ativa"]["estado"] == "ativa"
-    p14 = {p["banco"]: p for p in fonte.propostas(catalogo.por_persona("P14").pessoa_id, "duble")["pares"]}
-    assert p14["FACTA"]["caso"] == "so_oferta" and p14["3RN"] == {
-        "banco": "3RN", "produto": "CLT", "caso": "sem_oferta", "contratos": [], "oferta_ativa": None, "alvo_sugerido": None,
-    }  # fmt: skip
+    p14 = {p["banco"] for p in fonte.propostas(catalogo.por_persona("P14").pessoa_id, "duble")["pares"]}
+    assert p14 == {"FACTA"}, "P14 não tem par 3RN"
+    pm18 = {p["banco"] for p in fonte.propostas(catalogo.por_persona("P-M18").pessoa_id, "duble")["pares"]}
+    assert pm18 == {"C6"}, "P-M18 não tem par FACTA"
+
+
+def test_pessoas_teste_p59_ja_tem_proposta_e_o_par_vem_com_contrato(catalogo, fonte):
+    """«Proposta viva» (P59): contrato vivo no par FACTA, `com_contrato`, alvo = o contrato, e a oferta ativa segue visível sem ser consumida por ele."""
+    (par,) = fonte.propostas(catalogo.por_persona("P59").pessoa_id, "teste")["pares"]
+    assert par["caso"] == "com_contrato" and par["oferta_ativa"]["estado"] == "ativa"
+    (foto,) = par["contratos"]
+    assert (foto["terminal"], foto["consome_oferta_ativa"], foto["contrato"]["macro"]) == (False, False, "pendente")
+    assert par["alvo_sugerido"] == {"tipo": "contrato", "id": foto["contrato"]["contrato_id"]}
+    assert (
+        foto["contrato"]["oferta_id"] != par["oferta_ativa"]["oferta_id"]
+        and foto["contrato"]["pessoa_id"] == par["oferta_ativa"]["pessoa_id"]
+    )
 
 
 def test_pessoas_teste_pessoa_desconhecida_responde_como_o_360(fonte):
+    """«Não encontrado» do T3 (`pessoasPropostas`): 200 com `pessoa_id: null` e `atribuicao: null` SEMPRE presentes; T1 omite o id desconhecido."""
     fora = "00000000-0000-7000-8000-999999999999"
     assert fonte.resumo(fora, "duble") == {"itens": []}
     vazio = fonte.propostas(fora, "teste")
-    assert (vazio["encontrado"], vazio["pares"], vazio["varias_ofertas"]) == (False, [], False) and "pessoa_id" not in vazio
+    assert vazio == {
+        "encontrado": False,
+        "pessoa_id": None,
+        "atribuicao": None,
+        "varias_ofertas": False,
+        "pares": [],
+        "lido_em": vazio["lido_em"],
+    }
     assert fonte.resumo("nao-e-uuid", "duble") == {"itens": []}
     assert fonte.cpf_de(fora, "duble") is None
+
+
+def test_pessoas_teste_t1_tem_so_as_chaves_da_projecao_real(catalogo, fonte):
+    """`pessoas:resumos` com as flags do T1: `{pessoa_id, nome, cpf_mascarado, cpf, vendedor, nao_perturbe, limite_contratos}`; `status_atendimento` NÃO existe."""
+    (item,) = fonte.resumo(catalogo.por_persona("P01").pessoa_id, "duble")["itens"]
+    assert set(item) == {"pessoa_id", "nome", "cpf_mascarado", "cpf", "vendedor", "nao_perturbe", "limite_contratos"}
+    assert item["vendedor"] is None and item["nao_perturbe"] is None and item["limite_contratos"] is None
+
+
+def test_pessoas_teste_oferta_traz_as_chaves_nulas_que_a_projecao_real_sempre_emite(catalogo, fonte):
+    oferta = fonte.propostas(catalogo.por_persona("P01").pessoa_id, "duble")["pares"][0]["oferta_ativa"]
+    for chave in (
+        "business_date_origem",
+        "superseded_causa",
+        "motivo_encerramento",
+        "motivo_encerramento_texto",
+        "competencia_inicio",
+        "competencia_fim",
+        "origem",
+        "lead_id",
+    ):
+        assert chave in oferta, chave
+    assert oferta["business_date_origem"] == "medida" and oferta["lead_id"] is None and oferta["origem"] is None
 
 
 # --- valid_until relativo -------------------------------------------------------------------------------------------------------------
@@ -146,6 +193,9 @@ def test_valid_until_relativo(catalogo, fonte, relogio):
         assert _instante(corpo_t3["lido_em"]) == agora and _instante(oferta["criada_em"]) < agora < _instante(oferta["valid_until"])
     # a data de negócio é a de São Paulo, não a de UTC (01:30 UTC de 18/11 ainda é 17/11 no Brasil)
     relogio.definir(datetime(2026, 11, 18, 1, 30, tzinfo=UTC))
+    assert fonte.propostas(pessoa, "duble")["pares"][0]["oferta_ativa"]["business_date"] == "2026-11-17"
+    # e é o dia em que a oferta NASCEU (criada_em = agora - 15 min): 00:10 em São Paulo (03:10 UTC) a oferta nasceu 23:55 do dia anterior
+    relogio.definir(datetime(2026, 11, 18, 3, 10, tzinfo=UTC))
     assert fonte.propostas(pessoa, "duble")["pares"][0]["oferta_ativa"]["business_date"] == "2026-11-17"
 
 

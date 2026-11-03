@@ -349,12 +349,6 @@
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
      }
-    },
-    {
-     "banco": "3RN",
-     "produto": "CLT",
-     "oferta_id": null,
-     "economia": null
     }
    ]
   },
@@ -1434,7 +1428,17 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": [
+      {
+       "contrato_id": "6000595",
+       "referencia_banco": "9000044",
+       "oferta_id": "6000599",
+       "macro": "pendente",
+       "status_nativo_codigo": "12",
+       "status_nativo_texto": "12 - AGUARDANDO ASSINATURA DIGITAL"
+      }
+     ]
     }
    ]
   },
@@ -1878,12 +1882,6 @@
    "telefone": "550090000013",
    "duble": "recusa-cpf-fora-da-base",
    "pares": [
-    {
-     "banco": "FACTA",
-     "produto": "CLT",
-     "oferta_id": null,
-     "economia": null
-    },
     {
      "banco": "C6",
      "produto": "CLT",

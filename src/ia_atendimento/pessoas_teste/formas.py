@@ -11,7 +11,7 @@ O corpo cru da C6 (`simulacao`) é aberto no banco: as condições aceitam campo
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -88,17 +88,29 @@ class Oferta(_Fechada):
     ultima_consulta_em: Instante | None = None
     sucede_oferta_id: IdRecurso | None = None
     tipo_operacao: str | None = None
+    business_date_origem: Literal["medida", "imputada"] | None = None
+    superseded_causa: str | None = None
+    motivo_encerramento: str | None = None
+    motivo_encerramento_texto: str | None = None
     competencia_inicio: Instante | None = None
     competencia_fim: Instante | None = None
+    origem: str | None = None
     lead_id: Uuid | None = None
     economia: PayloadEconomicoCltV1 | None = None
     atributos_cadastrais: AtributosCadastraisOferta | None = None
     coeficiente: SnapshotCoeficiente | None = None
 
     @model_validator(mode="after")
-    def _ativa_com_economia(self) -> Oferta:
+    def _forma_da_projecao(self) -> Oferta:
+        """A projeção real (`projetar_oferta`) SEMPRE emite as chaves abaixo (`null` sem valor): a fixture não as omite."""
         if self.estado == "ativa" and self.economia is None:
             raise ValueError("oferta ativa sem economia")
+        sempre = {
+            "business_date_origem", "superseded_causa", "motivo_encerramento", "motivo_encerramento_texto",
+            "competencia_inicio", "competencia_fim", "origem", "lead_id", "atributos_cadastrais", "coeficiente",
+        }  # fmt: skip
+        if sempre - self.model_fields_set:
+            raise ValueError(f"a projeção real sempre emite estas chaves: {sorted(sempre - self.model_fields_set)}")
         return self
 
 
@@ -107,25 +119,96 @@ class AlvoSugerido(_Fechada):
     id: IdRecurso
 
 
+OPCIONAIS_DO_CONTRATO = frozenset({
+    "tipo_operacao", "oferta_id", "adocao", "refinamento", "status_nativo_codigo", "status_nativo_texto", "confianca",
+    "motivo", "motivo_texto", "flags", "adicional", "valor_pago", "valor_contratado", "valor_financiado", "codigo_tabela",
+    "prazo_meses", "valor_parcela", "valor_pre_aprovado", "pago_em", "coeficiente", "fundida_em_id", "substitui_contrato_id",
+    "atualizada_em", "vendedor_efetivo", "link_formalizacao", "data_contratacao_negocio",
+})  # fmt: skip
+MACROS_TERMINAIS = frozenset({"pago", "cancelado", "estornado"})
+
+
+class Contrato(BaseModel):
+    """`Contrato` do 360: os obrigatórios do esquema, mais os opcionais que o contrato declara (qualquer outro nome é recusado)."""
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    contrato_id: IdRecurso
+    pessoa_id: Uuid
+    banco: CodigoBanco
+    produto: CodigoProduto
+    referencia_banco: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    origem_contratacao: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{2,64}$")]
+    macro: Literal["pendente", "em_analise", "aguardando_pagamento", "pago", "cancelado", "estornado"]
+    pacote_versao: Annotated[int, Field(ge=1)]
+    versao: Annotated[int, Field(ge=1)]
+    criada_em: Instante
+
+    @model_validator(mode="after")
+    def _so_campo_do_contrato(self) -> Contrato:
+        fora = set(self.model_extra or {}) - OPCIONAIS_DO_CONTRATO
+        if fora:
+            raise ValueError(f"campo fora do contrato do 360 (Contrato): {sorted(fora)}")
+        return self
+
+    @property
+    def vivo(self) -> bool:
+        """`contrato_banco_ref_vivo`: nem fundido nem cancelado."""
+        return self.macro != "cancelado" and (self.model_extra or {}).get("fundida_em_id") is None
+
+
+class ContratoNaFoto(_Fechada):
+    contrato: Contrato
+    terminal: bool
+    consome_oferta_ativa: bool
+
+    @model_validator(mode="after")
+    def _terminal_e_pelo_macro(self) -> ContratoNaFoto:
+        if self.terminal != (self.contrato.macro in MACROS_TERMINAIS):
+            raise ValueError("`terminal` ⇔ macro pago, cancelado ou estornado")
+        return self
+
+
 class ParPropostasPessoa(_Fechada):
+    """Um par (banco × produto). No 360 real o par só NASCE de uma oferta ativa ou de um contrato (`pessoas_propostas`:
+    `ofertas_visiveis + contratos`): «sem oferta» é o par AUSENTE; `sem_oferta` só aparece com contratos todos mortos (cancelados)
+    e sem oferta ativa. O `caso` é função pura do estado (`_classificar_par`), conferido aqui."""
+
     banco: CodigoBanco
     produto: CodigoProduto
     caso: Literal["sem_oferta", "so_oferta", "com_contrato", "varios_contratos"]
-    contratos: Annotated[list[dict[str, Any]], Field(max_length=0)]  # as fixtures nunca têm contrato vivo (a forma do item é do 360)
+    contratos: list[ContratoNaFoto]
     oferta_ativa: Oferta | None = None
     ofertas_outras: list[Oferta] | None = None
     alvo_sugerido: AlvoSugerido | None = None
 
     @model_validator(mode="after")
     def _caso_coerente(self) -> ParPropostasPessoa:
-        if (self.caso == "so_oferta") != (self.oferta_ativa is not None):
-            raise ValueError("`so_oferta` ⇔ há oferta ativa (sem contrato vivo nas fixtures)")
-        if self.caso not in ("so_oferta", "sem_oferta"):
-            raise ValueError("as fixtures só têm os casos sem_oferta e so_oferta")
+        if self.oferta_ativa is None and not self.contratos:
+            raise ValueError("par sem oferta ativa e sem contrato não existe no 360: o par é AUSENTE")
+        vivos = [c.contrato for c in self.contratos if c.contrato.vivo]
+        if len(vivos) >= 2:
+            esperado, alvo = "varios_contratos", None
+        elif len(vivos) == 1:
+            esperado, alvo = "com_contrato", AlvoSugerido(tipo="contrato", id=vivos[0].contrato_id)
+        elif self.oferta_ativa is not None:
+            esperado, alvo = "so_oferta", AlvoSugerido(tipo="oferta", id=self.oferta_ativa.oferta_id)
+        else:
+            esperado, alvo = "sem_oferta", None
+        if self.caso != esperado:
+            raise ValueError(f"`caso` incoerente com o estado do par: esperado {esperado!r}")
+        if self.alvo_sugerido != alvo:
+            raise ValueError("`alvo_sugerido` incoerente com o caso")
+        id_ativa = self.oferta_ativa.oferta_id if self.oferta_ativa else None
+        for c in self.contratos:
+            if c.consome_oferta_ativa != (id_ativa is not None and (c.contrato.model_extra or {}).get("oferta_id") == id_ativa):
+                raise ValueError("`consome_oferta_ativa` ⇔ o contrato nasceu da oferta ativa do par")
         return self
 
 
 class AtribuicaoPropostas(_Fechada):
+    """`projetar_atribuicao`: pessoa SEM atribuição sai `{versao: 0, site_profile_id: null}` (o `esperado` do primeiro handoff)."""
+
     versao: Annotated[int, Field(ge=0)] | None = None
     site_profile_id: Uuid | None = None
 
@@ -140,8 +223,12 @@ class ResultadoPropostasPessoa(_Fechada):
 
     @model_validator(mode="after")
     def _forma(self) -> ResultadoPropostasPessoa:
-        if not self.encontrado and self.pares:
-            raise ValueError("`encontrado:false` devolve `pares` vazio")
+        if {"pessoa_id", "atribuicao"} - self.model_fields_set:
+            raise ValueError("a rota real SEMPRE emite `pessoa_id` e `atribuicao` (`null` quando a pessoa não foi encontrada)")
+        if not self.encontrado and (self.pares or self.pessoa_id is not None or self.atribuicao is not None):
+            raise ValueError("`encontrado:false` devolve `pares` vazio e `pessoa_id`/`atribuicao` nulos")
+        if self.encontrado and (self.pessoa_id is None or self.atribuicao is None or self.atribuicao.versao is None):
+            raise ValueError("`encontrado:true` traz `pessoa_id` e `atribuicao {versao, site_profile_id}`")
         ativas = sum(1 for p in self.pares if p.oferta_ativa is not None)
         if self.varias_ofertas != (ativas > 1):
             raise ValueError("`varias_ofertas` ⇔ oferta ativa em mais de um par")

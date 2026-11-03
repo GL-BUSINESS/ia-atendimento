@@ -44,13 +44,15 @@ COEFICIENTES = {
     "3RN": {"tabela": "FGL 102", "grade": {24: "0.0655", 36: "0.0511", 48: "0.0443", 60: "0.0401"}, "comissao": "0.008000"},
 }
 CODIGO_DO_PAR = {"FACTA": 1, "C6": 2, "3RN": 3}
-# Quem tem par em OUTRO banco (H §7: P13 «cita C6 e há oferta ativa», P14 «cita 3RN e não há»; M caso (b): outro banco, sem oferta FACTA).
-# (banco, valor_liberado em reais, prazo) ou (banco, None, None) = par sem oferta ativa.
-OUTROS_BANCOS: dict[str, tuple[str, int | None, int | None]] = {
+# Quem tem par em OUTRO banco (H §7: P13 «cita C6 e há oferta ativa»; M caso (b): outro banco, sem oferta FACTA): (banco, valor_liberado em reais, prazo).
+# «P14 cita o 3RN e não há» e «sem FACTA» (P-M18) são o par AUSENTE: no 360 real o par só nasce de oferta ativa ou de contrato (`pessoas_propostas`).
+OUTROS_BANCOS: dict[str, tuple[str, int, int]] = {
     "P13": ("C6", 4800, 60),
-    "P14": ("3RN", None, None),
     "P-M18": ("C6", 3000, 36),
 }
+# «Já tem proposta» (P59, persona `proposta-viva` do dublê): contrato vivo no par FACTA. A oferta ativa segue visível (a de uma consulta posterior): o contrato NÃO a
+# consumiu (`consome_oferta_ativa: false`). Valores inventados; AF = 9000000 + n da persona do dublê (a que o `por-cpf` lista); status = o da etapa de assinatura.
+CONTRATO_VIVO = {"P59": {"macro": "pendente", "status_nativo_codigo": "12", "status_nativo_texto": "12 - AGUARDANDO ASSINATURA DIGITAL"}}
 
 
 def _centavos(valor: Decimal) -> str:
@@ -77,27 +79,30 @@ def _numero(persona_id: str) -> int:
     return int(persona_id[-2:]) + (100 if persona_id.startswith("P-M") else 0)
 
 
-def _par(banco: str, k: int, valor: int | None, prazo: int | None) -> dict[str, Any]:
-    if valor is None or prazo is None:
-        return {"banco": banco, "produto": "CLT", "oferta_id": None, "economia": None}
+def _par(banco: str, k: int, valor: int, prazo: int) -> dict[str, Any]:
     return {
         "banco": banco, "produto": "CLT", "oferta_id": str(PRIMEIRA_OFERTA_ID + 10 * k + CODIGO_DO_PAR[banco]),
         "economia": economia(banco, valor, prazo),
     }  # fmt: skip
 
 
-def pessoa(p: Persona) -> dict[str, Any]:
+def pessoa(p: Persona, duble_do_corpus: Any) -> dict[str, Any]:
     k = _numero(p.id)
     nn = int(p.cpf[8:11])  # 000.000.0nn-dd → nn
     pares = []
     perfil = p.perfil
     if perfil.oferta_facta_ativa and perfil.valor_pre_aprovado_brl is not None and perfil.prazo_oferta_x is not None:
         pares.append(_par("FACTA", k, perfil.valor_pre_aprovado_brl, perfil.prazo_oferta_x))
-    else:
-        pares.append(_par("FACTA", k, None, None))
     if p.id in OUTROS_BANCOS:
         banco, valor, prazo = OUTROS_BANCOS[p.id]
         pares.append(_par(banco, k, valor, prazo))
+    if p.id in CONTRATO_VIVO:
+        facta = next(par for par in pares if par["banco"] == "FACTA")
+        n_duble = next(d.n for d in duble_do_corpus.personas if d.id == p.cenario_facta.persona_duble)
+        facta["contratos"] = [{
+            "contrato_id": str(PRIMEIRA_OFERTA_ID + 10 * k + 5), "referencia_banco": str(9_000_000 + n_duble), "oferta_id": str(PRIMEIRA_OFERTA_ID + 10 * k + 9),
+            **CONTRATO_VIVO[p.id],
+        }]  # fmt: skip
     return {
         "persona_id": p.id,
         "pessoa_id": f"{PREFIXO_PESSOA_ID}{k:012d}",
@@ -111,7 +116,7 @@ def pessoa(p: Persona) -> dict[str, Any]:
 
 def construir(raiz_corpus: Path | None = None) -> dict[str, Any]:
     corpus = carregar(raiz_corpus or RAIZ / "tests" / "corpus")
-    return {"versao": 1, "fonte": FONTE, "pessoas": [pessoa(p) for p in corpus.todas()]}
+    return {"versao": 1, "fonte": FONTE, "pessoas": [pessoa(p, corpus.duble) for p in corpus.todas()]}
 
 
 def _json(dados: Any) -> str:
@@ -216,7 +221,7 @@ def fixture_3rn(catalogo: CatalogoPessoasTeste) -> dict[str, Any]:
 
 def fixture_cliente360(catalogo: CatalogoPessoasTeste) -> dict[str, Any]:
     fonte = FontePessoasTeste(catalogo, RelogioFalso(AGORA_REFERENCIA))
-    exemplos = ("P01", "P13", "P14", "P-M18")  # só FACTA; FACTA + C6; FACTA + 3RN sem oferta; sem FACTA + C6
+    exemplos = ("P01", "P13", "P14", "P-M18", "P59")  # só FACTA; FACTA + C6; sem par 3RN; sem par FACTA + C6; com contrato vivo
     casos = {
         pid: {
             "resumo": fonte.resumo(catalogo.por_persona(pid).pessoa_id, "duble"),

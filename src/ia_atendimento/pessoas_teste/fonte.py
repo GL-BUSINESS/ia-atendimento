@@ -17,11 +17,14 @@ from typing import Any, Final
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from ia_atendimento.pessoas_teste.catalogo import CatalogoPessoasTeste, ParDeTeste, PessoaDeTeste
+from ia_atendimento.pessoas_teste.catalogo import CatalogoPessoasTeste, ContratoDeTeste, ParDeTeste, PessoaDeTeste
 from ia_atendimento.pessoas_teste.formas import (
+    MACROS_TERMINAIS,
     AlvoSugerido,
     AtribuicaoPropostas,
     AtributosCadastraisOferta,
+    Contrato,
+    ContratoNaFoto,
     Oferta,
     ParPropostasPessoa,
     PayloadEconomicoCltV1,
@@ -59,7 +62,11 @@ class FontePessoasTeste:
         return self._catalogo.por_pessoa(pessoa_id)
 
     def resumo(self, pessoa_id: UUID | str, modo: str) -> dict[str, Any]:
-        """T1 cru: `{"itens": [PessoaResumo]}` (vazio se a pessoa não é do catálogo). Sem `nao_perturbe` nem `limite_contratos`."""
+        """T1 cru: `{"itens": [PessoaResumo]}` (vazio se a pessoa não é do catálogo, como `pessoas:resumos`, que omite id desconhecido).
+
+        Projeção do `pessoas:resumos` COM as duas flags do T1 ligadas (`incluir_nao_perturbe`, `incluir_limite_contratos`): `nao_perturbe` e
+        `limite_contratos` saem `null` («a pessoa não está nisso»); `status_atendimento` não existe na projeção real e fica de fora.
+        """
         pessoa = self._pessoa(pessoa_id, modo)
         itens = [] if pessoa is None else [self._resumo(pessoa)]
         return ResumosPessoas(itens=itens).model_dump(mode="json", exclude_unset=True)
@@ -69,14 +76,16 @@ class FontePessoasTeste:
         pessoa = self._pessoa(pessoa_id, modo)
         agora = self._relogio.agora()
         if pessoa is None:
-            vazio = ResultadoPropostasPessoa(encontrado=False, pares=[], varias_ofertas=False, lido_em=instante(agora))
+            vazio = ResultadoPropostasPessoa(
+                encontrado=False, pessoa_id=None, atribuicao=None, varias_ofertas=False, pares=[], lido_em=instante(agora)
+            )
             return vazio.model_dump(mode="json", exclude_unset=True)
         valido_ate = agora + (self._validade if validade is None else validade)
         pares = [self._par(pessoa, par, agora, valido_ate, versao) for par in pessoa.pares]
         resultado = ResultadoPropostasPessoa(
             encontrado=True,
             pessoa_id=str(pessoa.pessoa_id),
-            atribuicao=AtribuicaoPropostas(versao=1, site_profile_id=None),
+            atribuicao=AtribuicaoPropostas(versao=0, site_profile_id=None),  # sem atribuição: `projetar_atribuicao`
             varias_ofertas=sum(1 for p in pares if p.oferta_ativa is not None) > 1,
             pares=pares,
             lido_em=instante(agora),
@@ -95,31 +104,57 @@ class FontePessoasTeste:
         d = pessoa.cpf_digitos
         return PessoaResumo(
             pessoa_id=str(pessoa.pessoa_id), nome=pessoa.nome, cpf_mascarado=f"***.***.***-{d[9:]}", cpf=d,
-            status_atendimento=None, vendedor=None, nao_perturbe=None, limite_contratos=None,
+            vendedor=None, nao_perturbe=None, limite_contratos=None,
         )  # fmt: skip
 
     @staticmethod
     def _par(pessoa: PessoaDeTeste, par: ParDeTeste, agora: datetime, valido_ate: datetime, versao: int) -> ParPropostasPessoa:
-        if par.economia is None or par.oferta_id is None:
-            return ParPropostasPessoa(
-                banco=par.banco, produto=par.produto, caso="sem_oferta", contratos=[], oferta_ativa=None, alvo_sugerido=None
-            )
-        eco, criada = par.economia, instante(agora - CRIADA_HA)
-        oferta = Oferta(
-            oferta_id=par.oferta_id, pessoa_id=str(pessoa.pessoa_id), banco=par.banco, produto=par.produto,
-            business_date=agora.astimezone(FUSO_NEGOCIO).date().isoformat(), estado="ativa", versao=versao,
-            valid_until=instante(valido_ate), criada_em=criada, ciclo=1, ultima_consulta_em=criada,
-            economia=PayloadEconomicoCltV1(
-                forma="payload_clt_v1", valor_liberado=eco.valor_liberado, valor_parcela=eco.valor_parcela, prazo_meses=eco.prazo_meses,
-                tabela_identificador=eco.tabela_identificador, convenio=eco.convenio, coeficiente_financeiro=eco.coeficiente_financeiro,
-            ),
-            atributos_cadastrais=AtributosCadastraisOferta(nome=pessoa.nome, telefone=pessoa.telefone),
-            coeficiente=SnapshotCoeficiente(
-                alvo_tipo="oferta", alvo_id=par.oferta_id, coef_origem="catalogo", coef_valor=eco.coef_valor, coef_versao_id=1,
-                coef_resolvido_em=criada, coef_financeiro=eco.coeficiente_financeiro,
-            ),
-        )  # fmt: skip
+        criada = instante(agora - CRIADA_HA)
+        oferta = None if par.economia is None or par.oferta_id is None else _oferta(pessoa, par, agora, valido_ate, versao, criada)
+        contratos = [_contrato_na_foto(pessoa, par, c, criada) for c in par.contratos]
+        vivos = [c.contrato for c in contratos if c.contrato.vivo]
+        if len(vivos) >= 2:
+            caso, alvo = "varios_contratos", None
+        elif len(vivos) == 1:
+            caso, alvo = "com_contrato", AlvoSugerido(tipo="contrato", id=vivos[0].contrato_id)
+        elif oferta is not None:
+            caso, alvo = "so_oferta", AlvoSugerido(tipo="oferta", id=oferta.oferta_id)
+        else:
+            caso, alvo = "sem_oferta", None
         return ParPropostasPessoa(
-            banco=par.banco, produto=par.produto, caso="so_oferta", contratos=[], oferta_ativa=oferta,
-            alvo_sugerido=AlvoSugerido(tipo="oferta", id=par.oferta_id),
+            banco=par.banco, produto=par.produto, caso=caso, contratos=contratos, oferta_ativa=oferta, alvo_sugerido=alvo
         )  # fmt: skip
+
+
+def _oferta(pessoa: PessoaDeTeste, par: ParDeTeste, agora: datetime, valido_ate: datetime, versao: int, criada: str) -> Oferta:
+    eco = par.economia
+    assert eco is not None and par.oferta_id is not None  # noqa: S101 - chamado só com oferta ativa
+    return Oferta(
+        oferta_id=par.oferta_id, pessoa_id=str(pessoa.pessoa_id), banco=par.banco, produto=par.produto,
+        business_date=(agora - CRIADA_HA).astimezone(FUSO_NEGOCIO).date().isoformat(),  # o dia de SP em que a oferta NASCEU (criada_em)
+        business_date_origem="medida", estado="ativa", superseded_causa=None, motivo_encerramento=None,
+        motivo_encerramento_texto=None, versao=versao, valid_until=instante(valido_ate), competencia_inicio=None,
+        competencia_fim=None, origem=None, lead_id=None, criada_em=criada, ciclo=1,
+        ultima_consulta_em=criada,
+        economia=PayloadEconomicoCltV1(
+            forma="payload_clt_v1", valor_liberado=eco.valor_liberado, valor_parcela=eco.valor_parcela, prazo_meses=eco.prazo_meses,
+            tabela_identificador=eco.tabela_identificador, convenio=eco.convenio, coeficiente_financeiro=eco.coeficiente_financeiro,
+        ),
+        atributos_cadastrais=AtributosCadastraisOferta(nome=pessoa.nome, telefone=pessoa.telefone),
+        coeficiente=SnapshotCoeficiente(
+            alvo_tipo="oferta", alvo_id=par.oferta_id, coef_origem="catalogo", coef_valor=eco.coef_valor, coef_versao_id=1,
+            coef_resolvido_em=criada, coef_financeiro=eco.coeficiente_financeiro,
+        ),
+    )  # fmt: skip
+
+
+def _contrato_na_foto(pessoa: PessoaDeTeste, par: ParDeTeste, c: ContratoDeTeste, criada: str) -> ContratoNaFoto:
+    contrato = Contrato(
+        contrato_id=c.contrato_id, pessoa_id=str(pessoa.pessoa_id), banco=par.banco, produto=par.produto,
+        referencia_banco=c.referencia_banco,
+        origem_contratacao="site", macro=c.macro, pacote_versao=1, versao=1, criada_em=criada, oferta_id=c.oferta_id, adocao=None,
+        status_nativo_codigo=c.status_nativo_codigo, status_nativo_texto=c.status_nativo_texto,
+    )  # fmt: skip
+    return ContratoNaFoto(
+        contrato=contrato, terminal=c.macro in MACROS_TERMINAIS, consome_oferta_ativa=c.oferta_id == par.oferta_id
+    )  # fmt: skip

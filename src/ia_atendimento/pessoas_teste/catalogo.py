@@ -21,7 +21,7 @@ import re
 from collections.abc import Iterable
 from functools import cache
 from pathlib import Path
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -52,16 +52,32 @@ class EconomiaDeTeste(_Modelo):
     coef_valor: str  # grandeza de ordenação do fallback (T3); nunca chega ao modelo
 
 
+class ContratoDeTeste(_Modelo):
+    """Contrato VIVO do par («já tem proposta», P59): vira um `ContratoNaFoto` no T3. Valores inventados; forma do `Contrato` do 360."""
+
+    contrato_id: Annotated[str, StringConstraints(pattern=r"^[0-9]{1,19}$")]
+    referencia_banco: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    macro: Literal["pendente", "em_analise", "aguardando_pagamento", "pago", "cancelado", "estornado"]
+    status_nativo_codigo: str | None = None
+    status_nativo_texto: str | None = None
+    oferta_id: Annotated[str, StringConstraints(pattern=r"^[0-9]{1,19}$")]  # a oferta de onde o contrato nasceu (XOR adoção)
+
+
 class ParDeTeste(_Modelo):
+    """Um par (banco × produto) que o 360 mostraria: com oferta ativa e/ou contrato. Sem nenhum dos dois o par NÃO existe."""
+
     banco: Annotated[str, StringConstraints(pattern=r"^[A-Z0-9_]{2,32}$")]
     produto: Annotated[str, StringConstraints(pattern=r"^[A-Z0-9_]{2,32}$")]
-    oferta_id: Annotated[str, StringConstraints(pattern=r"^[0-9]{1,19}$")] | None  # None = par sem oferta ativa
-    economia: EconomiaDeTeste | None
+    oferta_id: Annotated[str, StringConstraints(pattern=r"^[0-9]{1,19}$")] | None = None
+    economia: EconomiaDeTeste | None = None
+    contratos: tuple[ContratoDeTeste, ...] = ()
 
     @model_validator(mode="after")
-    def _oferta_e_economia_juntas(self) -> ParDeTeste:
+    def _par_existe(self) -> ParDeTeste:
         if (self.oferta_id is None) != (self.economia is None):
-            raise ValueError("oferta_id e economia vêm juntos (par sem oferta: os dois nulos)")
+            raise ValueError("oferta_id e economia vêm juntos")
+        if self.economia is None and not self.contratos:
+            raise ValueError("par sem oferta ativa e sem contrato não existe no 360 (o par é ausente)")
         return self
 
 
