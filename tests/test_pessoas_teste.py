@@ -29,6 +29,7 @@ from ia_atendimento.pessoas_teste import (
     carregar,
     carregar_catalogo,
     catalogo_padrao,
+    formas,
     hash_canonico,
     marcar_teste,
     texto_de_saida,
@@ -190,6 +191,32 @@ def test_pessoas_teste_t1_tem_so_as_chaves_da_projecao_real(catalogo, fonte):
     (item,) = fonte.resumo(catalogo.por_persona("P01").pessoa_id, "duble")["itens"]
     assert set(item) == {"pessoa_id", "nome", "cpf_mascarado", "cpf", "vendedor", "nao_perturbe", "limite_contratos"}
     assert item["vendedor"] is None and item["nao_perturbe"] is None and item["limite_contratos"] is None
+
+
+def test_pessoas_teste_oferta_nao_inventa_ultima_consulta_em_e_traz_link_chat_nulo(catalogo, fonte):
+    """R2-04: `pessoas:propostas` não emite `ultima_consulta_em` (só `propostas:periodo`) e SEMPRE emite as três chaves de `atributos_cadastrais`."""
+    for pessoa in catalogo.pessoas:
+        for par in fonte.propostas(pessoa.pessoa_id, "duble")["pares"]:
+            oferta = par["oferta_ativa"]
+            if oferta is not None:
+                assert "ultima_consulta_em" not in oferta, pessoa.persona_id
+                assert oferta["atributos_cadastrais"] == {"nome": pessoa.nome, "telefone": pessoa.telefone, "link_chat": None}, (
+                    pessoa.persona_id
+                )
+
+
+def test_pessoas_teste_contrato_do_p59_traz_as_31_chaves_que_a_projecao_real_sempre_emite(catalogo, fonte):
+    """R2-05: `projetar_contrato` emite 31 chaves SEMPRE (as 10 obrigatórias + 21 que valem `null`, `[]` ou `false`); código que lê `contrato["flags"]` não pode dar KeyError no dublê."""
+    (par,) = fonte.propostas(catalogo.por_persona("P59").pessoa_id, "teste")["pares"]
+    contrato = par["contratos"][0]["contrato"]
+    assert set(contrato) == formas.SEMPRE_NO_CONTRATO and len(contrato) == 31
+    assert (contrato["flags"], contrato["adicional"], contrato["valor_pago"], contrato["link_formalizacao"], contrato["fundida_em_id"]) == (
+        [],
+        False,
+        None,
+        None,
+        None,
+    )
 
 
 def test_pessoas_teste_oferta_traz_as_chaves_nulas_que_a_projecao_real_sempre_emite(catalogo, fonte):

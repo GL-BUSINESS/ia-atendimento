@@ -179,43 +179,28 @@ def fixture_c6(catalogo: CatalogoPessoasTeste) -> dict[str, Any]:
 
 
 def fixture_3rn(catalogo: CatalogoPessoasTeste) -> dict[str, Any]:
-    """`/3rn/calcular` no modo da IA (`nao_repagar: true`): TODA resposta ecoa o campo (`_ecoar_nao_repagar`). O padrão é `SIM_AUSENTE` (sem simulação
-    guardada a consulta paga NÃO é refeita): só quem tem par 3RN com oferta ativa cai em `calculado`."""
-    tab = COEFICIENTES["3RN"]
-    valor, prazo = 3500, 48
-    parcela = float(_centavos(Decimal(valor) * Decimal(tab["grade"][prazo])))
-    prazos = sorted(tab["grade"])
-    casos: dict[str, Any] = {
-        "calculado": {
-            "http": 200,
-            "corpo": {
-                "success": True, "cpf": CPF_ECO, "fonte_sim": "cache", "tabela": tab["tabela"], "valorFinanciado": float(valor), "valorLiquido": 3290.0,
-                "parcela": parcela, "prazo": prazo, "coeficiente_tabela": float(tab["comissao"]), "nao_repagar": True,
-            },
-        },
-        "sem_simulacao": {
-            "http": 200,
-            "corpo": {
-                "success": False, "cpf": CPF_ECO, "etapa": "vinculos", "status": "SIM_AUSENTE",
-                "motivo": "Sem simulação válida em trn.sim para este CPF — com nao_repagar, a consulta de vínculos (paga) não é refeita.",
-                "nao_repagar": True,
-            },
-        },
-        "prazo_indisponivel": {  # `validar_prazo_tabela`: o prazo pedido não existe na tabela (sem `etapa`, com a grade)
-            "http": 200,
-            "corpo": {
-                "success": False, "cpf": CPF_ECO, "status": "REPROVADO", "tabela": tab["tabela"], "prazoMaximo": max(prazos), "prazosDisponiveis": prazos,
-                "motivo": f'Prazo 72x indisponível para a tabela "{tab["tabela"]}". Prazos aceitos: {", ".join(f"{p}x" for p in prazos)}.',
-                "nao_repagar": True,
-            },
-        },
-    }  # fmt: skip
-    por_persona = {
-        p.persona_id: "calculado" for p in catalogo.pessoas for par in p.pares if par.banco == "3RN" and par.economia is not None
-    }
+    """`/3rn/calcular` no modo da IA (`nao_repagar: true`): TODA resposta ecoa o campo (`_ecoar_nao_repagar`).
+
+    Só há UM caso: `SIM_AUSENTE` (sem simulação guardada a consulta paga NÃO é refeita). Os outros desfechos (`calculado`, `prazo_indisponivel`) não têm
+    persona que os alcance: ninguém tem par 3RN com oferta ativa e o gateway não passa prazo nem valor (R1-23/R2-05 da revisão). Eles existem como FORMA
+    (`Calcular3rnCalculado`, `Calcular3rnSemCalculo`, testadas com as respostas reais), não como dado morto; quando uma persona ganhar par 3RN, o caso entra junto.
+    """
+    if [p for p in catalogo.pessoas for par in p.pares if par.banco == "3RN"]:
+        raise SystemExit("persona com par 3RN: gere o caso `calculado` (e o prazo) para ela em fixture_3rn")
     return {
-        "versao": 2, "fonte": "forma de /3rn/calcular com nao_repagar (3rn-api app/routers/consulta.py, calcular/_calcular/_ecoar_nao_repagar); valores sinteticos",
-        "eco_cpf": "`cpf` ecoa o pedido: o arquivo traz 00000000000 e o gateway o troca pelo CPF consultado", "padrao": "sem_simulacao", "por_persona": por_persona, "casos": casos,
+        "versao": 3,
+        "fonte": "forma de /3rn/calcular com nao_repagar (3rn-api app/routers/consulta.py, calcular/_calcular/_ecoar_nao_repagar); valores sinteticos",
+        "eco_cpf": "`cpf` ecoa o pedido: o arquivo traz 00000000000 e o gateway o troca pelo CPF consultado", "padrao": "sem_simulacao", "por_persona": {},
+        "casos": {
+            "sem_simulacao": {
+                "http": 200,
+                "corpo": {
+                    "success": False, "cpf": CPF_ECO, "etapa": "vinculos", "status": "SIM_AUSENTE",
+                    "motivo": "Sem simulação válida em trn.sim para este CPF — com nao_repagar, a consulta de vínculos (paga) não é refeita.",
+                    "nao_repagar": True,
+                },
+            }
+        },
     }  # fmt: skip
 
 

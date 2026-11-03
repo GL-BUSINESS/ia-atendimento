@@ -10,6 +10,9 @@ from __future__ import annotations
 import copy
 import json
 import os
+import subprocess
+import sys
+import typing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -62,7 +65,7 @@ def test_fixtures_duble_validam_contra_o_schema_pydantic_da_forma(fixtures):
     """Os três arquivos carregam, e carregam pelo diretório do checkout (o wheel leva o mesmo, `force-include`)."""
     assert modulo.diretorio_padrao() == DIRETORIO
     assert set(fixtures.exemplo_cliente360.casos) == {"P01", "P13", "P14", "P-M18", "P59", "desconhecida"}
-    assert {"calculado", "sem_simulacao", "prazo_indisponivel"} <= set(fixtures.tres_rn.casos) and {"sem_oferta"} <= set(fixtures.c6.casos)
+    assert set(fixtures.tres_rn.casos) == {"sem_simulacao"} and {"sem_oferta"} <= set(fixtures.c6.casos)
     for caso in fixtures.tres_rn.casos.values():
         assert isinstance(caso.corpo, Calcular3rnCalculado | Calcular3rnSemCalculo)
     for caso in fixtures.c6.casos.values():
@@ -130,21 +133,24 @@ MUTACOES: list[tuple[str, str, Any]] = [
     ("cliente360_oferta.json", "com_contrato sem alvo_sugerido do contrato", lambda d: _com(d, [*PAR_P59, "alvo_sugerido"], None)),
     ("cliente360_oferta.json", "contrato pendente marcado terminal", lambda d: _com(d, [*PAR_P59, "contratos", 0, "terminal"], True)),
     ("cliente360_oferta.json", "pares fora da ordem do 360 (P13: FACTA antes de C6)", lambda d: d["casos"]["P13"]["propostas"]["pares"].reverse()),
+    ("cliente360_oferta.json", "oferta com ultima_consulta_em inventada", lambda d: _com(d, [*OFERTA, "ultima_consulta_em"], "2026-11-17T14:45:00Z")),
+    ("cliente360_oferta.json", "atributos_cadastrais sem link_chat", lambda d: _sem(d, [*OFERTA, "atributos_cadastrais", "link_chat"])),
+    ("cliente360_oferta.json", "contrato sem a chave flags", lambda d: _sem(d, [*PAR_P59, "contratos", 0, "contrato", "flags"])),
+    ("cliente360_oferta.json", "contrato sem a chave link_formalizacao", lambda d: _sem(d, [*PAR_P59, "contratos", 0, "contrato", "link_formalizacao"])),
     ("cliente360_oferta.json", "contrato sem referencia_banco", lambda d: _sem(d, [*PAR_P59, "contratos", 0, "contrato", "referencia_banco"])),
     ("cliente360_oferta.json", "contrato com campo fora do contrato", lambda d: _com(d, [*PAR_P59, "contratos", 0, "contrato", "pct_empresa"], "1")),
     ("cliente360_oferta.json", "contrato macro desconhecido", lambda d: _com(d, [*PAR_P59, "contratos", 0, "contrato", "macro"], "quase_pago")),
     ("cliente360_oferta.json", "contrato consome a oferta ativa sem ser dela", lambda d: _com(d, [*PAR_P59, "contratos", 0, "consome_oferta_ativa"], True)),
     ("3rn_calcular.json", "3rn: status fora do vocabulário", lambda d: _com(d, ["casos", "sem_simulacao", "corpo", "status"], "TALVEZ")),
     ("3rn_calcular.json", "3rn: SIM_AUSENTE sem o eco nao_repagar", lambda d: _sem(d, ["casos", "sem_simulacao", "corpo", "nao_repagar"])),
-    ("3rn_calcular.json", "3rn: calculado sem o eco nao_repagar", lambda d: _sem(d, ["casos", "calculado", "corpo", "nao_repagar"])),
-    ("3rn_calcular.json", "3rn: eco nao_repagar falso", lambda d: _com(d, ["casos", "calculado", "corpo", "nao_repagar"], False)),
+    ("3rn_calcular.json", "3rn: eco nao_repagar falso", lambda d: _com(d, ["casos", "sem_simulacao", "corpo", "nao_repagar"], False)),
     ("3rn_calcular.json", "3rn: SIM_AUSENTE com success true", lambda d: _com(d, ["casos", "sem_simulacao", "corpo", "success"], True)),
     ("3rn_calcular.json", "3rn: SIM_AUSENTE sem etapa vinculos", lambda d: _sem(d, ["casos", "sem_simulacao", "corpo", "etapa"])),
-    ("3rn_calcular.json", "3rn: persona do corpus que não existe", lambda d: _com(d, ["por_persona", "P99"], "calculado")),
-    ("3rn_calcular.json", "3rn: calculado sem parcela", lambda d: _sem(d, ["casos", "calculado", "corpo", "parcela"])),
-    ("3rn_calcular.json", "3rn: campo inventado", lambda d: _com(d, ["casos", "calculado", "corpo", "comissao"], 1.0)),
+    ("3rn_calcular.json", "3rn: persona do corpus que não existe", lambda d: _com(d, ["por_persona", "P99"], "sem_simulacao")),
+    ("3rn_calcular.json", "3rn: SIM_AUSENTE sem motivo", lambda d: _sem(d, ["casos", "sem_simulacao", "corpo", "motivo"])),
+    ("3rn_calcular.json", "3rn: campo inventado", lambda d: _com(d, ["casos", "sem_simulacao", "corpo", "comissao"], 1.0)),
     ("3rn_calcular.json", "3rn: persona aponta caso inexistente", lambda d: _com(d, ["por_persona", "P13"], "nao_existe")),
-    ("3rn_calcular.json", "3rn: cpf de 10 dígitos", lambda d: _com(d, ["casos", "calculado", "corpo", "cpf"], "0000000019")),
+    ("3rn_calcular.json", "3rn: cpf de 10 dígitos", lambda d: _com(d, ["casos", "sem_simulacao", "corpo", "cpf"], "0000000019")),
     ("c6_simular.json", "c6: simulado sem simulacao", lambda d: _com(d, [*C6_SIMULADO, "simulacao"], None)),
     ("c6_simular.json", "c6: result desconhecido", lambda d: _com(d, [*C6_SIMULADO, "result"], "quase")),
     ("c6_simular.json", "c6: condição sem parcelas", lambda d: _sem(d, [*C6_SIMULADO, "simulacao", "condicoes_credito", 0, "condicao", "quantidade_parcelas"])),
@@ -167,7 +173,10 @@ def test_fixtures_duble_forma_quebrada_e_recusada(tmp_path, bruto, arquivo, rotu
 
 
 def test_fixtures_duble_modelos_isolados_recusam_extra_e_tipo(fixtures):
-    base = json.loads((DIRETORIO / "3rn_calcular.json").read_text(encoding="utf-8"))["casos"]["calculado"]["corpo"]
+    base = {
+        "success": True, "cpf": CPF_P01, "fonte_sim": "cache", "tabela": "FGL 102", "valorFinanciado": 3500.0, "valorLiquido": 3290.0,
+        "parcela": 155.05, "prazo": 48, "coeficiente_tabela": 0.008, "nao_repagar": True,
+    }  # fmt: skip
     assert Calcular3rnCalculado.model_validate(base).tabela == "FGL 102"
     with pytest.raises(ValidationError):
         Calcular3rnCalculado.model_validate({**base, "extra": 1})
@@ -254,14 +263,12 @@ def test_fixtures_duble_3rn_formas_reais_do_3rn_api_sao_aceitas_e_o_eco_e_exigid
 
 def test_fixtures_duble_outra_persona_cai_no_padrao(fixtures):
     """Quem não tem caso próprio: o 3RN devolve `SIM_AUSENTE` (sem simulação guardada ele não paga outra consulta) e o C6 devolve «sem oferta»
-    (404), como o `c6-api`. O recálculo bem-sucedido só vale para quem tem par 3RN com oferta ativa (ninguém, hoje)."""
+    (404), como o `c6-api`. O recálculo bem-sucedido só vale para quem tem par 3RN com oferta ativa (ninguém, hoje: por isso a fixture só tem o `sem_simulacao`, R1-23)."""
     cpf = catalogo_padrao().por_persona("P01").cpf_digitos
     http, corpo = fixtures.calcular_3rn("P01", cpf, "duble")
     sem = Calcular3rnSemCalculo.model_validate(corpo)
     assert (http, sem.status, sem.success, sem.nao_repagar) == (200, "SIM_AUSENTE", False, True)
     assert fixtures.tres_rn.padrao == "sem_simulacao" and fixtures.tres_rn.por_persona == {}
-    calculado = Calcular3rnCalculado.model_validate(fixtures.tres_rn.casos["calculado"].corpo.model_dump(mode="json", exclude_unset=True))
-    assert (calculado.parcela, calculado.prazo, calculado.nao_repagar) == (155.05, 48, True)
     http, corpo = fixtures.simular_c6("P01", cpf, "duble")
     sem_oferta = C6Simular.model_validate(corpo)
     assert (http, sem_oferta.result, sem_oferta.success, sem_oferta.simulacao) == (404, "sem_oferta", True, None)
@@ -319,24 +326,69 @@ def test_fixtures_duble_exemplo_do_360_carrega_o_valid_until_relativo(fixtures):
     assert outro["pares"][0]["oferta_ativa"]["valid_until"] != c360.casos["P01"].propostas.pares[0].oferta_ativa.valid_until
 
 
-# --- deriva em relação ao contrato real -----------------------------------------------------------------------------------------------
+# --- deriva em relação ao contrato real (cliente360-api, a FONTE) ---------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CONTRATO_360.is_file(), reason="cliente360.json do web não está neste checkout (defina CLIENTE360_CONTRATO_PATH)")
+RECORTE = RAIZ / "tests" / "contratos" / "cliente360-recorte.json"
+# Campos do contrato que os modelos NÃO têm porque as rotas de T1/T3 não os emitem ou só com flag/query que o gateway não liga (`incluir_canal`, `incluir_pre_contratacao`,
+# `incluir_contatos`, `incluir_nacionalidade`, e os opt-in do contrato). Um campo NOVO do contrato fora desta lista reprova o teste: decide-se se entra.
+OPT_IN_QUE_O_GATEWAY_NAO_LIGA = {
+    "Oferta": {
+        "canal",
+        "economia_pre_contratacao",
+        "ultima_consulta_em",
+    },  # `ultima_consulta_em` só sai em `propostas:periodo`, não em `pessoas:propostas` (R2-04)
+    "PessoaResumo": {"contatos_vigentes", "nacionalidade"},
+    "Contrato": {"dados_banco", "nota", "seguro_recusado_em", "vendedor_na_contratacao"},
+}
+MODELOS_DO_RECORTE = {
+    "Oferta": formas.Oferta, "PayloadEconomicoCltV1": formas.PayloadEconomicoCltV1, "ParPropostasPessoa": formas.ParPropostasPessoa,
+    "ResultadoPropostasPessoa": formas.ResultadoPropostasPessoa, "PessoaResumo": formas.PessoaResumo, "ResumosPessoas": formas.ResumosPessoas,
+    "AtributosCadastraisOferta": formas.AtributosCadastraisOferta, "NaoPerturbe": formas.NaoPerturbe, "LimiteContratos": formas.LimiteContratos,
+    "ContratoNaFoto": formas.ContratoNaFoto, "Contrato": formas.Contrato,
+}  # fmt: skip
+ENUMS = (  # (modelo, campo, onde o contrato guarda o enum)
+    ("Oferta", "estado", lambda e: e["EstadoOferta"]["enum"]),
+    ("ParPropostasPessoa", "caso", lambda e: e["ParPropostasPessoa"]["properties"]["caso"]["enum"]),
+    ("Contrato", "macro", lambda e: e["MacroEstado"]["enum"]),
+)
+
+
+def _recorte() -> dict:
+    return json.loads(RECORTE.read_text(encoding="utf-8"))
+
+
 def test_fixtures_duble_formas_nao_inventam_campo_nem_perdem_obrigatorio_do_contrato_360():
-    """Contra `cliente360.json`: todo campo dos modelos existe no esquema e todo `required` do esquema existe no modelo (senão a fixture deriva)."""
-    esquemas = json.loads(CONTRATO_360.read_text(encoding="utf-8"))["components"]["schemas"]
-    pares = {
-        "Oferta": formas.Oferta, "PayloadEconomicoCltV1": formas.PayloadEconomicoCltV1, "ParPropostasPessoa": formas.ParPropostasPessoa,
-        "ResultadoPropostasPessoa": formas.ResultadoPropostasPessoa, "PessoaResumo": formas.PessoaResumo, "ResumosPessoas": formas.ResumosPessoas,
-        "AtributosCadastraisOferta": formas.AtributosCadastraisOferta, "NaoPerturbe": formas.NaoPerturbe, "LimiteContratos": formas.LimiteContratos,
-        "ContratoNaFoto": formas.ContratoNaFoto, "Contrato": formas.Contrato,
-    }  # fmt: skip
-    for nome, modelo in pares.items():
+    """R1-14/R2-06: contra o contrato da `cliente360-api` (recorte versionado, a fonte, não o pin do web): todo campo do modelo existe no esquema, todo `required` do esquema
+    está no modelo, todo campo do esquema que o modelo não tem é opt-in CONHECIDO, e os enums (`estado`, `caso`, `macro`) são iguais. Roda em qualquer máquina."""
+    recorte = _recorte()
+    esquemas = recorte["schemas"]
+    assert recorte["fonte"].startswith("cliente360-api@")
+    for nome, modelo in MODELOS_DO_RECORTE.items():
         esquema = esquemas[nome]
-        campos = set(modelo.model_fields)
+        campos = set(modelo.model_fields) | (formas.OPCIONAIS_DO_CONTRATO if nome == "Contrato" else set())
         assert campos <= set(esquema["properties"]), f"{nome}: campo fora do contrato: {sorted(campos - set(esquema['properties']))}"
         obrigatorios = {c for c, f in modelo.model_fields.items() if f.is_required()}
         assert set(esquema.get("required", [])) <= obrigatorios, f"{nome}: obrigatório do contrato ausente no modelo"
-    # `Contrato`: os opcionais que o modelo aceita são EXATAMENTE os do esquema (um opcional novo no contrato reprova aqui, em vez de passar calado)
-    assert set(formas.Contrato.model_fields) | formas.OPCIONAIS_DO_CONTRATO == set(esquemas["Contrato"]["properties"])
+        novos = set(esquema["properties"]) - campos - OPT_IN_QUE_O_GATEWAY_NAO_LIGA.get(nome, set())
+        assert not novos, f"{nome}: o contrato ganhou {sorted(novos)}; entra no modelo ou em OPT_IN_QUE_O_GATEWAY_NAO_LIGA (com o motivo)"
+    for nome, campo, do_contrato in ENUMS:
+        no_modelo = set(typing.get_args(MODELOS_DO_RECORTE[nome].model_fields[campo].annotation))
+        assert no_modelo == set(do_contrato(esquemas)), f"{nome}.{campo}: o enum do modelo difere do contrato"
+    # as 31 chaves que a projeção real do Contrato sempre emite são as 10 obrigatórias + 21 opcionais que o contrato conhece
+    assert set(esquemas["Contrato"]["properties"]) >= formas.SEMPRE_NO_CONTRATO and len(formas.SEMPRE_NO_CONTRATO) == 31
+
+
+def test_o_recorte_do_contrato_esta_em_dia_com_a_cliente360_api():
+    """Frescor: o recorte versionado é o que a `cliente360-api@origin/main` tem hoje. Se a API mudou um dos 43 schemas, reprova (rode `scripts/atualizar_contrato_360.py`).
+    Pula sem o checkout da API (`CLIENTE360_API_REPO`, padrão ~/repos/cliente360-api)."""
+    repo = Path(os.environ.get("CLIENTE360_API_REPO", "~/repos/cliente360-api")).expanduser()
+    if not (repo / ".git").exists():
+        pytest.skip(f"{repo} não é um checkout da cliente360-api (defina CLIENTE360_API_REPO)")
+    r = subprocess.run(
+        [sys.executable, str(RAIZ / "scripts" / "atualizar_contrato_360.py"), "--verificar", str(repo)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr

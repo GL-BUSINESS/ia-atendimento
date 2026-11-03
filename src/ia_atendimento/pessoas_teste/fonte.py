@@ -137,12 +137,11 @@ def _oferta(pessoa: PessoaDeTeste, par: ParDeTeste, agora: datetime, valido_ate:
         business_date_origem="medida", estado="ativa", superseded_causa=None, motivo_encerramento=None,
         motivo_encerramento_texto=None, versao=versao, valid_until=instante(valido_ate), competencia_inicio=None,
         competencia_fim=None, origem=None, lead_id=None, criada_em=criada, ciclo=1,
-        ultima_consulta_em=criada,
         economia=PayloadEconomicoCltV1(
             forma="payload_clt_v1", valor_liberado=eco.valor_liberado, valor_parcela=eco.valor_parcela, prazo_meses=eco.prazo_meses,
             tabela_identificador=eco.tabela_identificador, convenio=eco.convenio, coeficiente_financeiro=eco.coeficiente_financeiro,
         ),
-        atributos_cadastrais=AtributosCadastraisOferta(nome=pessoa.nome, telefone=pessoa.telefone),
+        atributos_cadastrais=AtributosCadastraisOferta(nome=pessoa.nome, telefone=pessoa.telefone, link_chat=None),
         coeficiente=SnapshotCoeficiente(
             alvo_tipo="oferta", alvo_id=par.oferta_id, coef_origem="catalogo", coef_valor=eco.coef_valor, coef_versao_id=1,
             coef_resolvido_em=criada, coef_financeiro=eco.coeficiente_financeiro,
@@ -156,6 +155,10 @@ def _contrato_na_foto(pessoa: PessoaDeTeste, par: ParDeTeste, c: ContratoDeTeste
         referencia_banco=c.referencia_banco,
         origem_contratacao="site", macro=c.macro, pacote_versao=1, versao=1, criada_em=criada, oferta_id=c.oferta_id, adocao=None,
         status_nativo_codigo=c.status_nativo_codigo, status_nativo_texto=c.status_nativo_texto,
+        # as demais chaves que a projeção real SEMPRE emite (R2-05): vazias, o contrato do P59 está pendente e sem valores pagos
+        refinamento=None, confianca=None, motivo=None, flags=[], adicional=False, valor_contratado=None, valor_financiado=None,
+        valor_pago=None, pago_em=None, codigo_tabela=None, prazo_meses=None, valor_parcela=None, link_formalizacao=None,
+        coeficiente=None, fundida_em_id=None, substitui_contrato_id=None, atualizada_em=None,
     )  # fmt: skip
     return ContratoNaFoto(
         contrato=contrato, terminal=c.macro in MACROS_TERMINAIS, consome_oferta_ativa=c.oferta_id == par.oferta_id

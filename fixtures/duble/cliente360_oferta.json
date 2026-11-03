@@ -40,7 +40,6 @@
        "valid_until": "2026-11-17T17:00:00Z",
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
-       "ultima_consulta_em": "2026-11-17T14:45:00Z",
        "business_date_origem": "medida",
        "superseded_causa": null,
        "motivo_encerramento": null,
@@ -60,7 +59,8 @@
        },
        "atributos_cadastrais": {
         "nome": "Zuleide Alvimar",
-        "telefone": "550090000001"
+        "telefone": "550090000001",
+        "link_chat": null
        },
        "coeficiente": {
         "alvo_tipo": "oferta",
@@ -120,7 +120,6 @@
        "valid_until": "2026-11-17T17:00:00Z",
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
-       "ultima_consulta_em": "2026-11-17T14:45:00Z",
        "business_date_origem": "medida",
        "superseded_causa": null,
        "motivo_encerramento": null,
@@ -140,7 +139,8 @@
        },
        "atributos_cadastrais": {
         "nome": "Euclides Ulaardel",
-        "telefone": "550090000075"
+        "telefone": "550090000075",
+        "link_chat": null
        },
        "coeficiente": {
         "alvo_tipo": "oferta",
@@ -173,7 +173,6 @@
        "valid_until": "2026-11-17T17:00:00Z",
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
-       "ultima_consulta_em": "2026-11-17T14:45:00Z",
        "business_date_origem": "medida",
        "superseded_causa": null,
        "motivo_encerramento": null,
@@ -193,7 +192,8 @@
        },
        "atributos_cadastrais": {
         "nome": "Euclides Ulaardel",
-        "telefone": "550090000075"
+        "telefone": "550090000075",
+        "link_chat": null
        },
        "coeficiente": {
         "alvo_tipo": "oferta",
@@ -253,7 +253,6 @@
        "valid_until": "2026-11-17T17:00:00Z",
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
-       "ultima_consulta_em": "2026-11-17T14:45:00Z",
        "business_date_origem": "medida",
        "superseded_causa": null,
        "motivo_encerramento": null,
@@ -273,7 +272,8 @@
        },
        "atributos_cadastrais": {
         "nome": "Maristela Walardel",
-        "telefone": "550090000107"
+        "telefone": "550090000107",
+        "link_chat": null
        },
        "coeficiente": {
         "alvo_tipo": "oferta",
@@ -333,7 +333,6 @@
        "valid_until": "2026-11-17T17:00:00Z",
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
-       "ultima_consulta_em": "2026-11-17T14:45:00Z",
        "business_date_origem": "medida",
        "superseded_causa": null,
        "motivo_encerramento": null,
@@ -353,7 +352,8 @@
        },
        "atributos_cadastrais": {
         "nome": "Marcia Helolim",
-        "telefone": "550090000013"
+        "telefone": "550090000013",
+        "link_chat": null
        },
        "coeficiente": {
         "alvo_tipo": "oferta",
@@ -417,7 +417,24 @@
          "oferta_id": "6000599",
          "adocao": null,
          "status_nativo_codigo": "12",
-         "status_nativo_texto": "12 - AGUARDANDO ASSINATURA DIGITAL"
+         "status_nativo_texto": "12 - AGUARDANDO ASSINATURA DIGITAL",
+         "refinamento": null,
+         "confianca": null,
+         "motivo": null,
+         "flags": [],
+         "adicional": false,
+         "valor_contratado": null,
+         "valor_financiado": null,
+         "valor_pago": null,
+         "pago_em": null,
+         "codigo_tabela": null,
+         "prazo_meses": null,
+         "valor_parcela": null,
+         "link_formalizacao": null,
+         "coeficiente": null,
+         "fundida_em_id": null,
+         "substitui_contrato_id": null,
+         "atualizada_em": null
         },
         "terminal": false,
         "consome_oferta_ativa": false
@@ -434,7 +451,6 @@
        "valid_until": "2026-11-17T17:00:00Z",
        "criada_em": "2026-11-17T14:45:00Z",
        "ciclo": 1,
-       "ultima_consulta_em": "2026-11-17T14:45:00Z",
        "business_date_origem": "medida",
        "superseded_causa": null,
        "motivo_encerramento": null,
@@ -454,7 +470,8 @@
        },
        "atributos_cadastrais": {
         "nome": "Abel Calelim",
-        "telefone": "550090000044"
+        "telefone": "550090000044",
+        "link_chat": null
        },
        "coeficiente": {
         "alvo_tipo": "oferta",

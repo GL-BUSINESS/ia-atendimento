@@ -49,9 +49,17 @@ class PayloadEconomicoCltV1(_Fechada):
 
 
 class AtributosCadastraisOferta(_Fechada):
+    """A rota real emite as TRÊS chaves (`model_dump` do schema, `link_chat: null` incluído): a fixture não omite nenhuma (R2-04)."""
+
     nome: str | None = None
     telefone: str | None = None
     link_chat: str | None = None
+
+    @model_validator(mode="after")
+    def _as_tres_chaves(self) -> AtributosCadastraisOferta:
+        if {"nome", "telefone", "link_chat"} - self.model_fields_set:
+            raise ValueError("`atributos_cadastrais` sempre traz nome, telefone e link_chat (null quando não há)")
+        return self
 
 
 class SnapshotCoeficiente(_Fechada):
@@ -85,7 +93,6 @@ class Oferta(_Fechada):
     valid_until: Instante
     criada_em: Instante
     ciclo: Annotated[int, Field(ge=1)] | None = None
-    ultima_consulta_em: Instante | None = None
     sucede_oferta_id: IdRecurso | None = None
     tipo_operacao: str | None = None
     business_date_origem: Literal["medida", "imputada"] | None = None
@@ -123,7 +130,17 @@ OPCIONAIS_DO_CONTRATO = frozenset({
     "tipo_operacao", "oferta_id", "adocao", "refinamento", "status_nativo_codigo", "status_nativo_texto", "confianca",
     "motivo", "motivo_texto", "flags", "adicional", "valor_pago", "valor_contratado", "valor_financiado", "codigo_tabela",
     "prazo_meses", "valor_parcela", "valor_pre_aprovado", "pago_em", "coeficiente", "fundida_em_id", "substitui_contrato_id",
-    "atualizada_em", "vendedor_efetivo", "link_formalizacao", "data_contratacao_negocio",
+    "atualizada_em", "vendedor_efetivo", "link_formalizacao", "data_contratacao_negocio", "dados_banco", "nota", "seguro_recusado_em",
+    "vendedor_na_contratacao",
+})  # fmt: skip
+# As 31 chaves que `projetar_contrato` do 360 emite SEMPRE (R2-05): as 10 obrigatórias do esquema + estas (`null`/`[]`/`false` sem valor).
+# O resto do `Contrato` (dados_banco, nota, seguro_recusado_em, vendedor_na_contratacao...) é opt-in por flag e a rota de T3 não liga.
+SEMPRE_NO_CONTRATO = frozenset({
+    "contrato_id", "pessoa_id", "banco", "produto", "referencia_banco", "origem_contratacao", "macro", "pacote_versao", "versao",
+    "criada_em", "oferta_id",
+    "adocao", "status_nativo_codigo", "status_nativo_texto", "refinamento", "confianca", "motivo", "flags", "adicional", "valor_contratado",
+    "valor_financiado", "valor_pago", "pago_em", "codigo_tabela", "prazo_meses", "valor_parcela", "link_formalizacao", "coeficiente",
+    "fundida_em_id", "substitui_contrato_id", "atualizada_em",
 })  # fmt: skip
 MACROS_TERMINAIS = frozenset({"pago", "cancelado", "estornado"})
 
@@ -149,6 +166,9 @@ class Contrato(BaseModel):
         fora = set(self.model_extra or {}) - OPCIONAIS_DO_CONTRATO
         if fora:
             raise ValueError(f"campo fora do contrato do 360 (Contrato): {sorted(fora)}")
+        faltam = SEMPRE_NO_CONTRATO - (self.model_fields_set | set(self.model_extra or {}))
+        if faltam:
+            raise ValueError(f"a projeção real do Contrato sempre emite estas chaves: {sorted(faltam)}")
         return self
 
     @property
