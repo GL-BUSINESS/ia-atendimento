@@ -30,11 +30,16 @@ from ia_atendimento.mascara import mascarar
 # Link que o cliente digitou (H §3.3: URL/link nunca entra no prompt). Depois de casar o ESQUEMA (`xxx://`), `www.` ou o host com TLD
 # conhecido, o link vai até o próximo espaço: porta, caminho, `?query` e `#fragmento` não ficam no texto (um `.evil.xyz/…` ou
 # `:8080?token=…` chegava ao provedor).
+LIMITE_DA_ENTRADA: Final = 1000  # caracteres do texto cru que entram na proteção (R2-01)
+JANELA_DA_PALAVRA: Final = 100  # ao cortar, volta até aqui procurando o fim da palavra anterior
 _TLDS: Final = (
     "com|net|org|br|io|app|me|link|ly|xyz|info|biz|site|online|top|club|shop|store|tech|dev|cc|co|tk|ml|ga|cf|gq|ru|cn|pw|click|live|win|vip|fun|ws|gl"
     "|page|cloud|digital"
 )
-_LINK: Final = re.compile(rf"(?i)(?<!\w)(?:[a-z][a-z0-9+.\-]*://|www\.)\S+|(?<!\w)(?:[a-z0-9-]+\.)+(?:{_TLDS})\b\S*")
+# Início de token: a lookbehind dupla impede de COMEÇAR no meio de uma palavra ou logo depois de «palavra.» (`a.a.a.a…`): sem ela o regex
+# partia de cada segmento e varria até o fim, O(n²) (4.000 caracteres = 1 s, R2-01). `x..y.com/a` (ponto duplo) ainda começa em `y`.
+_ANTES: Final = r"(?<![\w\-])(?<![\w\-]\.)"
+_LINK: Final = re.compile(rf"(?i){_ANTES}(?:[a-z][a-z0-9+.\-]*://|www\.)\S+|{_ANTES}\.?(?:[a-z0-9-]+\.)+(?:{_TLDS})\b\S*")
 _PONTO_IDEOGRAFICO: Final = {"\u3002": ".", "\uff61": "."}  # «。» e «｡»: NFKC não os leva a «.»
 _DATA_COMPLETA: Final = re.compile(r"(?<!\d)(?:0?[1-9]|[12]\d|3[01])([/.\-])(?:0?[1-9]|1[0-2])\1(?:19|20)\d{2}(?!\d)")
 _DINHEIRO: Final = re.compile(
@@ -83,8 +88,23 @@ def _trocar_numero(achado: re.Match[str]) -> str:
     return achado.group("fica") if achado.group("fica") is not None else "[NUMERO]"
 
 
+def cortar_entrada(texto: str) -> str:
+    """Corta o texto CRU antes de qualquer regex: o prompt nunca mostra mais de ~560 caracteres de uma mensagem e o evento aceita até
+    4.000. Corta na última palavra inteira (um CPF ou nome partido ao meio não deixa fragmento) e marca com «…». O cortado não vai a
+    lugar nenhum."""
+    if len(texto) <= LIMITE_DA_ENTRADA:
+        return texto
+    corte = texto[:LIMITE_DA_ENTRADA]
+    if not texto[LIMITE_DA_ENTRADA].isspace():  # cortou no meio de uma palavra: descarta o pedaço dela
+        espaco = max(corte.rfind(" "), corte.rfind("\n"), corte.rfind("\t"))
+        if espaco >= LIMITE_DA_ENTRADA - JANELA_DA_PALAVRA:
+            corte = corte[:espaco]
+    return corte.rstrip() + " …"
+
+
 def proteger_texto(texto: str, nomes: Collection[str]) -> str:
     """Texto de cliente (ou da IA) pronto para o prompt (ver o docstring do módulo). Idempotente."""
+    texto = cortar_entrada(texto)
     protegido = _LINK.sub("[LINK]", mascarar(normalizar(texto), nomes))  # tudo olha a vista normalizada (largura inteira não escapa)
     protegido = _DATA_COMPLETA.sub("[DATA]", protegido)
     protegido = _PRAZO.sub("[PRAZO]", _DINHEIRO.sub("[VALOR]", protegido))
