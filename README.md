@@ -29,6 +29,7 @@ da agenda (B5.7b)**: ainda sem agente, sem ferramentas, sem n8n e sem nada em pr
 | Estados da linha `agendamento` (`confirmar`/`disparar`/`cancelar`, CAS por `versao`) e o passo `agendamento` — B5.7b | `src/ia_atendimento/agenda_estado.py` | `tests/test_agenda_estado.py` |
 | Jobs `retomar` (alarme sem lock + CAS `confirmado → disparado`) e `reaper_agenda` por minuto; `POST /agendamentos` enfileira o alarme — B5.7b | `agenda_jobs.py`, `fila.py`, `api/agendamentos.py` | `tests/test_agenda_jobs.py` (EM4: restart com 3 `confirmado`) |
 | Jobs presos: periódica `jobs_presos` (UPDATE atômico) e vigia do batimento do worker; rearme de agendamento e teto de atraso — B5.7b | `worker_vivo.py`, `agenda_estado.py`, `agenda_jobs.py` | `tests/test_jobs_presos.py` (SIGKILL real), `tests/test_execucao_superada.py`, `tests/test_agenda_rearme.py` |
+| Ponto de entrada do worker (`python -m ia_atendimento.worker`, script `ia-worker`, `--saude`); volta perdida fecha a linha (`fechar_volta_perdida`) — B5.7b | `worker.py`, `agenda_estado.py`, `docs/OPERACAO.md` §9 | `tests/test_worker_real.py` (processo real), `tests/test_agenda_volta_perdida.py` |
 
 ## Como rodar
 
@@ -132,7 +133,7 @@ Para aplicar na S4 (feito pelo dono, nunca por este código): `migrations/README
 ```
 migrations/      0001 (estudo I), 0002 (Procrastinate), 0003 (estado), 0004 (anexo do RPA e outbox), 0001.sha256, README.md (ordem de aplicação na S4)
 scripts/         check.sh, aplicar_migracoes_local.sh, gerar_0002.py, varredura.py
-src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py, estado*.py, fila.py, jobs.py, mensagens.py, agendamento.py, agenda_estado.py, agenda_jobs.py, estado_pausa.py, worker_vivo.py, api/ …
+src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py, estado*.py, fila.py, jobs.py, mensagens.py, agendamento.py, agenda_estado.py, agenda_jobs.py, estado_pausa.py, worker_vivo.py, worker.py, api/ …
 tests/           test_*.py; casos/ = os 350 casos do estudo I como dados (nome, papel, SQL, expectativa)
 docs/OPERACAO.md operação (aplicação na S4 = texto para o dono, não executar sem o «sim»)
 .github/workflows/ci.yml  ruff + pytest com serviço postgres:18, sem segredos
