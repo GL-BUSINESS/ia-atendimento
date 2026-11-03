@@ -152,3 +152,25 @@ uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90
   conexão direta ao Postgres (nunca por pooler em modo transação).
 - **Parada leve:** `PUT /config/ia_ativa` com `false` agenda um alarme (`alarme_encerrar_por_chave`, sem lock do chat) por atendimento aberto, aguardando ou pausado (até 19 min); ao disparar ele enfileira o `encerrar_por_chave` com o lock do chat, então o cliente que responde nesse intervalo não fica preso. O serviço que executa o job
   é da B1.6: até lá o job falha alto (`ServicoNaoConfigurado`) e a vigia alerta; a chave desligada já recusa entrada nova.
+
+## 9. Chats de teste e `pessoas_teste` (B2.4) — só pelo kit, só a TI
+
+`pessoas_teste` é a lista das 84 pessoas sintéticas (uma por `persona_id` da F3: P01–P60 e P-M01–P-M24; CPF `000.000.0nn`, `pessoa_id` `00000000-0000-7000-8000-…`).
+Um chat de teste **nunca tem CPF**, mas `atendimento.pessoa_id` é obrigatório: no ensaio B, no smoke e na F3 a pessoa vem daqui, e em `duble|teste` T1 e T3 leem a oferta FACTA
+(`valid_until` = agora + 2 h, a cada leitura) de `FontePessoasTeste`, não do 360. Em `real` e `sombra` a fonte se recusa (`ForaDoModoDeTeste`).
+
+**Fantasma de venda em `teste` (risco 103).** Chat de cliente na lista `chats_teste` por engano faria a IA conversar de verdade. Quatro travas, todas por código: (1) `PUT /config/chats_teste`
+só aceita chat cuja pessoa está em `pessoas_teste` (`422 pessoa_fora_de_pessoas_teste`) e que nunca teve atendimento `real`/`sombra` (`422 chat_de_cliente`); (2) só a origem `ti` grava a lista
+(as outras tomam `403 origem_nao_autorizada`) e a versão guarda `publicado_por`, `motivo` e instante; (3) `POST /atendimentos` e `POST /agendamentos` em chat de teste só abrem com pessoa de
+`pessoas_teste`; (4) o `Canal` entrega o texto com o prefixo «[TESTE]» (`texto_de_saida`, B1.6/B6.8 liga).
+
+```bash
+K=~/retomada-2809/fila-2910/ia/config/chats-teste.sh
+bash $K gerar   --par <chat 24 hex>=P13 --par <outro chat>=P01 --ensaio      # só o plano; troque por --confirmo para escrever ./pessoas_teste.json (0600)
+# entregue o arquivo à VPS no caminho de PESSOAS_TESTE_ARQUIVO e REINICIE o orquestrador (o arquivo é lido no boot)
+bash $K aplicar --par <chat 24 hex>=P13 --par <outro chat>=P01 --por <login da TI> --confirmo     # PUT chats_teste (token da TI em arquivo 0600)
+bash $K limpar  --por <login da TI> --confirmo                                                      # desfaz: chats_teste = []
+```
+
+O catálogo e as fixtures (`fixtures/duble/{cliente360_oferta,3rn_calcular,c6_simular}.json`) saem do corpus: `uv run python scripts/gerar_pessoas_teste.py` regrava e `--verificar` (no `check.sh`) reprova
+quando divergem. Mudou uma persona do corpus ⇒ regrave, copie `pessoas.json` para o `bancos-duble` (`personas/pessoas_teste.yaml` + `pessoas_teste.sha256`) e rode os dois portões.

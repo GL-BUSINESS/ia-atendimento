@@ -4,6 +4,20 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **B2.4, `pessoas_teste` (FACTA, T1/T3) e fixtures de 3RN/C6 para o modo `duble`** (`feat/b2-4-pessoas-teste`, empilhada sobre `feat/b1-5-api-entrada`; `docs/DECISOES-B2.4-0211.md`):
+  - **`src/ia_atendimento/pessoas_teste/`** (o módulo `pessoas_teste.py` da B1.5 virou pacote; `arquivo.py` é o mesmo código e a API pública `PessoasTesteFixas`/`carregar` não mudou):
+    `catalogo.py` + `pessoas.json` (84 pessoas sintéticas, uma por `persona_id` da F3, CPF `000.000.0nn-dd` do corpus, `pessoa_id` fixo `00000000-0000-7000-8000-…`, oferta FACTA ativa do perfil da persona,
+    P13 com oferta ativa no C6, P14 com o par 3RN sem oferta, P-M18 com C6 e sem FACTA) e `pessoas.sha256` (hash canônico, o mesmo do instantâneo do `bancos-duble`);
+    `fonte.py` (`FontePessoasTeste`: T1 `ResumosPessoas` e T3 `ResultadoPropostasPessoa` por `pessoa_id`, `valid_until` = agora + 2 h calculado a cada leitura, só em `duble|teste`, `ForaDoModoDeTeste` em `real|sombra`);
+    `formas.py` (formas medidas do 360, de `/3rn/calcular` e de `/c6/oferta/simular`, Pydantic estrito); `prefixo.py` («[TESTE]», só no `modo_efetivo = teste`); `fixtures_duble.py` (carregador das fixtures de banco);
+    `python -m ia_atendimento.pessoas_teste arquivo|listar` (monta o `PESSOAS_TESTE_ARQUIVO`).
+  - **`fixtures/duble/{cliente360_oferta,3rn_calcular,c6_simular}.json`** (sem WireMock, sem chamada real; viajam no wheel por `force-include`): P13 (oferta ativa no C6, T5 simulado coerente com ela) e P14 (sem oferta no 3RN, `SIM_AUSENTE`).
+    `scripts/gerar_pessoas_teste.py [--verificar]` gera tudo do corpus e entra no `check.sh`.
+  - **Kit** `~/retomada-2809/fila-2910/ia/config/chats-teste.sh` (`gerar|aplicar|limpar`, `--ensaio`/`--confirmo`; `PUT /config/chats_teste` só com o token da TI e `versao_esperada`; nada rodou em produção). `docs/OPERACAO.md` §9.
+  - **Testes** (`tests/test_pessoas_teste.py`, `tests/test_pessoas_teste_api.py`, `tests/test_fixtures_duble.py`): `test_chats_teste_so_com_pessoa_de_teste`, `test_mensagem_de_teste_prefixada_TESTE`,
+    `test_pessoas_teste_cobrem_todas_as_personas`, `test_valid_until_relativo`; `pytest -k fixtures_duble` (41, com 30 mutações de forma) e `-k pessoas_teste`. 2.252 → 2.317 passed (2.316 e +1 skip sem `BANCOS_DUBLE_PATH`; o skip de PyYAML e os 3 xfail estritos como antes).
+  - **Não muda a API**: a ligação `chats_teste` ↔ `pessoas_teste` e a restrição à TI já eram da B1.5; esta etapa acrescenta o catálogo real, os testes que a fecham e o kit.
+
 - **B1.5, API de entrada (T7) + migração 0004** (`feat/b1-5-api-entrada`; `docs/DECISOES-B1.5-3010.md`; a versão do `pyproject` não muda, entra na v0.3.0):
   - **Migração `0004_anexo_rpa_e_espelho`** (D5 e D6 do contrato 08 §11, aditiva): `ia.fn_anexar_rpa(bigint, text)` `SECURITY DEFINER` (dono `ia_owner`, `search_path = pg_catalog, ia`,
     `EXECUTE` só a `ia_app`; o único jeito de anexar o `_id` do RPA ao passo, que é append-only) e a outbox `ia.espelho_evento` (`SELECT, INSERT` e `UPDATE` de 4 colunas a `ia_app`, nada a `ia_leitura`).
