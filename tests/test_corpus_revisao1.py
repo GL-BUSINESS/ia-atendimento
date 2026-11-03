@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import re
 
 import pytest
 
@@ -135,7 +136,7 @@ def test_nenhuma_persona_sem_facta_chega_ao_e7(bruto_original):
 
 def test_duble_snapshot_e_o_da_main_do_bancos_duble_e_as_oito_personas_usam_persona_que_existe(bruto_original):
     duble = bruto_original["duble"]
-    assert "@1305152" in duble["fonte"]
+    assert re.search(r"sha256 [0-9a-f]{12}\b", duble["fonte"]), "a fonte leva o sha256 do personas.yaml do dublê, não um commit (R2-08)"
     assert "AJUSTE" not in duble["fonte"]  # o corpus se amarra ao dublê, não o contrário
     existentes = {d["id"] for d in duble["personas"]}
     corpus = c.montar(bruto_original)

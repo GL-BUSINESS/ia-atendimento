@@ -1,5 +1,5 @@
 {
- "fonte": "bancos-duble @1305152+B2.4-R1-09 personas/personas.yaml (versao 1): so id, n, CPF sintetico, cenario, as P-ids do f3 e o clone_de",
+ "fonte": "bancos-duble B2.4 personas/personas.yaml (sha256 ddc3d7b01e19, versao 1): so id, n, CPF sintetico, cenario, as P-ids do f3 e o clone_de",
  "f3_globais": {
   "P30": "virada",
   "P31": "reabertura"
