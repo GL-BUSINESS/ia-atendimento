@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from datetime import datetime
 from typing import Annotated, Final
 
-from pydantic import AfterValidator, Field, StrictBool, StrictInt, StringConstraints
+from pydantic import AfterValidator, AwareDatetime, BeforeValidator, Field, StrictBool, StrictInt, StringConstraints
 
 LIMITE_JSON_OCTETOS: Final = 2048  # CHECK do DDL: `octet_length(perfil::text)` e `octet_length(estado_conversa::text)`
 _SEPARADORES: Final = re.compile(r"[\s.\-/_:]")
@@ -21,15 +22,42 @@ _ID_NUMERICO: Final = re.compile(r"\d{1,9}")  # `oferta_id` bigint do 360: até 
 _VERSOES_DE_UUID: Final = (4, 7)  # os que o sistema gera: uuid4 (Python) e uuidv7 (`DEFAULT uuidv7()` do banco)
 
 
+ANO_MINIMO: Final = 2020
+ANO_MAXIMO: Final = 2999
+_RFC3339: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|z|[+-]\d{2}:\d{2})$")
+
+
+def _so_rfc3339(valor: object) -> object:
+    """O Pydantic em modo *lax* lê inteiro, decimal e texto numérico como epoch: um número de 11 dígitos (CPF) viraria data gravada.
+    Instante vindo de corpo é TEXTO RFC 3339 com fuso (`2026-11-24T10:15:30-03:00`, `...Z`); um `datetime` pronto (código) também passa."""
+    if isinstance(valor, datetime):
+        return valor
+    if isinstance(valor, str) and _RFC3339.fullmatch(valor):
+        if (
+            not ANO_MINIMO <= int(valor[:4]) <= ANO_MAXIMO
+        ):  # `0001-01-01…+05:00` estourava o `astimezone(UTC)` (500); o «tempo zero» de Go/.NET gravava lixo
+            raise ValueError(f"instante fora da faixa {ANO_MINIMO}–{ANO_MAXIMO}")
+        return valor
+    raise ValueError("instante deve ser texto RFC 3339 com fuso, ex.: 2026-11-24T10:15:30-03:00")
+
+
+DataHora = Annotated[AwareDatetime, BeforeValidator(_so_rfc3339)]  # instante com fuso, só como texto RFC 3339 (nunca epoch)
+
+
 def octetos_como_jsonb(valor: object) -> int:
     """Tamanho em bytes do `valor::text` do jsonb (`", "` e `": "` como separadores): o que o CHECK `octet_length(...) <= 2048` mede."""
     return len(json.dumps(valor, ensure_ascii=False, separators=(", ", ": ")).encode("utf-8"))
 
 
+def contem_documento(valor: str) -> bool:
+    """`True` se, tirados os separadores, há uma sequência de 10+ dígitos (CPF, CNPJ, telefone), mascarada ou não."""
+    return _DIGITOS_DE_DOCUMENTO.search(_SEPARADORES.sub("", valor)) is not None
+
+
 def _sem_documento(valor: str) -> str:
     """Tira espaço, ponto, hífen, barra, sublinhado e dois-pontos e recusa qualquer sequência de 10 ou mais dígitos: `123.456.789-09`,
     `12345 678901`, `123_456_789_01` e `1234.5678.90.12` viram a mesma sequência de dígitos. Sem exceção para UUID."""
-    if _DIGITOS_DE_DOCUMENTO.search(_SEPARADORES.sub("", valor)):
+    if contem_documento(valor):
         raise ValueError("código/referência parece documento ou telefone")
     return valor
 

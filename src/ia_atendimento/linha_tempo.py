@@ -215,18 +215,23 @@ def gravar_passo(
 # --- mensagens recebidas ---------------------------------------------------------------------------------------------------------
 
 
-def _existente(conn: psycopg.Connection, ident: Identidade, rpa_id: str | None) -> tuple[uuid.UUID, int, str] | None:
-    """Passo `mensagem_recebida` com a mesma `msg_chave` (ou, na reconciliação, com o `_id` do RPA já anexado)."""
+def _existente(conn: psycopg.Connection, ident: Identidade, rpa_id: str | None) -> tuple[uuid.UUID, int, str, str] | None:
+    """Passo `mensagem_recebida` com a mesma `msg_chave` (ou, na reconciliação, com o `_id` do RPA já anexado) e a `msg_chave` da linha."""
     linha = conn.execute(
-        "SELECT atendimento_id, ordem, msg_fingerprint FROM ia.passo WHERE tipo = 'mensagem_recebida'"
+        "SELECT atendimento_id, ordem, msg_fingerprint, msg_chave FROM ia.passo WHERE tipo = 'mensagem_recebida'"
         " AND (msg_chave = %s OR (%s::text IS NOT NULL AND msg_chave_rpa = %s)) LIMIT 1",
         (ident.msg_chave, rpa_id, rpa_id),
     ).fetchone()
-    return (linha[0], linha[1], linha[2]) if linha else None
+    return (linha[0], linha[1], linha[2], linha[3]) if linha else None
 
 
-def _comparar(existente: tuple[uuid.UUID, int, str], ident: Identidade, atendimento_id: uuid.UUID) -> Duplicada | Conflito:
-    atendimento, ordem, fingerprint = existente
+def _comparar(existente: tuple[uuid.UUID, int, str, str], ident: Identidade, atendimento_id: uuid.UUID) -> Duplicada | Conflito:
+    atendimento, ordem, fingerprint, chave_da_linha = existente
+    # Achada pelo `_id` do RPA já anexado a uma linha do WEBHOOK (a chave da linha é outra): o `_id` é a identidade da mensagem do RPA, e o
+    # fingerprint dele leva a hora do RPA, que difere da do webhook. Reenvio do mesmo `_id` é repetição, não conflito (o reconciliador
+    # repete a cada 2 min).
+    if chave_da_linha != ident.msg_chave:
+        return Duplicada(ident.msg_chave, atendimento == atendimento_id, ordem if atendimento == atendimento_id else None)
     if fingerprint != ident.msg_fingerprint:
         return Conflito(ident.msg_chave)
     mesmo = atendimento == atendimento_id
@@ -250,6 +255,19 @@ def _replay_sem_hora(conn: psycopg.Connection, atendimento_id: uuid.UUID, evento
     return linha[0] if linha else None
 
 
+def _dados_da_mensagem(evento: EventoMensagem, ident: Identidade, fora_de_ordem: bool, enviada_em: datetime | None) -> MensagemRecebida:
+    return MensagemRecebida(
+        msg_chave=ident.msg_chave,
+        msg_fingerprint=ident.msg_fingerprint,
+        msg_tipo=evento.tipo,
+        msg_tamanho=ident.msg_tamanho,
+        origem_evento=evento.origem_evento,
+        msg_enviada_em=enviada_em or evento.datetime_post,
+        msg_chave_rpa=None,
+        fora_de_ordem=fora_de_ordem,
+    )
+
+
 def gravar_mensagem_recebida(
     conn: psycopg.Connection,
     atendimento_id: uuid.UUID,
@@ -258,6 +276,8 @@ def gravar_mensagem_recebida(
     chaves: ChavesDeMensagem,
     recebido_em: datetime | None = None,
     casar: Casador | None = None,
+    fora_de_ordem: bool = False,
+    enviada_em: datetime | None = None,
 ) -> Gravada | Duplicada | Casada | Conflito:
     """Grava a mensagem como passo `mensagem_recebida` (só códigos e tamanho: o texto vai, mascarado e cifrado, a `conversa`).
 
@@ -266,15 +286,7 @@ def gravar_mensagem_recebida(
     evento viram dois passos: `casar` é o gancho do casamento (contrato 08 §5.3 passo 7, B1.5); roda DENTRO do `FOR UPDATE` do
     atendimento, depois da busca exata e antes do INSERT, e devolve a `ordem` do passo já gravado (ou `None`)."""
     ident = identidade(evento, chaves, recebido_em=recebido_em or datetime.now(UTC))
-    dados = MensagemRecebida(
-        msg_chave=ident.msg_chave,
-        msg_fingerprint=ident.msg_fingerprint,
-        msg_tipo=evento.tipo,
-        msg_tamanho=ident.msg_tamanho,
-        origem_evento=evento.origem_evento,
-        msg_enviada_em=evento.datetime_post,
-        msg_chave_rpa=None,
-    )
+    dados = _dados_da_mensagem(evento, ident, fora_de_ordem, enviada_em)
     with conn.transaction():
         fase, rodada = travar_atendimento(conn, atendimento_id)
         anterior = _existente(conn, ident, evento.rpa_id)

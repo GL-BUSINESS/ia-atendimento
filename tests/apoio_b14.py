@@ -44,11 +44,15 @@ def settings_de_teste(**mudar: Any) -> Settings:
     base: dict[str, Any] = {
         "database_url": "postgresql://ia_app_a:senha-descartavel-0001@127.0.0.1:5434/ia_atendimento",
         "modelo_api_key_1": CHAVE_DA_API,
-        "api_token": "token-da-api-descartavel-0001",
+        "api_tokens": {"ti": "token-ti-de-teste-descartavel-0123456789"},
         "chave_aes_id": 2,
         "chave_aes_arquivo": "/tmp/nao-existe.json",
         "chave_h16": "h16-chave-hmac-de-teste-descartavel-0123456789",
         "chave_fingerprint": "fp-chave-hmac-de-teste-descartavel-0123456789",
+        "chat_ref_chave": "cr-chave-hmac-de-teste-descartavel-0123456789",
+        "gateway_hmac_arquivo": "/tmp/nao-existe.keys",
+        "segredos_saida_arquivo": "/tmp/nao-existe-saida.json",
+        "responsavel_ia": "responsavel@exemplo.test",
     }
     return Settings(_env_file=None, **{**base, **mudar})  # type: ignore[call-arg]
 

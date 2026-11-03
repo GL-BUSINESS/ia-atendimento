@@ -1,0 +1,515 @@
+{
+ "versao": 1,
+ "fonte": "forma de Oferta/ParPropostasPessoa/ResultadoPropostasPessoa/PessoaResumo/ResumosPessoas (cliente360.json); saida de FontePessoasTeste em agora_referencia",
+ "relativo": {
+  "valid_until_s": 7200,
+  "regra": "valid_until = agora + 2 h, calculado ao servir; lido_em/criada_em/business_date também seguem o relógio. Os instantes abaixo valem só para agora_referencia"
+ },
+ "agora_referencia": "2026-11-17T15:00:00Z",
+ "casos": {
+  "P01": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000001",
+      "nome": "Zuleide Alvimar",
+      "cpf_mascarado": "***.***.***-91",
+      "cpf": "00000000191",
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "FACTA",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6000011",
+       "pessoa_id": "00000000-0000-7000-8000-000000000001",
+       "banco": "FACTA",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "3000.00",
+        "valor_parcela": "186.90",
+        "prazo_meses": 24,
+        "tabela_identificador": "115716",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0623"
+       },
+       "atributos_cadastrais": {
+        "nome": "Zuleide Alvimar",
+        "telefone": "550090000001",
+        "link_chat": null
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000011",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.012000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0623"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6000011"
+      }
+     }
+    ],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000001",
+    "atribuicao": {
+     "versao": 0,
+     "site_profile_id": null
+    }
+   }
+  },
+  "P13": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000013",
+      "nome": "Euclides Ulaardel",
+      "cpf_mascarado": "***.***.***-28",
+      "cpf": "00000007528",
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "C6",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6000132",
+       "pessoa_id": "00000000-0000-7000-8000-000000000013",
+       "banco": "C6",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "4800.00",
+        "valor_parcela": "197.76",
+        "prazo_meses": 60,
+        "tabela_identificador": "800077",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0412"
+       },
+       "atributos_cadastrais": {
+        "nome": "Euclides Ulaardel",
+        "telefone": "550090000075",
+        "link_chat": null
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000132",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.010000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0412"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6000132"
+      }
+     },
+     {
+      "banco": "FACTA",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6000131",
+       "pessoa_id": "00000000-0000-7000-8000-000000000013",
+       "banco": "FACTA",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "4000.00",
+        "valor_parcela": "173.20",
+        "prazo_meses": 48,
+        "tabela_identificador": "115716",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0433"
+       },
+       "atributos_cadastrais": {
+        "nome": "Euclides Ulaardel",
+        "telefone": "550090000075",
+        "link_chat": null
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000131",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.012000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0433"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6000131"
+      }
+     }
+    ],
+    "varias_ofertas": true,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000013",
+    "atribuicao": {
+     "versao": 0,
+     "site_profile_id": null
+    }
+   }
+  },
+  "P14": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000014",
+      "nome": "Maristela Walardel",
+      "cpf_mascarado": "***.***.***-40",
+      "cpf": "00000010740",
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "FACTA",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6000141",
+       "pessoa_id": "00000000-0000-7000-8000-000000000014",
+       "banco": "FACTA",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "3500.00",
+        "valor_parcela": "151.55",
+        "prazo_meses": 48,
+        "tabela_identificador": "115716",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0433"
+       },
+       "atributos_cadastrais": {
+        "nome": "Maristela Walardel",
+        "telefone": "550090000107",
+        "link_chat": null
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000141",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.012000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0433"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6000141"
+      }
+     }
+    ],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000014",
+    "atribuicao": {
+     "versao": 0,
+     "site_profile_id": null
+    }
+   }
+  },
+  "P-M18": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000118",
+      "nome": "Marcia Helolim",
+      "cpf_mascarado": "***.***.***-25",
+      "cpf": "00000001325",
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "C6",
+      "produto": "CLT",
+      "caso": "so_oferta",
+      "contratos": [],
+      "oferta_ativa": {
+       "oferta_id": "6001182",
+       "pessoa_id": "00000000-0000-7000-8000-000000000118",
+       "banco": "C6",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "3000.00",
+        "valor_parcela": "157.80",
+        "prazo_meses": 36,
+        "tabela_identificador": "800077",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0526"
+       },
+       "atributos_cadastrais": {
+        "nome": "Marcia Helolim",
+        "telefone": "550090000013",
+        "link_chat": null
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6001182",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.010000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0526"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "oferta",
+       "id": "6001182"
+      }
+     }
+    ],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000118",
+    "atribuicao": {
+     "versao": 0,
+     "site_profile_id": null
+    }
+   }
+  },
+  "P59": {
+   "resumo": {
+    "itens": [
+     {
+      "pessoa_id": "00000000-0000-7000-8000-000000000059",
+      "nome": "Abel Calelim",
+      "cpf_mascarado": "***.***.***-21",
+      "cpf": "00000004421",
+      "vendedor": null,
+      "nao_perturbe": null,
+      "limite_contratos": null
+     }
+    ]
+   },
+   "propostas": {
+    "encontrado": true,
+    "pares": [
+     {
+      "banco": "FACTA",
+      "produto": "CLT",
+      "caso": "com_contrato",
+      "contratos": [
+       {
+        "contrato": {
+         "contrato_id": "6000595",
+         "pessoa_id": "00000000-0000-7000-8000-000000000059",
+         "banco": "FACTA",
+         "produto": "CLT",
+         "referencia_banco": "9000044",
+         "origem_contratacao": "site",
+         "macro": "pendente",
+         "pacote_versao": 1,
+         "versao": 1,
+         "criada_em": "2026-11-17T14:45:00Z",
+         "oferta_id": "6000599",
+         "adocao": null,
+         "status_nativo_codigo": "12",
+         "status_nativo_texto": "12 - AGUARDANDO ASSINATURA DIGITAL",
+         "refinamento": null,
+         "confianca": null,
+         "motivo": null,
+         "flags": [],
+         "adicional": false,
+         "valor_contratado": null,
+         "valor_financiado": null,
+         "valor_pago": null,
+         "pago_em": null,
+         "codigo_tabela": null,
+         "prazo_meses": null,
+         "valor_parcela": null,
+         "link_formalizacao": null,
+         "coeficiente": null,
+         "fundida_em_id": null,
+         "substitui_contrato_id": null,
+         "atualizada_em": null
+        },
+        "terminal": false,
+        "consome_oferta_ativa": false
+       }
+      ],
+      "oferta_ativa": {
+       "oferta_id": "6000591",
+       "pessoa_id": "00000000-0000-7000-8000-000000000059",
+       "banco": "FACTA",
+       "produto": "CLT",
+       "business_date": "2026-11-17",
+       "estado": "ativa",
+       "versao": 1,
+       "valid_until": "2026-11-17T17:00:00Z",
+       "criada_em": "2026-11-17T14:45:00Z",
+       "ciclo": 1,
+       "business_date_origem": "medida",
+       "superseded_causa": null,
+       "motivo_encerramento": null,
+       "motivo_encerramento_texto": null,
+       "competencia_inicio": null,
+       "competencia_fim": null,
+       "origem": null,
+       "lead_id": null,
+       "economia": {
+        "forma": "payload_clt_v1",
+        "valor_liberado": "3000.00",
+        "valor_parcela": "147.90",
+        "prazo_meses": 36,
+        "tabela_identificador": "115716",
+        "convenio": "CLT",
+        "coeficiente_financeiro": "0.0493"
+       },
+       "atributos_cadastrais": {
+        "nome": "Abel Calelim",
+        "telefone": "550090000044",
+        "link_chat": null
+       },
+       "coeficiente": {
+        "alvo_tipo": "oferta",
+        "alvo_id": "6000591",
+        "coef_origem": "catalogo",
+        "coef_valor": "0.012000",
+        "coef_versao_id": 1,
+        "coef_resolvido_em": "2026-11-17T14:45:00Z",
+        "coef_financeiro": "0.0493"
+       }
+      },
+      "alvo_sugerido": {
+       "tipo": "contrato",
+       "id": "6000595"
+      }
+     }
+    ],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": "00000000-0000-7000-8000-000000000059",
+    "atribuicao": {
+     "versao": 0,
+     "site_profile_id": null
+    }
+   }
+  },
+  "desconhecida": {
+   "resumo": {
+    "itens": []
+   },
+   "propostas": {
+    "encontrado": false,
+    "pares": [],
+    "varias_ofertas": false,
+    "lido_em": "2026-11-17T15:00:00Z",
+    "pessoa_id": null,
+    "atribuicao": null
+   }
+  }
+ }
+}

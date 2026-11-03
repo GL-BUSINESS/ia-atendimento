@@ -1,0 +1,1707 @@
+{
+ "fonte": "cliente360-api@a265fa5 src/c360api/contrato/cliente360.json",
+ "sha256_do_contrato_completo": "3ca03d495c634ca296e51bfafc8156a21c6b45a8d451fc5b19a8b87beb5deced",
+ "raizes": [
+  "Oferta",
+  "PayloadEconomicoCltV1",
+  "ParPropostasPessoa",
+  "ResultadoPropostasPessoa",
+  "PessoaResumo",
+  "ResumosPessoas",
+  "AtributosCadastraisOferta",
+  "NaoPerturbe",
+  "LimiteContratos",
+  "ContratoNaFoto",
+  "Contrato"
+ ],
+ "schemas": {
+  "AdocaoInfo": {
+   "type": "object",
+   "required": [
+    "motivo"
+   ],
+   "properties": {
+    "motivo": {
+     "$ref": "#/components/schemas/MotivoAdocao"
+    },
+    "observado_em": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "AtributosCadastraisOferta": {
+   "type": "object",
+   "properties": {
+    "nome": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "telefone": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "link_chat": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "BaseMonetaria": {
+   "type": "string",
+   "enum": [
+    "liberado",
+    "financiado"
+   ]
+  },
+  "CodigoBanco": {
+   "type": "string",
+   "pattern": "^[A-Z0-9_]{2,32}$",
+   "examples": [
+    "BANCOX"
+   ]
+  },
+  "CodigoFontePerfil": {
+   "type": "string",
+   "pattern": "^[a-z0-9_:.-]{2,64}$",
+   "description": "FK a ref.perfil_fonte (rank + capacidade por campo — INV-18)",
+   "examples": [
+    "newcorban"
+   ]
+  },
+  "CodigoOrigemContratacao": {
+   "type": "string",
+   "pattern": "^[a-z0-9_]{2,64}$",
+   "description": "FK ao registry ref.origem_contratacao (INV-20 b) — dado, nunca CHECK/enum (site, manual, externa, robo_autocontratacao, …)",
+   "examples": [
+    "robo_autocontratacao"
+   ]
+  },
+  "CodigoProduto": {
+   "type": "string",
+   "pattern": "^[A-Z0-9_]{2,32}$",
+   "examples": [
+    "CLT"
+   ]
+  },
+  "CodigoStatusAtendimento": {
+   "type": "string",
+   "pattern": "^[a-z0-9_]{2,64}$",
+   "description": "FK ao registry ref.status_atendimento (18-D19) — dado, nunca CHECK/enum (nao_perturbe, …). Status do ATENDIMENTO da pessoa pelo SITE, não da proposta: o dono fixou (2026-09-09) que «Não perturbe» é um status que a lista devolve na coluna Status, não uma característica da proposta. Na lista vence a oferta ativa e perde para contrato.",
+   "examples": [
+    "nao_perturbe"
+   ]
+  },
+  "CodigoTipoOperacao": {
+   "type": "string",
+   "pattern": "^[a-z0-9_]{2,64}$",
+   "description": "FK ao registry ref.tipo_operacao (18-D19) — dado, nunca CHECK/enum (novo, refinanciamento, portabilidade, …). Vale na oferta e no contrato; `refinanciamento` é o que a lista de Propostas do SITE marca como «Refin.».",
+   "examples": [
+    "refinanciamento"
+   ]
+  },
+  "ContatoPessoa": {
+   "type": "object",
+   "required": [
+    "tipo",
+    "valor"
+   ],
+   "properties": {
+    "tipo": {
+     "type": "string",
+     "enum": [
+      "whatsapp_e164",
+      "celular",
+      "link_chat",
+      "email",
+      "telefone"
+     ],
+     "description": "vocabulário de CI-04, mais `telefone` (18-D06). `telefone` é o 2º tipo mais comum da carga (419.929 linhas de `core.contato`) e NÃO é sinônimo de `celular`: fixo e móvel são distintos no legado e o valor não é traduzido. Acréscimo aditivo — §18.5(2)."
+    },
+    "valor": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "fonte": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/CodigoFontePerfil"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "na ingestão, herdada do envelope; na leitura, sempre presente"
+    },
+    "source_observed_at": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "Contrato": {
+   "type": "object",
+   "required": [
+    "contrato_id",
+    "pessoa_id",
+    "banco",
+    "produto",
+    "referencia_banco",
+    "origem_contratacao",
+    "macro",
+    "pacote_versao",
+    "versao",
+    "criada_em"
+   ],
+   "properties": {
+    "contrato_id": {
+     "$ref": "#/components/schemas/IdRecurso"
+    },
+    "pessoa_id": {
+     "$ref": "#/components/schemas/Uuid"
+    },
+    "banco": {
+     "$ref": "#/components/schemas/CodigoBanco"
+    },
+    "produto": {
+     "$ref": "#/components/schemas/CodigoProduto"
+    },
+    "referencia_banco": {
+     "$ref": "#/components/schemas/ReferenciaBanco"
+    },
+    "origem_contratacao": {
+     "$ref": "#/components/schemas/CodigoOrigemContratacao"
+    },
+    "tipo_operacao": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/CodigoTipoOperacao"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "18-D19: tipo da operação contratada (novo, refinanciamento, portabilidade). `null` = a fonte não informou; a lista do SITE cai para o da oferta de origem."
+    },
+    "oferta_id": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/IdRecurso"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "XOR adocao — exatamente uma origem comercial (INV-05 a)"
+    },
+    "adocao": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/AdocaoInfo"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "macro": {
+     "$ref": "#/components/schemas/MacroEstado"
+    },
+    "refinamento": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "dado do pacote, ao lado do macro — nunca sétimo estado"
+    },
+    "status_nativo_codigo": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "status_nativo_texto": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "confianca": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "exata",
+      "heuristica",
+      null
+     ],
+     "description": "derivada da regra que classificou"
+    },
+    "motivo": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "obrigatório em terminal de recusa; desconhecido:<texto> nunca descartado (INV-16 b)"
+    },
+    "motivo_texto": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "maxLength": 200,
+     "description": "EMENDA LOCAL (cartão Kan c2ds8a5q2ja5, 07/10/2026): o motivo EXATO do cancelamento como o banco o escreveu (FACTA: `obs` do evento de cancelamento; C6/3RN: o texto do banco), COMO VEIO — mantém CPF e números (dono, 19/10/2026; a regra de 6+ dígitos não vale para este campo, só o teto de 200 caracteres). Exibição, nunca regra (INV-29): `motivo` continua sendo o código do catálogo. Opt-in do servidor (`C360_MOTIVO_BANCO_TEXTO=on`): sem a bandeira a chave NÃO existe no corpo; com ela existe sempre, `null` quando o contrato não tem o texto (o `desconhecido:<status>` de preenchimento não sai)."
+    },
+    "flags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "adicional": {
+     "type": "boolean",
+     "default": false
+    },
+    "valor_pago": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DecimalMoeda"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "valor_contratado": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DecimalMoeda"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "valor_financiado": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DecimalMoeda"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "codigo_tabela": {
+     "description": "18-D14: o código da tabela do contrato como o SITE o conhece (core.contrato.codigo_tabela, gravado pela carga L6 e pela digitação). Leitura; ausente = null. O nome e o coeficiente da tabela ficam no catálogo do consumidor.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Identificador"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "prazo_meses": {
+     "description": "18-D15 (rev. 29): prazo do contrato em meses, como a formalização o registrou (core.contrato.prazo_meses). Leitura; ausente = null. O consumidor cai na oferta de origem quando não vem.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/PrazoMeses"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "valor_parcela": {
+     "description": "18-D15 (rev. 29): valor da parcela contratada (core.contrato.valor_parcela). Leitura; ausente = null; nunca zero construído de ausência.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DecimalMoeda"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "valor_pre_aprovado": {
+     "description": "Pré-aprovado da proposta manual (dono, 05/10/2026): o valor que o operador informou no «Adicionar proposta manualmente» (`ContratoManual.valor_pre_aprovado`), gravado em core.contrato.valor_pre_aprovado. Leitura; `null` = não informado — quem mostra usa a última oferta registrada do CPF/banco. Ausente = ISKRA anterior ao campo (mesmo significado de `null`). Fora de `required`.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DecimalMoeda"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "pago_em": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "coeficiente": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/SnapshotCoeficiente"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "fill-once na âncora source_occurred_at (INV-07 c); sem comissão, sempre (CF-INV-12)"
+    },
+    "fundida_em_id": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/IdRecurso"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "substitui_contrato_id": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/IdRecurso"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "pacote_versao": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "versao": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "bumpa em toda mutação (INV-13)"
+    },
+    "criada_em": {
+     "$ref": "#/components/schemas/Instante"
+    },
+    "atualizada_em": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "vendedor_efetivo": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/VendedorEfetivoContrato"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "2026-09-21 (decisão do dono): o vendedor DESTE contrato — o que foi trocado só para ele (`POST /contratos:trocar-vendedor`, `origem: contrato`) ou, sem troca, o vendedor da pessoa (`origem: pessoa`). `null` = nenhum. Fora de `required`: produtor anterior ao campo continua conforme. Oferta não tem campo equivalente — segue sempre o vendedor da pessoa. Nunca em log."
+    },
+    "link_formalizacao": {
+     "description": "18-D23 (rev. 30): link de formalização do banco (`core.contrato_ext.link_formalizacao`), gravado por `POST /contratos:definir-link-formalizacao`. Exibição (INV-29): não é fato, não versiona. `null` = o banco ainda não mandou. Fora de `required`: leitor anterior ao campo continua conforme. NÃO é o link do ChatGuru — `core.contrato_ext.link` é o do chat e não sai aqui. Nunca em log.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/LinkFormalizacao"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "nota": {
+     "description": "Observação da contratação (plano «Observação», 30/09/2026). OPT-IN: só sai com `?incluir=nota`; então a chave vem SEMPRE (`null` quando não há nota). Sem o opt-in a chave é ABSENTE e o corpo é idêntico ao de antes — fora de `required`, de propósito: o consumidor pinado com schema estrito (`z.strictObject`) não é quebrado. Existe só para CONTRATO (oferta sem contrato não tem observação). Não vai a log, métrica, evento nem feed. A tag «Obs.» da lista é derivada: existe ⇔ `nota` não é `null`.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/NotaContrato"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "dados_banco": {
+     "description": "EMENDA LOCAL (dono, 2026-10-24; ISKRA rev. 91): os dados da contratação do banco (`core.contrato_ext`), gravados por `POST /contratos:definir-dados-banco`. Exibição (INV-29). Opt-in do servidor (`C360_DADOS_BANCO_LEITURA=on`): sem a bandeira a chave NÃO existe no corpo; com ela existe sempre — `null` quando o banco nunca mandou. Fora de `required`.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DadosBancoContrato"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "seguro_recusado_em": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "EMENDA LOCAL (dono, 26/10/2026 — seguro recusado na FACTA; 27/10/2026, revisão do cliente360-web#561). O mesmo de `LinhaPeriodoContrato.seguro_recusado_em`: o instante (do banco) em que o cliente RECUSOU o seguro da proposta — a tag «Sem seguro» do web, que lê «todo o período», janelas > 92 dias e a leitura paginada por esta rota. OPT-IN do servidor (`C360_SEGURO_RECUSADO_LEITURA=on`): sem a bandeira a chave é ABSENTE e o corpo é o de antes; com ela a chave vem SEMPRE (`null` = sem recusa conhecida). Exibição (INV-29). Fora de `required`."
+    },
+    "vendedor_na_contratacao": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/VendedorNaContratacao"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "EMENDA LOCAL (dono, 29/10/2026 — marca «vendedor trocado» pelo vendedor NA CONTRATAÇÃO). O vendedor da pessoa imediatamente antes da contratação (o dono da oferta quando este contrato foi digitado), e não o vendedor atual. `null` = sem registro antes da digitação, ou contrato migrado do legado — sem marca. Chave AUSENTE = ISKRA anterior ao campo (ou interruptor do ISKRA desligado): o consumidor usa a régua de antes. Quando o ISKRA liga a leitura a chave vem SEMPRE (`null` inclusive). Fora de `required`. Nunca em log."
+    },
+    "data_contratacao_negocio": {
+     "description": "18-D30: o dia do NEGÓCIO do contrato (core.contrato.data_contratacao_negocio, na zona do banco — hoje America/Sao_Paulo nos 4 bancos). É o dia do painel. Leitura; a API o publica SEMPRE (null só se o ISKRA não o mandar). Fora de required: a API anterior o omite.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Data"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "ContratoNaFoto": {
+   "type": "object",
+   "required": [
+    "contrato",
+    "terminal",
+    "consome_oferta_ativa"
+   ],
+   "unevaluatedProperties": false,
+   "description": "O contrato como a foto o mostra: o objeto `Contrato` intacto mais os dois fatos que a classificação acrescenta. Os fatos ficam FORA do contrato de propósito — `Contrato` é `unevaluatedProperties: false`, e enfiar campo dentro dele quebraria todo consumidor que o valida.",
+   "properties": {
+    "contrato": {
+     "$ref": "#/components/schemas/Contrato"
+    },
+    "terminal": {
+     "type": "boolean",
+     "description": "macro pago, cancelado ou estornado — congelado para alteração econômica (`fn_contrato_update_guard`)"
+    },
+    "consome_oferta_ativa": {
+     "type": "boolean",
+     "description": "este contrato nasceu da oferta ativa do par"
+    }
+   }
+  },
+  "DadosBancoContrato": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "numero_contrato_banco",
+    "protocolo_banco",
+    "seguro_valor",
+    "iof_valor",
+    "taxa_mensal_pct",
+    "taxa_anual_pct",
+    "cet_mensal_pct",
+    "cet_anual_pct",
+    "correspondente_codigo",
+    "correspondente_nome",
+    "assinado_em",
+    "averbado_em",
+    "desembolsado_em",
+    "primeiro_vencimento",
+    "parcelas_quantidade",
+    "assinatura_status",
+    "link_ativo",
+    "dados_banco_em"
+   ],
+   "description": "EMENDA LOCAL (dono, 2026-10-24; ISKRA rev. 91): os dados da contratação do banco (`core.contrato_ext`), exibição (INV-29). As 18 chaves sempre presentes; `null` no campo que o banco não mandou.",
+   "properties": {
+    "numero_contrato_banco": {
+     "description": "o número do CONTRATO no banco (CCB/AF/GLT/operation_number, conforme o banco) — NÃO é `referencia_banco` (o número da proposta). Sem controle nem espaço nas pontas",
+     "oneOf": [
+      {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 64,
+       "pattern": "^[^ \\x00-\\x1f\\x7f-\\x9f](?:[^\\x00-\\x1f\\x7f-\\x9f]*[^ \\x00-\\x1f\\x7f-\\x9f])?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "protocolo_banco": {
+     "description": "o protocolo/código da operação no banco quando distinto do número do contrato",
+     "oneOf": [
+      {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 64,
+       "pattern": "^[^ \\x00-\\x1f\\x7f-\\x9f](?:[^\\x00-\\x1f\\x7f-\\x9f]*[^ \\x00-\\x1f\\x7f-\\x9f])?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "seguro_valor": {
+     "description": "valor do seguro em R$ que o banco embutiu no financiado (decimal-string, >= 0, 2 casas)",
+     "oneOf": [
+      {
+       "type": "string",
+       "pattern": "^[0-9]{1,12}(\\.[0-9]{1,2})?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "iof_valor": {
+     "description": "valor do IOF em R$ que o banco embutiu no financiado (decimal-string, >= 0, 2 casas)",
+     "oneOf": [
+      {
+       "type": "string",
+       "pattern": "^[0-9]{1,12}(\\.[0-9]{1,2})?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "taxa_mensal_pct": {
+     "description": "taxa de juros ao mês em PONTO PERCENTUAL (`1.99` = 1,99 % a.m.; nunca a fração `0.0199`), até 6 casas",
+     "oneOf": [
+      {
+       "type": "string",
+       "pattern": "^[0-9]{1,3}(\\.[0-9]{1,6})?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "taxa_anual_pct": {
+     "description": "taxa de juros ao ano em PONTO PERCENTUAL, até 6 casas",
+     "oneOf": [
+      {
+       "type": "string",
+       "pattern": "^[0-9]{1,3}(\\.[0-9]{1,6})?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "cet_mensal_pct": {
+     "description": "CET ao mês em PONTO PERCENTUAL, até 6 casas",
+     "oneOf": [
+      {
+       "type": "string",
+       "pattern": "^[0-9]{1,3}(\\.[0-9]{1,6})?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "cet_anual_pct": {
+     "description": "CET ao ano em PONTO PERCENTUAL, até 6 casas",
+     "oneOf": [
+      {
+       "type": "string",
+       "pattern": "^[0-9]{1,3}(\\.[0-9]{1,6})?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "correspondente_codigo": {
+     "description": "código do correspondente/parceiro no banco",
+     "oneOf": [
+      {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 64,
+       "pattern": "^[^ \\x00-\\x1f\\x7f-\\x9f](?:[^\\x00-\\x1f\\x7f-\\x9f]*[^ \\x00-\\x1f\\x7f-\\x9f])?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "correspondente_nome": {
+     "description": "nome do correspondente/parceiro como o banco devolve; na ESCRITA a API higieniza antes de validar (NFC, controle vira espaço, espaços colapsados, aparado) e não trunca — acima de 200 é 422",
+     "oneOf": [
+      {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 200,
+       "pattern": "^[^ \\x00-\\x1f\\x7f-\\x9f](?:[^\\x00-\\x1f\\x7f-\\x9f]*[^ \\x00-\\x1f\\x7f-\\x9f])?$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "assinado_em": {
+     "description": "instante (com offset) em que o cliente assinou, segundo o banco. NÃO é `pago_em`",
+     "oneOf": [
+      {
+       "type": "string",
+       "format": "date-time",
+       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "averbado_em": {
+     "description": "dia da averbação, segundo o banco",
+     "oneOf": [
+      {
+       "type": "string",
+       "format": "date",
+       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "desembolsado_em": {
+     "description": "dia do desembolso/efetivação, segundo o banco. NÃO é `pago_em` (o carimbo da casa)",
+     "oneOf": [
+      {
+       "type": "string",
+       "format": "date",
+       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "primeiro_vencimento": {
+     "description": "dia do 1º vencimento da parcela, segundo o banco",
+     "oneOf": [
+      {
+       "type": "string",
+       "format": "date",
+       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "parcelas_quantidade": {
+     "description": "quantidade de parcelas que o banco registrou (não substitui `prazo_meses`)",
+     "oneOf": [
+      {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 600
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "assinatura_status": {
+     "description": "status da assinatura no banco, vocabulário FECHADO (cada serviço de banco traduz o do banco)",
+     "oneOf": [
+      {
+       "type": "string",
+       "enum": [
+        "aguardando",
+        "assinado",
+        "expirado",
+        "cancelado"
+       ]
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "link_ativo": {
+     "description": "o link de FORMALIZAÇÃO (`link_formalizacao`) ainda está ativo no banco? Nada a ver com o ChatGuru",
+     "oneOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "dados_banco_em": {
+     "type": "string",
+     "format": "date-time",
+     "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$",
+     "description": "o instante da última escrita que MUDOU algum dado desta porta (o «atualizado em» do bloco)"
+    }
+   }
+  },
+  "Data": {
+   "type": "string",
+   "format": "date",
+   "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+   "description": "data de negócio (business_date) resolvida pelo servidor na zona do banco — nunca aceita do caller (INV-03 b)",
+   "examples": [
+    "2026-08-22"
+   ]
+  },
+  "DecimalMoeda": {
+   "type": "string",
+   "pattern": "^-?[0-9]+(\\.[0-9]{1,2})?$",
+   "examples": [
+    "12345.67"
+   ]
+  },
+  "DecimalSnapshot": {
+   "type": "string",
+   "pattern": "^[0-9]+(\\.[0-9]{1,12})?$",
+   "description": "string decimal, escala livre (snapshot legado preserva até 8 casas; N-02)",
+   "examples": [
+    "0.98765432"
+   ]
+  },
+  "EstadoOferta": {
+   "type": "string",
+   "enum": [
+    "ativa",
+    "consumida",
+    "encerrada",
+    "superseded"
+   ]
+  },
+  "IdRecurso": {
+   "type": "string",
+   "pattern": "^[0-9]{1,19}$",
+   "description": "identificador OPACO de recurso do GL360 (18-D05/L-API-08). É string por contrato — o consumidor não o interpreta, não o ordena e não o gera. Hoje o GL360 o materializa como `bigint GENERATED … AS IDENTITY` e o pattern fixa essa forma; a rev. 23 do DDL pode substituí-lo por um id público de outro tipo (MR-18-01) afrouxando o pattern, o que é mudança COMPATÍVEL por §18.5(2) — é por isso que o tipo é string e não integer. String também evita a perda de precisão de `bigint` acima de 2^53 no consumidor JavaScript (`cliente360-web`).",
+   "examples": [
+    "41"
+   ]
+  },
+  "Identificador": {
+   "type": "string",
+   "minLength": 1,
+   "maxLength": 200,
+   "description": "como o produtor manda; o servidor normaliza (upper, sem espaços) antes de casar por código ou alias"
+  },
+  "Instante": {
+   "type": "string",
+   "format": "date-time",
+   "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$",
+   "description": "RFC 3339 com offset obrigatório (`Z` ou ±hh:mm). Data sem hora ⇒ 422 (CF-R-11). `format` é anotação em JSON Schema; o `pattern` e a asserção do servidor é que garantem.",
+   "examples": [
+    "2026-09-01T00:00:00-03:00"
+   ]
+  },
+  "LimiteContratos": {
+   "type": "object",
+   "description": "Limite de contratos no banco (dono, 2026-10-02; D-API-49): `desde` = a primeira recusa da sequência vigente, `visto_em` = a última. A tela mostra «Atingiu o limite de contratos no <banco> · desde dd/mm» no fuso America/Sao_Paulo.",
+   "required": [
+    "banco",
+    "desde",
+    "visto_em"
+   ],
+   "properties": {
+    "banco": {
+     "$ref": "#/components/schemas/CodigoBanco"
+    },
+    "desde": {
+     "$ref": "#/components/schemas/Instante"
+    },
+    "visto_em": {
+     "$ref": "#/components/schemas/Instante"
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "LinkFormalizacao": {
+   "description": "18-D23: URL absoluta http(s) que o banco gerou para o cliente assinar a proposta. Dado do banco, não PII de cliente — mas pode carregar token de sessão do banco: nunca vai para log. Sem espaço, de 8 a 2048 caracteres.",
+   "type": "string",
+   "format": "uri",
+   "minLength": 8,
+   "maxLength": 2048,
+   "pattern": "^https?://[^\\s]+$",
+   "examples": [
+    "https://formalizacao.banco.example/assinar/abc123"
+   ]
+  },
+  "MacroEstado": {
+   "type": "string",
+   "enum": [
+    "pendente",
+    "em_analise",
+    "aguardando_pagamento",
+    "pago",
+    "cancelado",
+    "estornado"
+   ],
+   "description": "os 6 macro-estados canônicos (CS-D-08/RD-220); refinamento é dado do pacote, nunca sétimo estado"
+  },
+  "MotivoAdocao": {
+   "type": "string",
+   "enum": [
+    "sem_oferta_encontrada",
+    "oferta_encerrada",
+    "oferta_de_outro_par",
+    "cutover",
+    "oferta_invalida_legado"
+   ],
+   "description": "a violação registrada de R5 (INV-05 d). `oferta_invalida_legado` entrou por 18-D07 (aditivo, §18.5(2)): existe no `CHECK` de `core.adocao` e carrega 133 linhas reais da carga L6 (OF-R-06 — contrato legado datado depois da vigência da oferta apontada), ao lado de `cutover` (6.484). **Reservado à carga**: o DDL o aceita, mas OP-CS-02 o recusa em runtime (`MOTIVOS_RUNTIME` do ISKRA) — por isso ele é legível em `Contrato.adocao.motivo` e NÃO é aceito no corpo de `AdocaoExterna`, cujo enum é o de runtime, não este."
+  },
+  "Nacionalidade": {
+   "type": "object",
+   "description": "Nacionalidade da pessoa (dono, 2026-10-17; card Kan 5l895xq7b7ba). `valor` é o texto gravado, como está (`null` quando vazio); `situacao` é a classificação feita UMA vez, no ISKRA, a partir dele — `brasileira` (BRASIL, BRASILEIRO(A), NATO/NATURALIZADO, BR, BRA, 76), `nao_informada` (vazio, IGNORADO, NAO INFORMADO, INDEFINIDO, -) ou `estrangeira` (qualquer outro texto); `fonte` e `observado_em` são a proveniência do dado (`ref.perfil_fonte` e o instante em que a fonte o observou), ambos `null` quando não há proveniência (valor herdado da carga do 360 antigo). A tela escreve «Nacionalidade: <valor>», «Nacionalidade não informada» ou o selo «Não é brasileiro».",
+   "required": [
+    "valor",
+    "situacao",
+    "fonte",
+    "observado_em"
+   ],
+   "properties": {
+    "valor": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "situacao": {
+     "type": "string",
+     "enum": [
+      "brasileira",
+      "estrangeira",
+      "nao_informada"
+     ]
+    },
+    "fonte": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/CodigoFontePerfil"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "código de `ref.perfil_fonte` da proveniência; `null` = sem proveniência (herdado da carga)"
+    },
+    "observado_em": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "`source_observed_at` da proveniência; `null` sem proveniência"
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "NaoPerturbe": {
+   "type": "object",
+   "description": "Período de «Não perturbe» da pessoa (dono, 2026-10-02): `[desde, ate)`, com `ate` = `desde` + 30 dias corridos. `desde` é o instante da primeira aparição do sinal que abriu o período. A tela mostra «desde dd/mm · até dd/mm» no fuso America/Sao_Paulo.",
+   "required": [
+    "desde",
+    "ate"
+   ],
+   "properties": {
+    "desde": {
+     "$ref": "#/components/schemas/Instante"
+    },
+    "ate": {
+     "$ref": "#/components/schemas/Instante"
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "NotaContrato": {
+   "type": "object",
+   "description": "A observação corrente de UMA contratação: uma nota por `contrato_id`, com versão própria (independente da `versao` do contrato — a nota não disputa o CAS com a esteira e é editável em contrato pago ou cancelado). `texto` é livre, sem formatação, quebras de linha permitidas, até 500 caracteres (code points, depois de NFC, `btrim` e `\\r\\n` → `\\n`). Nome técnico `nota`, e não `observacao`: `core.contrato_observacao`/`core.observacao` (observação de STATUS e de OFERTA) já existem e o domínio `core.payload_evento` recusa a chave `observacao`. `ObservacaoDaProposta.autor` da tela = o ÚLTIMO editor (`ultimo_ator_id`), que casa com `atualizada_em`; `autor_ator_id` (quem CRIOU a nota corrente) sustenta o direito «o autor sempre pode editar e remover a própria» e o «criada por» do detalhe. Sem nomes: o web traduz id → nome no servidor (ator desconhecido aparece como «—»).",
+   "required": [
+    "texto",
+    "versao",
+    "autor_ator_id",
+    "ultimo_ator_id",
+    "criada_em",
+    "atualizada_em"
+   ],
+   "properties": {
+    "texto": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 500,
+     "description": "o texto da observação, já normalizado e sem espaços nas pontas. Pode conter dado pessoal que o detector não pegou (falso negativo: nome, doença, endereço): tratar como dado pessoal; nunca em log."
+    },
+    "versao": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "versão da nota (monotônica por contrato; recriar depois de remover CONTINUA a contagem). É o `esperado_versao` da próxima escrita."
+    },
+    "autor_ator_id": {
+     "$ref": "#/components/schemas/IdRecurso",
+     "description": "quem CRIOU a nota corrente (muda só ao recriar uma nota removida)"
+    },
+    "ultimo_ator_id": {
+     "$ref": "#/components/schemas/IdRecurso",
+     "description": "quem gravou por último — o «autor» que a tela mostra"
+    },
+    "criada_em": {
+     "$ref": "#/components/schemas/Instante",
+     "description": "instante da criação CORRENTE (recriar depois de remover reinicia)"
+    },
+    "atualizada_em": {
+     "$ref": "#/components/schemas/Instante",
+     "description": "instante da última gravação"
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "Oferta": {
+   "type": "object",
+   "required": [
+    "oferta_id",
+    "pessoa_id",
+    "banco",
+    "produto",
+    "business_date",
+    "estado",
+    "versao",
+    "valid_until",
+    "criada_em"
+   ],
+   "properties": {
+    "ciclo": {
+     "description": "Ciclo da oferta dentro da competência (oferta por dia, dono 08/10/2026): 1 é a primeira oferta do par (pessoa, banco, produto) na competência; depois que ela é consumida, a consulta de OUTRO dia (ou do mesmo dia, com o contrato pago) abre o ciclo 2, e assim por diante. Opcional: ausente = a API com `C360_OFERTA_CICLO` desligada, ou ISKRA sem a leitura do ciclo; quem lê trata ausente como 1.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "ultima_consulta_em": {
+     "description": "Última CONSULTA ao banco que devolveu esta oferta (Q1, dono 20/10/2026): `max(oferta_versao.observed_at)` das versões que NÃO são da contratação (`payload_extra.origem` ≠ 'contratacao'). Existe para a oferta criada ANTES da janela e RE-CONSULTADA dentro dela entrar no Pré-aprovado do período. Opcional: ausente = a API/ISKRA sem a leitura (`C360_PRE_RECONSULTADAS` do web desligada ignora o campo); `null` = nenhuma consulta nova depois da criação. Em `/propostas:periodo`, a oferta criada antes da janela cuja última consulta cai nela vem com `na_janela: true`. Emenda local aditiva até o plano recebê-la.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "sucede_oferta_id": {
+     "description": "Oferta da qual este ciclo nasceu (o ciclo anterior da mesma competência); `null` no ciclo 1. Opcional: ausente = a API com `C360_OFERTA_CICLO` desligada, ou ISKRA sem a leitura do ciclo.",
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/IdRecurso"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "oferta_id": {
+     "$ref": "#/components/schemas/IdRecurso"
+    },
+    "pessoa_id": {
+     "$ref": "#/components/schemas/Uuid"
+    },
+    "banco": {
+     "$ref": "#/components/schemas/CodigoBanco"
+    },
+    "produto": {
+     "$ref": "#/components/schemas/CodigoProduto"
+    },
+    "tipo_operacao": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/CodigoTipoOperacao"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "18-D19: tipo da operação que a oferta pré-aprova (novo, refinanciamento, portabilidade). `null` = a fonte não informou."
+    },
+    "business_date": {
+     "$ref": "#/components/schemas/Data"
+    },
+    "business_date_origem": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "medida",
+      "imputada",
+      null
+     ],
+     "description": "imputada = legado pré-2026-07-24 (OF-V-24). `medida` é a palavra do DDL (`core.oferta.business_date_origem`, `DEFAULT 'medida'`, `CHECK (… IN ('medida','imputada'))`) e substitui `resolvida` por 18-D07: nada nunca produziu `resolvida` — nenhuma capability do catálogo grava esse token — e o nome divergente era a lacuna L-API-20, que fazia toda oferta recém-criada ser ilegível pela API. A palavra do banco vence porque é a única observada; a API **não traduz** `medida ⇄ resolvida`."
+    },
+    "estado": {
+     "$ref": "#/components/schemas/EstadoOferta"
+    },
+    "superseded_causa": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "FK ao registry de causas (INV-16) — presente sse estado=superseded"
+    },
+    "motivo_encerramento": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "**código** do catálogo de motivos do banco (`ref.motivo_recusa.codigo`, INV-16 b) — presente sse estado=encerrada. É o valor joinável; o texto humano é `motivo_encerramento_texto` e nunca sai sob este nome (18-D05/L-API-14)."
+    },
+    "motivo_encerramento_texto": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "texto humano do motivo, como o banco o entregou — o que o GL360 guarda em `core.oferta.motivo_encerramento_texto` ao lado do código. Existe porque motivo desconhecido é gravado, nunca descartado (INV-16 b); publicá-lo sob o nome do código deixaria o consumidor tentando um join que nunca casa."
+    },
+    "versao": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "valid_until": {
+     "$ref": "#/components/schemas/Instante"
+    },
+    "competencia_inicio": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "competencia_fim": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "origem": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "FK ao registry de origens de oferta (OF-V-25)"
+    },
+    "canal": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "leilao",
+      null
+     ],
+     "description": "18-D29 (decisão do dono, 2026-09-24): o canal que FEZ NASCER a oferta. `leilao` = a primeira oferta daquela pessoa, NAQUELE banco, criada a partir de uma aparição (lead) do produtor `n8n-leilao` (janela: de 30 min antes do registro do lead até 72 h depois). `null` = nenhum canal conhecido. AUSENTE sem `incluir_canal=true`."
+    },
+    "lead_id": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Uuid"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "economia": {
+     "$ref": "#/components/schemas/PayloadEconomico"
+    },
+    "economia_pre_contratacao": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/PayloadEconomico"
+      }
+     ],
+     "description": "18-D22 (decisão do dono, 2026-09-14): o pré-aprovado ANTES da contratação. Numa oferta consumida, `economia` é a condição CONTRATADA, e este campo traz o que a CONSULTA ao banco devolveu por último antes da contratação: a versão econômica de maior observed_at (empate: maior versão) ESTRITAMENTE anterior à âncora do contrato (source_occurred_at) que NÃO traz a marca da contratação (payload_extra.origem = 'contratacao', que os ganchos de contratação dos bancos mandam desde 2026-09-25 e que o backfill grava nas versões antigas), qualquer que seja o valor — menor, igual ou maior que o contratado (regra do dono de 2026-09-25; a de 2026-09-16, valor_liberado diferente do contratado, foi revogada). Calculadora e simulação dos bancos não gravam versão. Fora de `consumida`, e na consumida sem tal versão, é a própria `economia`. AUSENTE quando a leitura não o deriva (ISKRA anterior a 18-D22, contrato sem origem registrada, payload que não valida): quem mostra cai em `economia`. Só sai com `incluir_pre_contratacao=true` (D-API-38)."
+    },
+    "atributos_cadastrais": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/AtributosCadastraisOferta"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "coeficiente": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/SnapshotCoeficiente"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "congelado na transação de criação (INV-07 c); sem comissão, sempre (CF-INV-12)"
+    },
+    "criada_em": {
+     "$ref": "#/components/schemas/Instante"
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "ParPropostasPessoa": {
+   "type": "object",
+   "required": [
+    "banco",
+    "produto",
+    "caso",
+    "contratos"
+   ],
+   "unevaluatedProperties": false,
+   "description": "Um par (banco × produto) já classificado. `caso` é função pura do estado: contratos vivos são os não fundidos e não cancelados (o predicado de `contrato_banco_ref_vivo`); a oferta ativa é no máximo uma por par (`oferta_ativa_unica`).",
+   "properties": {
+    "banco": {
+     "$ref": "#/components/schemas/CodigoBanco"
+    },
+    "produto": {
+     "$ref": "#/components/schemas/CodigoProduto"
+    },
+    "caso": {
+     "type": "string",
+     "enum": [
+      "sem_oferta",
+      "so_oferta",
+      "com_contrato",
+      "varios_contratos"
+     ],
+     "description": "sem_oferta: sem oferta ativa e sem contrato vivo; so_oferta: oferta ativa e nenhum contrato vivo; com_contrato: exatamente um contrato vivo; varios_contratos: dois ou mais"
+    },
+    "oferta_ativa": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Oferta"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "continua visível mesmo quando há contrato vivo que não a consumiu (contrato pago antigo + pré-aprovado novo)"
+    },
+    "ofertas_outras": {
+     "type": "array",
+     "items": {
+      "$ref": "#/components/schemas/Oferta"
+     },
+     "description": "só com `incluir_historico`"
+    },
+    "contratos": {
+     "type": "array",
+     "items": {
+      "$ref": "#/components/schemas/ContratoNaFoto"
+     }
+    },
+    "alvo_sugerido": {
+     "oneOf": [
+      {
+       "type": "object",
+       "required": [
+        "tipo",
+        "id"
+       ],
+       "unevaluatedProperties": false,
+       "properties": {
+        "tipo": {
+         "type": "string",
+         "enum": [
+          "oferta",
+          "contrato"
+         ]
+        },
+        "id": {
+         "$ref": "#/components/schemas/IdRecurso"
+        }
+       }
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "null quando a escolha é ambígua (varios_contratos) ou não há alvo (sem_oferta)"
+    }
+   }
+  },
+  "PayloadEconomico": {
+   "description": "um tipo por forma registrada (OF-V-22); FGTS (payload_fgts_v1) entra quando RD-202 confirmar (a) — [LACUNA] declarada",
+   "oneOf": [
+    {
+     "$ref": "#/components/schemas/PayloadEconomicoCltV1"
+    }
+   ],
+   "discriminator": {
+    "propertyName": "forma"
+   }
+  },
+  "PayloadEconomicoCltV1": {
+   "type": "object",
+   "description": "forma payload_clt_v1 — os campos econômicos de core.oferta (schema-core.sql: valor_liberado, valor_parcela, prazo, tabela, convenio) + coeficiente_financeiro em campo próprio (RD-234); só isto entra no fingerprint",
+   "required": [
+    "forma",
+    "valor_liberado",
+    "prazo_meses",
+    "tabela_identificador"
+   ],
+   "properties": {
+    "forma": {
+     "type": "string",
+     "const": "payload_clt_v1"
+    },
+    "valor_liberado": {
+     "$ref": "#/components/schemas/DecimalMoeda"
+    },
+    "valor_parcela": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DecimalMoeda"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "Opcional e anulável (dono, 22/10/2026): ausente ou `null` = a oferta NÃO TEM parcela. Só ocorre em oferta RECUPERADA do backup do db360 (junho/2026 e meses recuperados: nenhuma fonte guardou a parcela); a tela mostra «—» e a oferta conta normalmente no pré-aprovado (que usa `valor_liberado`) e na conversão. Nunca zero construído de ausência. Os produtores (ObservacaoOferta, escrita) continuam mandando a parcela: quem lê não deve presumir parcela, quem escreve não deve omiti-la."
+    },
+    "prazo_meses": {
+     "$ref": "#/components/schemas/PrazoMeses"
+    },
+    "tabela_identificador": {
+     "$ref": "#/components/schemas/Identificador"
+    },
+    "convenio": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "maxLength": 64
+    },
+    "coeficiente_financeiro": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DecimalSnapshot"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "grandeza financeira (parcela/contrato) — nunca o coeficiente de comissão (CF-R-03)"
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "PessoaResumo": {
+   "type": "object",
+   "required": [
+    "pessoa_id",
+    "nome",
+    "cpf_mascarado",
+    "cpf"
+   ],
+   "properties": {
+    "pessoa_id": {
+     "$ref": "#/components/schemas/Uuid"
+    },
+    "nome": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "cpf_mascarado": {
+     "type": "string",
+     "pattern": "^\\*{3}\\.\\*{3}\\.\\*{3}-[0-9]{2}$",
+     "description": "só os dois dígitos verificadores; o CPF inteiro nunca sai daqui"
+    },
+    "cpf": {
+     "type": "string",
+     "pattern": "^[0-9]{11}$",
+     "description": "CPF inteiro, 11 dígitos — 18-D13 (decisão do dono, 2026-09-05): a lista de Propostas do SITE mostra o CPF sem máscara, como o legado. Só sob escopo `pessoa:ler`; nunca em log."
+    },
+    "status_atendimento": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/CodigoStatusAtendimento"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "18-D19: status do atendimento da pessoa pelo SITE (`nao_perturbe`, …). Ausente ou `null` = nenhum. Não é característica da proposta: vale para a pessoa inteira."
+    },
+    "vendedor": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "maxLength": 128,
+     "description": "nome do vendedor — o ator da atribuição corrente da pessoa (`core.atribuicao` → `ref.ator.nome`). Ausente ou `null` = sem vendedor atribuído; a tela escreve «(sem vendedor)» (decisão do dono, 2026-09-13). Fora de `required` como `status_atendimento`: consumidor pinado antes deste campo e produtor anterior a ele continuam conformes durante a troca. Nunca em log."
+    },
+    "vendedor_ator_id": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/IdRecurso"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "id (`ref.ator.ator_id`) do vendedor da pessoa — o MESMO ator que `vendedor` nomeia (card Kan 1d4iu8n65zsj, 2026-10-15). Existe para o consumidor recortar a carteira por id, e não por nome: dois vendedores homônimos dividiriam a carteira. `null` = pessoa sem atribuição corrente. Ausente = não calculado: só sai com o interruptor `C360_VENDEDOR_ATOR_ID` ligado na API (produtor anterior ao campo também o omite). Emenda LOCAL aditiva, fora de `required`. Nunca em log."
+    },
+    "contatos_vigentes": {
+     "type": "array",
+     "maxItems": 4,
+     "items": {
+      "$ref": "#/components/schemas/ContatoPessoa"
+     },
+     "description": "D-API-39 (2026-09-16): só com `?incluir_contatos=true`. No máximo UM contato por tipo — o vigente: o de `source_observed_at` mais recente (sem data vai depois de todo contato datado; empate, o inserido por último) — entre `link_chat`, `whatsapp_e164`, `telefone` e `celular`, ordenados do mais recente para o mais antigo. Tipo sem contato não aparece; lista vazia = a pessoa não tem nenhum. É dado da PESSOA, não da oferta: `Oferta.atributos_cadastrais` continua sendo o retrato da oferta (INV-04), e a tela diz de onde veio o valor que mostra. Nunca em log."
+    },
+    "nao_perturbe": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/NaoPerturbe"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "NÃO PERTURBE por pessoa (dono, 2026-10-02): o período VIGENTE em que a pessoa está em «Não perturbe», derivado no servidor dos registros que já existem — começa na PRIMEIRA aparição do sinal (hoje: um contrato que passa ao refinamento `sem_comissao`, «SEM COMISSAO» do C6) e vale 30 dias corridos; nova aparição depois do fim abre outro período. Durante a vigência TODAS as linhas da pessoa (ofertas e propostas, inclusive ofertas que chegam depois sem o sinal) mostram a tag. `null` = a pessoa não está em «Não perturbe» agora. Ausente = o produtor não calculou (anterior ao campo, ou interruptor `C360_NAO_PERTURBE_30D` desligado na API). Sem validação do cliente."
+    },
+    "limite_contratos": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/LimiteContratos"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "LIMITE DE CONTRATOS no banco (dono, 2026-10-02; D-API-49): a sequência VIGENTE de recusas «Cliente já possui a quantidade máxima permitida de contratos» do banco (hoje o 3RN), derivada no servidor das observações de oferta negativas (`registrarRecusaOferta`); uma observação positiva posterior do mesmo banco encerra a sequência. `null` = a pessoa não está no limite agora (ou nunca foi recusada por isso). Ausente = não pedido ou não calculado: só sai com `?incluir_limite_contratos=true` E o interruptor `C360_LIMITE_CONTRATOS` ligado na API (produtor anterior ao campo também o omite). Nunca em log junto do CPF."
+    },
+    "nacionalidade": {
+     "$ref": "#/components/schemas/Nacionalidade",
+     "description": "NACIONALIDADE da pessoa (dono, 2026-10-17; card Kan 5l895xq7b7ba): o texto gravado em `core.pessoa.nacionalidade`, a SITUAÇÃO que o servidor tira dele (`brasileira`, `estrangeira` ou `nao_informada` — uma regra só, no ISKRA; quem consome mostra, não reclassifica) e a proveniência quando existe. SEMPRE objeto quando pedida, nunca `null`: «não informada» é uma resposta (`situacao=nao_informada`, `valor=null`), e o dono quer ser avisado. Ausente = não pedido ou não calculado: só sai com `?incluir_nacionalidade=true` E o interruptor `C360_NACIONALIDADE` ligado na API (produtor anterior ao campo também o omite). Dado pessoal: nunca em log junto do CPF."
+    }
+   }
+  },
+  "PrazoMeses": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 600,
+   "description": "0 = sem prazo"
+  },
+  "ReferenciaBanco": {
+   "type": "string",
+   "minLength": 1,
+   "maxLength": 64,
+   "description": "o número/identificador da proposta no banco (banco_ref); um vivo por banco (INV-11)"
+  },
+  "ResultadoPropostasPessoa": {
+   "type": "object",
+   "required": [
+    "encontrado",
+    "pares",
+    "varias_ofertas",
+    "lido_em"
+   ],
+   "unevaluatedProperties": false,
+   "properties": {
+    "encontrado": {
+     "type": "boolean",
+     "description": "false devolve `pares` vazio — não confirma a existência do CPF"
+    },
+    "pessoa_id": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Uuid"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "atribuicao": {
+     "oneOf": [
+      {
+       "type": "object",
+       "unevaluatedProperties": false,
+       "properties": {
+        "versao": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "site_profile_id": {
+         "oneOf": [
+          {
+           "$ref": "#/components/schemas/Uuid"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "estado da atribuição, para o `esperado` do handoff. Nunca traz nome."
+    },
+    "varias_ofertas": {
+     "type": "boolean",
+     "description": "a pessoa tem oferta ativa em mais de um par — quem for alterar precisa dizer `banco`"
+    },
+    "pares": {
+     "type": "array",
+     "items": {
+      "$ref": "#/components/schemas/ParPropostasPessoa"
+     }
+    },
+    "lido_em": {
+     "$ref": "#/components/schemas/Instante"
+    }
+   }
+  },
+  "ResumosPessoas": {
+   "type": "object",
+   "required": [
+    "itens"
+   ],
+   "properties": {
+    "itens": {
+     "type": "array",
+     "items": {
+      "$ref": "#/components/schemas/PessoaResumo"
+     }
+    }
+   }
+  },
+  "SnapshotCoeficiente": {
+   "description": "OP-CF-12 (leitura sem comissão). Sem pct_empresa/pct_base (CF-INV-12).",
+   "allOf": [
+    {
+     "$ref": "#/components/schemas/SnapshotCoeficienteBase"
+    }
+   ],
+   "unevaluatedProperties": false
+  },
+  "SnapshotCoeficienteBase": {
+   "type": "object",
+   "description": "Base comum (aberta) do snapshot. coef_resolvido_em e coef_zona_negocio são nulos nas origens pendente/migrado_sem_coeficiente/migrado_fora_da_pagina (CHECK coef_origem_coerente, §17.3) — por isso não são required (R-13).",
+   "required": [
+    "alvo_tipo",
+    "alvo_id",
+    "coef_origem"
+   ],
+   "properties": {
+    "alvo_tipo": {
+     "type": "string",
+     "enum": [
+      "oferta",
+      "contrato"
+     ]
+    },
+    "alvo_id": {
+     "type": "string"
+    },
+    "coef_origem": {
+     "type": "string",
+     "enum": [
+      "catalogo",
+      "corrigido",
+      "pendente",
+      "migrado_resolvido_vivo",
+      "migrado_fallback_produtor",
+      "migrado_sem_coeficiente",
+      "migrado_fora_da_pagina"
+     ]
+    },
+    "coef_valor": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DecimalSnapshot"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "coef_versao_id": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "format": "int64"
+    },
+    "coef_base": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/BaseMonetaria"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "coef_resolvido_em": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/Instante"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "coef_zona_negocio": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/ZonaNegocio"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "coef_financeiro": {
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/DecimalSnapshot"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    }
+   }
+  },
+  "TipoAtor": {
+   "type": "string",
+   "enum": [
+    "humano",
+    "robo",
+    "servico",
+    "legacy"
+   ]
+  },
+  "Uuid": {
+   "type": "string",
+   "format": "uuid",
+   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+   "description": "format é anotação; o pattern garante"
+  },
+  "VendedorEfetivoContrato": {
+   "type": "object",
+   "required": [
+    "ator_id",
+    "nome",
+    "tipo",
+    "origem"
+   ],
+   "unevaluatedProperties": false,
+   "properties": {
+    "ator_id": {
+     "$ref": "#/components/schemas/IdRecurso"
+    },
+    "nome": {
+     "type": "string",
+     "maxLength": 128
+    },
+    "tipo": {
+     "$ref": "#/components/schemas/TipoAtor"
+    },
+    "origem": {
+     "type": "string",
+     "enum": [
+      "contrato",
+      "pessoa"
+     ],
+     "description": "`contrato`: trocado só para este contrato. `pessoa`: o vendedor da pessoa (ChatGuru ou troca da pessoa inteira)"
+    }
+   }
+  },
+  "VendedorNaContratacao": {
+   "type": "object",
+   "description": "O vendedor da PESSOA imediatamente antes da contratação (o dono da oferta no instante em que o contrato foi digitado) — não o vendedor atual. É a régua da marca «vendedor trocado» do web: o contrato é «trocado» quando quem o decidiu (`vendedor_efetivo`) é diferente deste. Nunca em log.",
+   "required": [
+    "ator_id",
+    "nome",
+    "tipo"
+   ],
+   "unevaluatedProperties": false,
+   "properties": {
+    "ator_id": {
+     "type": "string",
+     "minLength": 1
+    },
+    "nome": {
+     "type": "string",
+     "minLength": 1
+    },
+    "tipo": {
+     "type": "string",
+     "minLength": 1
+    }
+   }
+  },
+  "ZonaNegocio": {
+   "type": "string",
+   "description": "nome IANA",
+   "examples": [
+    "America/Sao_Paulo"
+   ]
+  }
+ }
+}

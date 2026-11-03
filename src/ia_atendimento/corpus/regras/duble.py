@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ia_atendimento.corpus.modelos import Corpus, Persona
-from ia_atendimento.corpus.regras._comum import dialogos_com_persona
+from ia_atendimento.corpus.regras._comum import base_do_duble, dialogos_com_persona
 from ia_atendimento.corpus.vocabulario import (
     EVENTOS_DE_RESULTADO_TX,
     EVENTOS_POR_CENARIO_DO_DUBLE,
@@ -13,11 +13,13 @@ from ia_atendimento.corpus.vocabulario import (
 _SUCESSOS = frozenset(e for e, tx in EVENTOS_DE_RESULTADO_TX.items() if tx == "TX-16")
 
 
-def eventos_possiveis(p: Persona) -> frozenset[str]:
-    """Resultados de T7/T8 que o dublê da persona pode devolver (vazio para «sem FACTA»)."""
+def eventos_possiveis(p: Persona, corpus: Corpus) -> frozenset[str]:
+    """Resultados de T7/T8 que o dublê da persona pode devolver (vazio para «sem FACTA»). Um clone vale pela persona-base, que só o
+    `corpus` conhece: ele é OBRIGATÓRIO (sem ele os 39 clones voltariam vazios em silêncio, R2-13)."""
     cf = p.cenario_facta
-    if cf.persona_duble in EVENTOS_POR_PERSONA_DO_DUBLE:
-        return EVENTOS_POR_PERSONA_DO_DUBLE[cf.persona_duble]
+    base = base_do_duble(corpus, cf.persona_duble)
+    if base in EVENTOS_POR_PERSONA_DO_DUBLE:
+        return EVENTOS_POR_PERSONA_DO_DUBLE[base]
     chave = f"global_{cf.global_duble}" if cf.global_duble else cf.cenario
     return EVENTOS_POR_CENARIO_DO_DUBLE.get(chave, frozenset())
 
@@ -35,7 +37,7 @@ def gabarito_cenario_duble(corpus: Corpus) -> list[str]:
     TX-16 só depois de um T7 permitido; T7_mesma_chave só depois de um T7."""
     erros: list[str] = []
     for pid, persona, d in dialogos_com_persona(corpus):
-        possiveis = eventos_possiveis(persona)
+        possiveis = eventos_possiveis(persona, corpus)
         t7_visto = False
         for i, t in enumerate(d.turnos):
             if t.quem != "ia":

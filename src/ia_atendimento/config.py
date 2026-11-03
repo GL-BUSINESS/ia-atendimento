@@ -13,12 +13,12 @@ from dataclasses import dataclass
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import unquote, urlsplit
 
 from psycopg import ProgrammingError
 from psycopg.conninfo import conninfo_to_dict
-from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationError, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HOSTS_LOCAIS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -66,6 +66,13 @@ class Precos:
 
 PRECOS_PADRAO = Precos()
 
+# Origens que autenticam por `X-IA-Token` (contrato 08 §1). `robo_esteira` é RESERVADA: sem token no MVP (`esteira_parada` dá 422);
+# só ganha token quando o gatilho for habilitado, por mudança de código revisada. `gateway_chatguru` autentica por HMAC, nunca por token.
+ORIGENS_COM_TOKEN = frozenset({"n8n_braco", "ti", "c360_api", "vigia"})
+PADRAO_EMAIL = re.compile(r"^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,}$")
+# Preço de env: positivo, com o teto de digitação de PRECO_MAXIMO e no máximo 6 casas.
+Preco = Annotated[Decimal, Field(gt=0, le=PRECO_MAXIMO, max_digits=12, decimal_places=6)]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", frozen=True, hide_input_in_errors=True)
@@ -76,7 +83,9 @@ class Settings(BaseSettings):
     modelo_nome: str = "deepseek-v4p1-flash-1017"
     modelo_base_url_1: str = "https://us.api.fireworks.ai/inference/v1"
     modelo_api_key_1: SecretStr = Field(min_length=TAMANHO_MIN_SEGREDO)
-    api_token: SecretStr = Field(min_length=TAMANHO_MIN_SEGREDO)
+    # Tokens da API por ORIGEM (`X-IA-Token`, contrato 08 §1): JSON `{"n8n_braco": "...", "ti": "...", "c360_api": "...", "vigia": "..."}`.
+    # Cada token tem >= 32 caracteres e é diferente dos outros (a origem é a do token que casa, nunca um campo do corpo).
+    api_tokens: dict[str, SecretStr]
     # Roteador só-EUA que a chamada usa (o `modelo_nome` é o nome lógico que a config e o passo gravam). Estudo G §4.
     modelo_roteador: str = ROTEADOR_PADRAO
     modelo_raciocinio_off: Literal["reasoning_effort_none", "thinking_disabled"] = "reasoning_effort_none"
@@ -86,11 +95,6 @@ class Settings(BaseSettings):
     # não segura o atendimento. Nenhuma retentativa do SDK (`max_retries=0`): a segunda chance é só o `output_retries=1` (M-9).
     # Calibrar na A2.9.
     modelo_timeout_s: float = Field(default=8.0, gt=0, le=10)
-    # Preços (contrato 08 §9): ausentes não existem (têm padrão) e ≤ 0 derrubam o boot.
-    preco_in_usd: Decimal = Field(default=PRECO_IN_USD, gt=0, le=PRECO_MAXIMO)
-    preco_cache_usd: Decimal = Field(default=PRECO_CACHE_USD, gt=0, le=PRECO_MAXIMO)
-    preco_out_usd: Decimal = Field(default=PRECO_OUT_USD, gt=0, le=PRECO_MAXIMO)
-    cambio: Decimal = Field(default=CAMBIO, gt=0, le=PRECO_MAXIMO)
     phoenix_endpoint: str | None = None
     phoenix_projeto: str = Field(default="ia-atendimento", pattern=r"^[A-Za-z0-9._-]{1,64}$")
     phoenix_api_key: SecretStr | None = None
@@ -101,12 +105,69 @@ class Settings(BaseSettings):
     # permanentes (trocar quebra o dedupe). Texto curto de cliente é enumerável: sha256 puro seria reversível por dicionário (S2).
     chave_h16: SecretStr = Field(min_length=TAMANHO_MIN_CHAVE_HMAC)
     chave_fingerprint: SecretStr = Field(min_length=TAMANHO_MIN_CHAVE_HMAC)
+    # HMAC de `candidato.chat_ref` (08 §5.6): permanente (trocar parte o histórico de candidatos) e diferente das outras duas.
+    chat_ref_chave: SecretStr = Field(min_length=TAMANHO_MIN_CHAVE_HMAC)
+    # Segredos que só existem em ARQUIVO 0600 montado `:ro` (P-R10), nunca em env do Coolify: chaves HMAC do gateway (1 ou 2, uma por linha;
+    # duas só na virada, 01 §3.2) e os segredos de saída (Bearer `ia-orquestrador`, token `ia` do chatguru-api, client do c360-auth).
+    gateway_hmac_arquivo: Path
+    segredos_saida_arquivo: Path
+    # E-mail do Amado (responsável da IA no ChatGuru): `responsavel_email` diferente dele no evento marca `delegacao_externa`.
+    responsavel_ia: str
+    # Fixtures de `pessoas_teste` (B2.4): JSON `{"pessoas": [uuid...], "chats": {chat_id: uuid}}`. Sem arquivo, nenhuma pessoa é de teste
+    # (a mais restritiva: nenhum chat entra em `chats_teste` e nenhuma entrada de teste passa).
+    pessoas_teste_arquivo: Path | None = None
+    # Casamento webhook × RPA (08 §5.3): |Δ msg_enviada_em| <= casamento_janela_s; sem a hora de um dos lados, |Δ ocorrido_em| <= a outra.
+    casamento_janela_s: int = Field(default=10, ge=1, le=120)
+    casamento_janela_sem_hora_s: int = Field(default=30, ge=1, le=300)
+    # Preços (08 §9): `custo = (tokens·preço)·câmbio / 1e6`. Ausente ou <= 0 recusa o boot.
+    preco_in_usd: Preco = PRECO_IN_USD
+    preco_cache_usd: Preco = PRECO_CACHE_USD
+    preco_out_usd: Preco = PRECO_OUT_USD
+    cambio: Preco = CAMBIO
+    preco_template_brl: Preco | None = None  # sem preço não há lembrete pago (P-R2)
 
     @model_validator(mode="after")
     def _chaves_hmac_distintas(self) -> Settings:
-        if self.chave_h16.get_secret_value() == self.chave_fingerprint.get_secret_value():
-            raise ValueError("chave_h16 e chave_fingerprint devem ser diferentes")
+        chaves = [s.get_secret_value() for s in (self.chave_h16, self.chave_fingerprint, self.chat_ref_chave)]
+        if len(set(chaves)) != len(chaves):
+            raise ValueError("chave_h16, chave_fingerprint e chat_ref_chave devem ser diferentes entre si")
         return self
+
+    @field_validator("api_tokens")
+    @classmethod
+    def _tokens_por_origem(cls, valor: dict[str, SecretStr]) -> dict[str, SecretStr]:
+        """Só as origens com token, cada um forte e único: dois tokens iguais tornariam a origem ambígua. Sem eco."""
+        if not valor:
+            raise ValueError("api_tokens não pode ser vazio")
+        if not set(valor) <= ORIGENS_COM_TOKEN:
+            raise ValueError("api_tokens: origem fora de n8n_braco, ti, c360_api e vigia (robo_esteira é reservada, sem token no MVP)")
+        tokens = [s.get_secret_value() for s in valor.values()]
+        if any(len(token) < TAMANHO_MIN_CHAVE_HMAC for token in tokens):
+            raise ValueError(f"api_tokens: cada token precisa de ao menos {TAMANHO_MIN_CHAVE_HMAC} caracteres")
+        if len(set(tokens)) != len(tokens):
+            raise ValueError("api_tokens: dois tokens iguais (a origem ficaria ambígua)")
+        return valor
+
+    @field_validator(
+        "casamento_janela_s", "casamento_janela_sem_hora_s", "preco_in_usd", "preco_cache_usd", "preco_out_usd", "cambio", mode="before"
+    )
+    @classmethod
+    def _vazio_e_o_padrao(cls, valor: object, info: ValidationInfo) -> object:
+        """`.env.example` traz estes opcionais vazios: copiar o exemplo sem preencher vale o padrão (os obrigatórios seguem)."""
+        return cls.model_fields[str(info.field_name)].default if valor == "" else valor
+
+    @field_validator("preco_template_brl", "pessoas_teste_arquivo", mode="before")
+    @classmethod
+    def _vazio_e_nenhum(cls, valor: object) -> object:
+        return None if valor == "" else valor
+
+    @field_validator("responsavel_ia")
+    @classmethod
+    def _responsavel_e_email(cls, valor: str) -> str:
+        normal = valor.strip().lower()
+        if not PADRAO_EMAIL.fullmatch(normal):
+            raise ValueError("responsavel_ia deve ser um e-mail")
+        return normal
 
     @model_validator(mode="after")
     def _roteador_e_o_do_modelo(self) -> Settings:

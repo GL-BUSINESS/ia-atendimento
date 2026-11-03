@@ -1,0 +1,20 @@
+{
+ "versao": 3,
+ "fonte": "forma de /3rn/calcular com nao_repagar (3rn-api app/routers/consulta.py, calcular/_calcular/_ecoar_nao_repagar); valores sinteticos",
+ "eco_cpf": "`cpf` ecoa o pedido: o arquivo traz 00000000000 e o gateway o troca pelo CPF consultado",
+ "padrao": "sem_simulacao",
+ "por_persona": {},
+ "casos": {
+  "sem_simulacao": {
+   "http": 200,
+   "corpo": {
+    "success": false,
+    "cpf": "00000000000",
+    "etapa": "vinculos",
+    "status": "SIM_AUSENTE",
+    "motivo": "Sem simulação válida em trn.sim para este CPF — com nao_repagar, a consulta de vínculos (paga) não é refeita.",
+    "nao_repagar": true
+   }
+  }
+ }
+}

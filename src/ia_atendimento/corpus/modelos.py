@@ -216,6 +216,7 @@ class PersonaDuble(_Modelo):
     cpf: Texto
     cenario: Texto
     f3: tuple[Texto, ...]
+    clone_de: Texto | None = None  # B2.4 (R1-09): persona do dublê de que esta é cópia (mesmo cenário, CPF e scenario próprios)
 
 
 class Duble(_Modelo):

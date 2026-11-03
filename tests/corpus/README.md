@@ -28,11 +28,12 @@ pede humano, muda de ideia, hostil, mídia), `desfecho_esperado` (`vendeu`, `rep
 `recusado_facta`), `fases` (E0-E10 que percorre), `invariantes_em_risco` (I1-I9 que ela existe para testar), `cenario_facta` (o que o
 dublê devolve: persona do dublê, ou `sem_chamada_facta`, ou estado global `virada`/`reabertura`) e, nas P-M, `em` (EM1-EM9) e `critica`.
 
-CPFs: persona com stub no dublê usa o CPF dele. P14, P34, P44, P48, P52, P56, P57 e P58 digitam na FACTA e aparecem em `f3_sem_facta` do
-dublê; o corpus as liga a uma persona `aprovado-NN` que **existe** lá (o caminho feliz serve a qualquer persona; o `f3` do dublê é só metadado).
-As que não chamam a FACTA (P13, P32, P33, P35-P43, P45-P47, P49-P51, P53-P55, P60) e os estados globais (P30, P31) usam CPFs da faixa
-reservada `000.000.075`-`098`, que o dublê não ocupa (o dublê cresce de baixo para cima; o `099` é dele): o validador recusa CPF do dublê
-nelas, CPF repetido e CPF fora da faixa. Persona «sem FACTA» nunca chega ao T7/E7/E8 (regra `t7_so_com_oferta_facta`) e o gabarito só
+CPFs (B2.4, R1-09: **um CPF por persona**): o estado do dublê (scenario do WireMock) e os stubs são por CPF, então duas personas no mesmo CPF veriam a
+proposta uma da outra. Cada persona que bate na FACTA tem a SUA persona do dublê: a primeira de cada cenário usa a original (`aprovado-24` de P01...) e as demais
+um **clone** (`aprovado-36-p05`, `000.000.1nn`, `clone_de` no instantâneo), com o mesmo cenário e stubs próprios. P14, P34, P44, P48, P52, P56, P57 e P58 digitam
+na FACTA e têm clone (não estão mais em `f3_sem_facta`). O **prazo da oferta** (`perfil.prazo_oferta_x`) de quem usa `aprovado-N` é N (o T3 mostra o que o T5/T7
+calcula). As que não chamam a FACTA (P13, P32, P33, P35-P43, P45-P47, P49-P51, P53-P55, P60) e os estados globais (P30, P31) usam CPFs da faixa
+reservada `000.000.075`-`098`, que o dublê não ocupa: o validador recusa CPF do dublê nelas, CPF repetido entre quaisquer personas e CPF fora da faixa. Persona «sem FACTA» nunca chega ao T7/E7/E8 (regra `t7_so_com_oferta_facta`) e o gabarito só
 produz os resultados de T7/T8 que o cenário do dublê da persona produz (regra `gabarito_cenario_duble`).
 
 ## O diálogo (gabarito)

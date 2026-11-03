@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 
 from ia_atendimento.corpus.modelos import Corpus, Dialogo
+from ia_atendimento.corpus.regras._comum import base_do_duble
 from ia_atendimento.corpus.semente import derivar_semente
 from ia_atendimento.corpus.vocabulario import (
     EXECUCOES_POR_PERSONA,
@@ -88,10 +89,14 @@ def holdout_independente(corpus: Corpus) -> list[str]:
         if falas and repetidas / len(falas) >= MAX_FRACAO_DE_FALAS_REPETIDAS_NO_HOLDOUT:
             erros.append(f"holdout_independente: {pid} (hold-out) repete {repetidas}/{len(falas)} falas do desenvolvimento (máximo < 25%)")
     for pid in sorted(holdout):
-        duble = por_id[pid].cenario_facta.persona_duble
+        duble = base_do_duble(corpus, por_id[pid].cenario_facta.persona_duble)  # o clone vale pela base: o CENÁRIO é o mesmo
         cenario = por_id[pid].cenario_facta.cenario
         if duble and cenario != "aprovado":
-            outras = sorted(p.id for p in corpus.todas() if p.id != pid and p.id not in holdout and p.cenario_facta.persona_duble == duble)
+            outras = sorted(
+                p.id
+                for p in corpus.todas()
+                if p.id != pid and p.id not in holdout and base_do_duble(corpus, p.cenario_facta.persona_duble) == duble
+            )
             if outras:
                 erros.append(f"holdout_independente: {pid} (hold-out) divide a persona {duble} do dublê com {outras}")
     return erros

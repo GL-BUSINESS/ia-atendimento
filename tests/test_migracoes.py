@@ -25,7 +25,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 MIGRACOES = RAIZ / "migrations"
 
 
-TODAS = ["0001_esquema", "0002_procrastinate", "0003_estado_aditivo"]  # a pasta migrations/ inteira, em ordem
+TODAS = ["0001_esquema", "0002_procrastinate", "0003_estado_aditivo", "0004_anexo_rpa_e_espelho"]  # a pasta migrations/ inteira, em ordem
 
 
 def _sha(caminho: Path) -> str:
@@ -154,11 +154,11 @@ def test_checksum_divergente_para_antes_de_aplicar_qualquer_coisa(vazio, tmp_pat
 def test_migracao_com_erro_desfaz_tudo_e_nao_grava_ledger(vazio, tmp_path):
     copia = tmp_path / "copia"
     shutil.copytree(MIGRACOES, copia)
-    (copia / "0004_quebrada.up.sql").write_text("CREATE TABLE ia.zz_meio (x int); SELECT 1/0;", encoding="utf-8")
+    (copia / "0005_quebrada.up.sql").write_text("CREATE TABLE ia.zz_meio (x int); SELECT 1/0;", encoding="utf-8")
     with vazio.conectar(autocommit=False) as conn, pytest.raises(psycopg.errors.DivisionByZero):
         aplicar(conn, copia)
     ledger = _ledger(vazio)
-    assert set(ledger) == set(TODAS)  # as boas ficaram; a 0004 não
+    assert set(ledger) == set(TODAS)  # as boas ficaram; a 0005 não
     with vazio.sessao() as conn:
         assert conn.execute("SELECT to_regclass('ia.zz_meio')").fetchone() == (None,)
 
@@ -281,12 +281,12 @@ def test_o_sql_executado_e_exatamente_os_bytes_do_checksum(vazio, tmp_path):
     copia = tmp_path / "copia"
     shutil.copytree(MIGRACOES, copia)
     bytes_0004 = b"CREATE TABLE ia.zz_crlf AS SELECT length('a\r\nb') AS n;\n"
-    (copia / "0004_crlf.up.sql").write_bytes(bytes_0004)
+    (copia / "0005_crlf.up.sql").write_bytes(bytes_0004)
     with vazio.conectar(autocommit=False) as conn:
         aplicar(conn, copia)
     with vazio.sessao() as conn:
         assert conn.execute("SELECT n FROM ia.zz_crlf").fetchone() == (4,)  # a\r\nb: 4 caracteres, não 3
-        assert conn.execute("SELECT checksum FROM ia.migracao WHERE migracao_id = '0004_crlf'").fetchone() == (
+        assert conn.execute("SELECT checksum FROM ia.migracao WHERE migracao_id = '0005_crlf'").fetchone() == (
             hashlib.sha256(bytes_0004).hexdigest(),
         )
 

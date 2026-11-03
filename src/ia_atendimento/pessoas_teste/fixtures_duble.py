@@ -1,0 +1,173 @@
+"""Os arquivos `fixtures/duble/*.json` (B2.4): forma medida de `Oferta` (360), `/3rn/calcular` e `/c6/oferta/simular`.
+
+SEM WireMock e SEM chamada real. `3rn_calcular.json` e `c6_simular.json` são o que o gateway de ferramentas devolve em `duble|teste`
+quando a F3 (P13, P14) ou o ensaio pedem T5 de outro banco: sem elas a F3 chamaria o C6 de verdade (1 req/s, custo) e o 3RN (fila da AJIN).
+`cliente360_oferta.json` é só um EXEMPLO congelado (golden, `exemplo_cliente360`): o `valid_until` dele vale em `agora_referencia` e
+vence; T1/T3 saem SEMPRE de `FontePessoasTeste`, que calcula tudo ao servir e recusa `real|sombra`. Cada arquivo é validado pelas formas
+de `formas.py` ao carregar; `scripts/gerar_pessoas_teste.py` os gera do catálogo, então a oferta de T3 e a simulação de T5 da mesma
+persona nunca divergem.
+
+`cpf` nas respostas de banco é ECO do pedido: o arquivo traz `00000000000` e `servir_*` o troca pelo CPF consultado (11 dígitos).
+O arquivo mora em `fixtures/duble/` do checkout e, no pacote instalado, em `ia_atendimento/fixtures/duble/` (o wheel o leva, como as
+migrações).
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Annotated, Any, Final
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from ia_atendimento.pessoas_teste.arquivo import PessoasTesteInvalidas
+from ia_atendimento.pessoas_teste.catalogo import catalogo_padrao
+from ia_atendimento.pessoas_teste.fonte import MODOS_COM_FIXTURES, ForaDoModoDeTeste
+from ia_atendimento.pessoas_teste.formas import (
+    C6Simular,
+    Calcular3rnCalculado,
+    Calcular3rnSemCalculo,
+    Instante,
+    ResultadoPropostasPessoa,
+    ResumosPessoas,
+)
+
+NOMES: Final = ("cliente360_oferta.json", "3rn_calcular.json", "c6_simular.json")
+CPF_ECO: Final = "00000000000"
+_RAIZ: Final = Path(__file__).resolve().parents[3]
+
+
+def diretorio_padrao() -> Path:
+    for candidato in (_RAIZ / "fixtures" / "duble", Path(__file__).resolve().parents[1] / "fixtures" / "duble"):
+        if candidato.is_dir():
+            return candidato
+    raise PessoasTesteInvalidas("fixtures/duble não encontrada (checkout ou pacote instalado com fixtures/)")
+
+
+class _Fechado(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class Relativo(_Fechado):
+    valid_until_s: Annotated[int, Field(gt=0)]
+    regra: str
+
+
+class CasoCliente360(_Fechado):
+    resumo: ResumosPessoas
+    propostas: ResultadoPropostasPessoa
+
+
+class ArquivoCliente360(_Fechado):
+    versao: int
+    fonte: str
+    relativo: Relativo
+    agora_referencia: Instante
+    casos: dict[str, CasoCliente360]
+
+
+class Caso3rn(_Fechado):
+    http: int
+    corpo: Calcular3rnCalculado | Calcular3rnSemCalculo
+
+
+class CasoC6(_Fechado):
+    http: int
+    corpo: C6Simular
+
+
+class _ArquivoDeBanco(_Fechado):
+    versao: int
+    fonte: str
+    por_persona: dict[str, str]
+    eco_cpf: str
+
+    @model_validator(mode="after")
+    def _ecoa_o_cpf_zerado(self) -> _ArquivoDeBanco:
+        if not self.eco_cpf:
+            raise ValueError("`eco_cpf` explica que `cpf` ecoa o pedido")
+        return self
+
+    @model_validator(mode="after")
+    def _personas_do_catalogo(self) -> _ArquivoDeBanco:
+        fora = sorted(set(self.por_persona) - {p.persona_id for p in catalogo_padrao().pessoas})
+        if fora:
+            raise ValueError(f"`por_persona` cita persona fora do catálogo: {fora}")
+        return self
+
+
+class Arquivo3rn(_ArquivoDeBanco):
+    casos: dict[str, Caso3rn]
+    padrao: str
+
+    @model_validator(mode="after")
+    def _referencias(self) -> Arquivo3rn:
+        if not {self.padrao, *self.por_persona.values()} <= set(self.casos):
+            raise ValueError("`padrao` e `por_persona` apontam para casos que existem")
+        return self
+
+    @model_validator(mode="after")
+    def _todo_caso_ecoa_nao_repagar(self) -> Arquivo3rn:
+        """A IA chama o `/3rn/calcular` com `nao_repagar: true` (nunca repaga a consulta de vínculos); o servidor ecoa o campo em
+        TODA resposta do handler: fixture sem o eco é uma resposta que o 3rn-api não produz, e `SIM_AUSENTE` só existe nesse modo."""
+        sem_eco = sorted(nome for nome, caso in self.casos.items() if caso.corpo.nao_repagar is not True)
+        if sem_eco:
+            raise ValueError(f"casos do 3RN sem o eco `nao_repagar: true`: {sem_eco}")
+        return self
+
+
+class ArquivoC6(_ArquivoDeBanco):
+    casos: dict[str, CasoC6]
+    padrao: str
+
+    @model_validator(mode="after")
+    def _referencias(self) -> ArquivoC6:
+        if not {self.padrao, *self.por_persona.values()} <= set(self.casos):
+            raise ValueError("`padrao` e `por_persona` apontam para casos que existem")
+        return self
+
+
+class FixturesDuble(_Fechado):
+    exemplo_cliente360: (
+        ArquivoCliente360  # EXEMPLO congelado em `agora_referencia` (golden): T1/T3 SEMPRE vêm de `FontePessoasTeste`, nunca daqui
+    )
+    tres_rn: Arquivo3rn
+    c6: ArquivoC6
+
+    def calcular_3rn(self, persona_id: str, cpf: str, modo: str, *, posse_real: bool = False) -> tuple[int, dict[str, Any]]:
+        """`POST /3rn/calcular` (modo `nao_repagar`) da persona: `calculado` com par 3RN ativo; senão `SIM_AUSENTE`."""
+        return _servir(self.tres_rn, persona_id, cpf, modo, posse_real)
+
+    def simular_c6(self, persona_id: str, cpf: str, modo: str, *, posse_real: bool = False) -> tuple[int, dict[str, Any]]:
+        """`POST /c6/oferta/simular` da persona (P13: simulado com a oferta do T3) ou o padrão (sem oferta)."""
+        return _servir(self.c6, persona_id, cpf, modo, posse_real)
+
+
+def _servir(arquivo: Arquivo3rn | ArquivoC6, persona_id: str, cpf: str, modo: str, posse_real: bool) -> tuple[int, dict[str, Any]]:
+    if modo not in MODOS_COM_FIXTURES or posse_real:
+        raise ForaDoModoDeTeste(
+            f"fixtures de bancos só valem em duble|teste e sem posse real (modo pedido: {modo!r}, posse real: {posse_real})"
+        )
+    if len(cpf) != 11 or not cpf.isdigit():
+        raise ValueError("cpf com 11 dígitos")
+    pessoa = catalogo_padrao().por_persona(persona_id)
+    if pessoa is None:
+        raise ValueError("persona fora do catálogo de pessoas de teste")
+    if cpf != pessoa.cpf_digitos:
+        raise ValueError("o CPF não é o da persona de teste (fixture nunca responde por CPF de cliente)")
+    caso = arquivo.casos[arquivo.por_persona.get(persona_id, arquivo.padrao)]
+    corpo = caso.corpo.model_dump(mode="json", exclude_unset=True)
+    return caso.http, {**corpo, "cpf": cpf}
+
+
+def carregar_fixtures_duble(diretorio: Path | str | None = None) -> FixturesDuble:
+    base = Path(diretorio) if diretorio else diretorio_padrao()
+    try:
+        c360, tres, c6 = (json.loads((base / nome).read_text(encoding="utf-8")) for nome in NOMES)
+        return FixturesDuble(
+            exemplo_cliente360=ArquivoCliente360.model_validate(c360),
+            tres_rn=Arquivo3rn.model_validate(tres),
+            c6=ArquivoC6.model_validate(c6),
+        )
+    except (OSError, ValueError):  # `ValidationError` do Pydantic é um `ValueError`
+        raise PessoasTesteInvalidas("fixtures/duble ausente ou fora da forma esperada") from None

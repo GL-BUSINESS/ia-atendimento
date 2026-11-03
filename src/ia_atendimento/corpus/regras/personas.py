@@ -31,8 +31,8 @@ def nome_ficticio(corpus: Corpus) -> list[str]:
 def cpf_sintetico_regra(corpus: Corpus) -> list[str]:
     erros = []
     for p in corpus.todas():
-        if not re.fullmatch(r"000\.000\.0[0-9]{2}-[0-9]{2}", p.cpf):
-            erros.append(f"cpf_sintetico: {p.id}: CPF fora do formato 000.000.0nn-dd")
+        if not re.fullmatch(r"000\.000\.[01][0-9]{2}-[0-9]{2}", p.cpf):
+            erros.append(f"cpf_sintetico: {p.id}: CPF fora do formato 000.000.nnn-dd (n do 7º dígito: 0 ou 1)")
         elif not cpf_sintetico(digitos(p.cpf)):
             erros.append(f"cpf_sintetico: {p.id}: dígito verificador errado")
     return erros
@@ -49,6 +49,11 @@ def _persona_do_duble(p: Persona, por_id: dict, quem_aponta: dict) -> list[str]:
         erros.append(f"cpf_alinhado_duble: {p.id}: cenário {cf.cenario!r} difere do do dublê ({d.cenario!r})")
     if cf.sem_chamada_facta or cf.global_duble:
         erros.append(f"cpf_alinhado_duble: {p.id}: persona do dublê não pode ser «sem FACTA» nem global")
+    base = d.clone_de or d.id
+    if (m := re.fullmatch(r"aprovado-(\d+)", base)) and p.perfil.oferta_facta_ativa and p.perfil.prazo_oferta_x != int(m.group(1)):
+        erros.append(  # o T3 mostra a oferta do perfil e o T5/T7 calcula no prazo do cenário: têm de ser o mesmo (R1-09)
+            f"cpf_alinhado_duble: {p.id}: prazo da oferta ({p.perfil.prazo_oferta_x}x) diferente do do cenário {base} ({m.group(1)}x)"
+        )
     if p.familia == "H" and p.id in quem_aponta and quem_aponta[p.id] != d.id:
         erros.append(f"cpf_alinhado_duble: {p.id}: o dublê lista {p.id} em `f3` de {quem_aponta[p.id]} e não de {d.id}")
     elif p.familia == "H" and p.id not in quem_aponta and d.cenario != "aprovado":
@@ -80,6 +85,13 @@ def _persona_sem_stub(p: Persona, duble, quem_aponta: dict) -> list[str]:
     return erros
 
 
+def _por_cpf(corpus: Corpus) -> dict[str, list[str]]:
+    por_cpf: dict[str, list[str]] = {}
+    for p in corpus.todas():
+        por_cpf.setdefault(p.cpf, []).append(p.id)
+    return por_cpf
+
+
 def cpf_alinhado_duble(corpus: Corpus) -> list[str]:
     """O CPF e o vínculo com o dublê batem com o instantâneo de `bancos-duble/personas/personas.yaml` (ids e CPFs alinhados)."""
     duble = corpus.duble
@@ -93,8 +105,11 @@ def cpf_alinhado_duble(corpus: Corpus) -> list[str]:
         else:
             livres.append(p)
             erros += _persona_sem_stub(p, duble, quem_aponta)
+    # um CPF por persona: o estado do dublê (scenario do WireMock) é por CPF; no mesmo CPF uma persona veria a proposta da outra (R1-09)
     erros += [
-        f"cpf_alinhado_duble: CPF {c} repetido entre personas sem stub na FACTA" for c, n in Counter(p.cpf for p in livres).items() if n > 1
+        f"cpf_alinhado_duble: CPF {c} repetido entre personas (um CPF por persona: {sorted(ids)})"
+        for c, ids in _por_cpf(corpus).items()
+        if len(ids) > 1
     ]
     return erros
 

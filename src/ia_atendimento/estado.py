@@ -9,31 +9,55 @@
 - **Imutáveis por privilégio:** `faixa_esforco`, `comissao_esperada_brl`, identidade e versões de artefato são gravadas em `abrir` e ficam
   fora do GRANT UPDATE de `ia_app`; `Mudancas` tem exatamente as colunas do GRANT (um teste confere com o catálogo).
 - **Sem PII:** a entrada não tem CPF, telefone (`chat_number` vai ao cofre na B1.5), nome nem texto de cliente; `hide_input_in_errors`.
-- Fora daqui (outras etapas): `pausar`/`sair_da_pausa`/`abrir_agendado` (B5.7b), tetos/`max_abertos`/pré-voo (B1.5), jobs e reapers (B1.3).
+- Fora daqui: tetos/`max_abertos`/pré-voo (B1.5), jobs e reapers (B1.3), a pausa combinada e o `reservado` de vida longa
+  (`estado_pausa.py`, B5.7b) e os jobs `retomar`/`reaper_agenda` (`agenda_jobs.py`). `aplicar(pausa=, onde_igual=)` é o que
+  `estado_pausa` usa; `repassar` e `encerrar` tiram a chave `pausa` do `estado_conversa` no mesmo UPDATE.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from decimal import Decimal
-from functools import cache
-from inspect import isclass
-from typing import Annotated, Any, Final, Literal, get_args
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from ia_atendimento.modelos_conversa import EstadoConversa
-from ia_atendimento.tipos import LIMITE_JSON_OCTETOS, Codigo40, Codigo60, Perfil, octetos_como_jsonb
+from ia_atendimento.estado_entrada import (  # noqa: F401  (reexportados: é daqui que o resto do código e os testes importam)
+    PREFIXO_FINGERPRINT,
+    EntradaAtendimento,
+    Hex24,
+    Modo,
+    _validar_esforco,
+    campos_invalidos,
+    entrada_de_corpo,
+    entrada_fingerprint,
+    fingerprint_de_identidade,
+    resolver_modo,
+    validar_corpo,
+)
+from ia_atendimento.estado_erros import (  # noqa: F401
+    ArtefatoAusente,
+    AtendimentoInexistente,
+    ChatOcupado,
+    ConflitoIdempotencia,
+    ConflitoVersao,
+    DadoRecusado,
+    EntradaInvalida,
+    EstadoErro,
+    ModoInvalido,
+    TransicaoInvalida,
+)
+from ia_atendimento.modelos_conversa import EstadoConversa, Pausa
+from ia_atendimento.tipos import LIMITE_JSON_OCTETOS, Codigo40, Codigo60, DataHora, Perfil, octetos_como_jsonb  # noqa: F401  (reexportados)
 
 LEASE_RESERVADO_S: Final = 120  # `reservado` nasce com 2 min (K §8.1)
 LEASE_TURNO_S: Final = 300  # `iniciar` e cada transição renovam para +5 min
@@ -42,85 +66,18 @@ ENCERRA_APOS_ULTIMO_LEMBRETE_MIN: Final = 120  # H E9: encerra 2 h depois do úl
 FOLGA_ESPERA_MIN: Final = 30
 TOLERANCIA_RELOGIO: Final = timedelta(minutes=5)  # relógio de origem adiantado; além disso `ultimo_cliente_em` é recusado
 _ORIGEM: Final = re.compile(r"^[a-z0-9_]{1,40}$")
-_HEX24: Final = re.compile(r"^[0-9a-f]{24}$")
-PREFIXO_FINGERPRINT: Final = b"ia-entrada/v1\n"
 MOTIVO_DEVOLVIDO_S2: Final = "devolvido_pela_s2"  # a S2 devolve o lead: fecha `repassado` sem ter passado por `repassando`
 ARTEFATOS: Final = ("roteiro", "regras", "catalogo", "motor")
 
 Relogio = Callable[[], datetime]
 Estado = Literal["reservado", "aberto", "aguardando_cliente", "pausado", "repassando", "encerrado"]
-Modo = Literal["real", "sombra", "duble", "teste"]
 Faixa = Literal["baixa", "media", "alta", "muito_alta"]
 Desfecho = Literal[
     "sem_venda", "repassado", "sem_resposta", "expirado", "opt_out", "abortado", "vendeu", "destravou", "motivo_identificado"
 ]
-Hex24 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{24}$")]
 
 ESTADOS_NAO_TERMINAIS: Final = frozenset({"reservado", "aberto", "aguardando_cliente", "pausado", "repassando"})
 _REPASSAVEIS: Final = frozenset({"aberto", "aguardando_cliente", "pausado"})
-_FAIXAS_COM_COMISSAO: Final = frozenset({"alta", "muito_alta"})
-_MODOS_GLOBAIS: Final = frozenset({"real", "sombra", "duble"})
-
-
-# --- erros (sem valor de cliente na mensagem) ------------------------------------------------------------------------------------
-
-
-class EstadoErro(Exception):
-    """Base dos erros do ciclo de vida. Mensagens trazem nomes de campo/estado/restrição, nunca valores da linha."""
-
-
-class TransicaoInvalida(EstadoErro):
-    def __init__(self, mensagem: str, *, restricao: str | None = None) -> None:
-        super().__init__(mensagem)
-        self.restricao = restricao  # nome do CHECK do banco que barrou, quando foi ele
-
-
-class ConflitoVersao(EstadoErro):
-    """Outro escritor mudou o atendimento (CAS por `versao` perdeu): releia e decida de novo."""
-
-
-class AtendimentoInexistente(EstadoErro):
-    pass
-
-
-class ConflitoIdempotencia(EstadoErro):
-    """Mesma `(origem, chave_logica)` com identidade diferente (HTTP 409 `chave_reutilizada`)."""
-
-
-class ChatOcupado(EstadoErro):
-    """Já existe atendimento não encerrado neste chat (HTTP 409 `chat_ocupado`)."""
-
-
-class ArtefatoAusente(EstadoErro):
-    def __init__(self, tipos: tuple[str, ...]) -> None:
-        super().__init__("sem artefato_versao para: " + ", ".join(tipos))
-        self.tipos = tipos
-
-
-class ModoInvalido(EstadoErro):
-    def __init__(self, codigo: str) -> None:
-        super().__init__(codigo)
-        self.codigo = codigo  # teste_fora_da_lista | persona_fora_de_teste | modo_teste_global | validacao
-
-
-class DadoRecusado(EstadoErro):
-    """O banco recusou o dado (CHECK, NOT NULL, tipo). Só sqlstate e nome da restrição: a mensagem do psycopg traz a LINHA inteira."""
-
-    def __init__(self, *, sqlstate: str | None, restricao: str | None) -> None:
-        super().__init__(f"banco recusou o dado (sqlstate {sqlstate or '?'}, restrição {restricao or '?'})")
-        self.sqlstate = sqlstate
-        self.restricao = restricao
-
-
-class EntradaInvalida(EstadoErro, ValueError):
-    """Argumento incoerente que o banco também recusaria (CHECK), barrado antes de chegar nele.
-
-    `campos` = pares `(campo, regra)` quando vem de validação de corpo (`EntradaAtendimento.de_corpo`): só NOMES, nunca o valor.
-    """
-
-    def __init__(self, mensagem: str, *, campos: tuple[tuple[str, str], ...] = ()) -> None:
-        super().__init__(mensagem)
-        self.campos = campos
 
 
 # --- utilidades ------------------------------------------------------------------------------------------------------------------
@@ -156,158 +113,6 @@ def versoes_vigentes(conn: psycopg.Connection) -> Versoes:
     if faltam:
         raise ArtefatoAusente(faltam)
     return Versoes(**{t: int(achadas[t]) for t in ARTEFATOS})
-
-
-# --- entrada e identidade --------------------------------------------------------------------------------------------------------
-
-
-class EntradaAtendimento(BaseModel):
-    """Corpo de `POST /atendimentos` sem o que é derivado (faixa, comissão) ou PII (`chat_number`). Chave desconhecida ⇒ erro."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
-
-    chave_logica: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{1,19}:[A-Za-z0-9_.:-]{1,180}$")]
-    gatilho: Literal["venda", "esteira_parada"]  # `agendamento` nasce por `abrir_agendado` (B5.7b)
-    pessoa_id: UUID
-    chat_id: Hex24
-    phone_id: Hex24
-    disparado_por: Annotated[str, StringConstraints(min_length=1, max_length=128)]
-    clt_job_id: UUID | None = None
-    sessao_id: UUID | None = None
-    motivo_escolha: Literal["mais_antigo_elegivel", "oferta_forte", "consultor_sobrecarregado", "teste", "outro"] | None = None
-    motivo_escolha_nota: Annotated[str, StringConstraints(min_length=1, max_length=80)] | None = None
-    criterio_versao: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,64}$")] | None = None
-    perfil: Perfil = Field(default_factory=dict)  # rótulos curtos; sem aninhamento, float, texto livre nem dígitos de documento
-    perfil_versao: Annotated[int, Field(ge=1, le=32767)] = 1
-    responsavel_antes: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
-    banco: Annotated[str, StringConstraints(pattern=r"^[A-Z0-9_]{1,32}$")] | None = None
-    produto: Annotated[str, StringConstraints(pattern=r"^[A-Z0-9_]{1,32}$")] | None = None
-    persona_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,40}$")] | None = None
-    modo: Literal["teste"] | None = None  # asserção do chamador; o modo de verdade sai de `resolver_modo`
-    ultimo_cliente_em: AwareDatetime | None = None
-
-    @model_validator(mode="after")
-    def _regras_dos_checks(self) -> EntradaAtendimento:
-        if self.gatilho == "venda" and self.criterio_versao is None:
-            raise ValueError("gatilho venda exige criterio_versao")
-        if (self.motivo_escolha == "outro") != (self.motivo_escolha_nota is not None):
-            raise ValueError("motivo_escolha_nota existe se, e somente se, motivo_escolha for 'outro'")
-        if octetos_como_jsonb(self.perfil) > LIMITE_JSON_OCTETOS:
-            raise ValueError("perfil acima de 2 KB")
-        return self
-
-
-@cache
-def _nomes_do_modelo(modelo: type[BaseModel]) -> frozenset[str]:
-    """Nomes de campo do modelo e dos aninhados: o que NÃO está aqui é chave de dicionário ou campo extra (dado do cliente)."""
-    nomes: set[str] = set()
-    pilha, vistos = [modelo], set()
-    while pilha:
-        atual = pilha.pop()
-        if atual in vistos:
-            continue
-        vistos.add(atual)
-        for nome, campo in atual.model_fields.items():
-            nomes.add(nome)
-            pilha.extend(t for t in _tipos_da_anotacao(campo.annotation) if isclass(t) and issubclass(t, BaseModel))
-    return frozenset(nomes)
-
-
-def _tipos_da_anotacao(anotacao: object) -> list[object]:
-    achados = [anotacao]
-    for arg in get_args(anotacao):
-        achados.extend(_tipos_da_anotacao(arg))
-    return achados
-
-
-def campos_invalidos(erro: ValidationError, modelo: type[BaseModel]) -> tuple[tuple[str, str], ...]:
-    """`(campo, regra)` de cada recusa. `.errors()` e `.json()` carregam o valor recusado mesmo com `hide_input_in_errors`: aqui não.
-
-    O nome de uma chave que o cliente mandou também pode ser dado (`"123.456.789-09": "x"`): só nomes de campo do modelo saem;
-    chave extra vira `(campo desconhecido)` e chave de dicionário vira `(chave)`.
-    """
-    conhecidos = _nomes_do_modelo(modelo)
-    saida = []
-    for e in erro.errors(include_input=False, include_context=False, include_url=False):
-        caminho = [str(p) if isinstance(p, int) or p in conhecidos else "(chave)" for p in e["loc"]]
-        if e["type"] == "extra_forbidden":
-            caminho[-1] = "(campo desconhecido)"
-        regra = e["msg"].removeprefix("Value error, ") if e["type"] == "value_error" else e["type"]
-        saida.append((".".join(caminho) or "(corpo)", regra))
-    return tuple(saida)
-
-
-def validar_corpo[M: BaseModel](modelo: type[M], corpo: object) -> M:
-    """Valida o corpo; se recusar, levanta `EntradaInvalida` só com nomes de campo e regra (422), sem valor e sem a causa encadeada."""
-    try:
-        return modelo.model_validate(corpo)
-    except ValidationError as erro:
-        campos = campos_invalidos(erro, modelo)
-    # fora do `except`: o erro novo não leva `__context__` com a ValidationError (que guarda o valor recusado)
-    raise EntradaInvalida("corpo inválido: " + ", ".join(f"{c} ({r})" for c, r in campos), campos=campos)
-
-
-def entrada_de_corpo(corpo: object) -> EntradaAtendimento:
-    return validar_corpo(EntradaAtendimento, corpo)
-
-
-def entrada_fingerprint(entrada: EntradaAtendimento) -> str:
-    """Contrato 08 §4: `sha256(b"ia-entrada/v1\\n" + JSON canônico)` só da identidade do episódio (chaves ordenadas, sem espaço).
-
-    Ficam FORA (instáveis num replay do n8n, ou PII): `chat_number`, comissão, faixa, modo, `ultimo_cliente_em`, `disparado_por`,
-    `sessao_id`,
-    `motivo_escolha*`, `criterio_versao`, `perfil*`, `responsavel_antes`, `banco`, `produto`.
-    """
-    identidade = {
-        "chat_id": entrada.chat_id,
-        "chave_logica": entrada.chave_logica,
-        "clt_job_id": None if entrada.clt_job_id is None else str(entrada.clt_job_id),
-        "gatilho": entrada.gatilho,
-        "persona_id": entrada.persona_id,
-        "pessoa_id": str(entrada.pessoa_id),
-        "phone_id": entrada.phone_id,
-    }
-    presentes = {k: v for k, v in identidade.items() if v is not None}
-    canonico = json.dumps(presentes, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return hashlib.sha256(PREFIXO_FINGERPRINT + canonico).hexdigest()
-
-
-def _normalizar_chats_teste(chats: Collection[str]) -> frozenset[str]:
-    """`chat_id in "texto"` é teste de SUBSTRING: uma string no lugar da lista faria um chat virar `teste`. Recusa; confere o formato."""
-    if isinstance(chats, str | bytes):
-        raise TypeError("chats_teste deve ser uma coleção de chat_id, não texto")
-    itens = frozenset(chats)
-    if not all(isinstance(c, str) and _HEX24.fullmatch(c) for c in itens):
-        raise EntradaInvalida("chats_teste com id fora de 24 hex minúsculo")
-    return itens
-
-
-def resolver_modo(
-    *, chat_id: str, modo_global: str, chats_teste: Collection[str], persona_id: str | None = None, modo_pedido: str | None = None
-) -> Modo:
-    """Contrato 08 §6: global `real|sombra|duble`; `teste` só com `chat_id ∈ chats_teste`; `persona_id` só em chat de teste."""
-    chats_teste = _normalizar_chats_teste(chats_teste)
-    if modo_global == "teste":
-        raise ModoInvalido("modo_teste_global")
-    if modo_global not in _MODOS_GLOBAIS:
-        raise ModoInvalido("validacao")
-    em_teste = chat_id in chats_teste
-    if modo_pedido == "teste" and not em_teste:
-        raise ModoInvalido("teste_fora_da_lista")
-    if persona_id is not None and not em_teste:
-        raise ModoInvalido("persona_fora_de_teste")
-    return "teste" if em_teste else modo_global  # type: ignore[return-value]
-
-
-def _validar_esforco(faixa: str, comissao: Decimal | str | int | None) -> Decimal | None:
-    if faixa not in ("baixa", "media", "alta", "muito_alta"):
-        raise EntradaInvalida("faixa_esforco desconhecida")
-    valor = None if comissao is None else Decimal(str(comissao))
-    if valor is not None and valor < 0:
-        raise EntradaInvalida("comissao_esperada_brl negativa")
-    if valor is None and faixa in _FAIXAS_COM_COMISSAO:
-        raise EntradaInvalida("faixa alta/muito_alta exige comissão calculada")
-    return valor
 
 
 # --- leitura ---------------------------------------------------------------------------------------------------------------------
@@ -406,6 +211,13 @@ def _replay(conn: psycopg.Connection, origem: str, idem: str, fp: str) -> Result
     if linha[4] != fp:
         raise ConflitoIdempotencia("mesma chave lógica com outra identidade de entrada")
     return Resultado(linha[0], linha[1], linha[2], linha[3], repetido=True)
+
+
+def procurar_replay(conn: psycopg.Connection, origem: str, entrada: EntradaAtendimento) -> Resultado | None:
+    """Só a busca de replay do `abrir`, sem criar nada: `Resultado(repetido=True)` com o GRAVADO, `None` se é entrada nova, ou
+    `ConflitoIdempotencia` (mesma chave lógica com outra identidade). A API a usa ANTES das recusas de config (contrato 08 §2: o replay
+    vale mesmo com o chat ocupado e a chave desligada)."""
+    return _replay(conn, origem, idempotency_key(entrada.chave_logica), entrada_fingerprint(entrada))
 
 
 def _parametros_de_insercao(
@@ -572,33 +384,54 @@ def _valor_sql(nome: str, valor: Any) -> Any:
     return valor
 
 
-def _expressoes(mudancas: Mudancas, fase: str | None, lease_so_cresce: bool = False) -> dict[str, sql.Composable]:
-    """`coluna → expressão` do SET. Com `fase`, o `estado_conversa` sai de `jsonb_set(...)`: a fase vai no mesmo UPDATE, atômica."""
+def _expressoes(
+    mudancas: Mudancas, fase: str | None, lease_so_cresce: bool = False, pausa: Pausa | Literal["remover"] | None = None
+) -> dict[str, sql.Composable]:
+    """`coluna → expressão` do SET. Com `fase`/`pausa`, o `estado_conversa` sai de `jsonb_set(...)`/`- 'pausa'`: mesmo UPDATE, atômico."""
     exprs: dict[str, sql.Composable] = {}
     for nome in sorted(mudancas.model_fields_set):
         exprs[nome] = sql.SQL("%(p_estado_conversa)s::jsonb" if nome == "estado_conversa" else f"%(p_{nome})s")
     if lease_so_cresce and "lease_ate" in exprs:
         exprs["lease_ate"] = sql.SQL("greatest(lease_ate, %(p_lease_ate)s)")  # nunca encurta (quem espera o cliente tem lease de dias)
-    if fase is not None:
+    if fase is not None or pausa is not None:
         base = exprs.get("estado_conversa", sql.SQL("estado_conversa"))
-        exprs["estado_conversa"] = sql.SQL("jsonb_set({}, '{{fase}}', to_jsonb(%(p_fase)s::text))").format(base)
+        if fase is not None:
+            base = sql.SQL("jsonb_set({}, '{{fase}}', to_jsonb(%(p_fase)s::text))").format(base)
+        if pausa == "remover":
+            base = sql.SQL("({}) - 'pausa'").format(base)
+        elif pausa is not None:
+            base = sql.SQL("jsonb_set({}, '{{pausa}}', %(p_pausa)s::jsonb)").format(base)
+        exprs["estado_conversa"] = base
     return exprs
 
 
 def _montar_update(
-    mudancas: Mudancas, fase: str | None, de: Collection[str] | None, sem_assumido_em: bool, lease_so_cresce: bool
+    mudancas: Mudancas,
+    fase: str | None,
+    de: Collection[str] | None,
+    sem_assumido_em: bool,
+    lease_so_cresce: bool,
+    pausa: Pausa | Literal["remover"] | None = None,
+    onde_igual: dict[str, str] | None = None,
 ) -> tuple[sql.Composed, dict[str, Any]]:
     params: dict[str, Any] = {f"p_{n}": _valor_sql(n, getattr(mudancas, n)) for n in mudancas.model_fields_set}
-    sets = [sql.SQL("{} = {}").format(sql.Identifier(nome), expr) for nome, expr in _expressoes(mudancas, fase, lease_so_cresce).items()]
+    sets = [
+        sql.SQL("{} = {}").format(sql.Identifier(nome), expr) for nome, expr in _expressoes(mudancas, fase, lease_so_cresce, pausa).items()
+    ]
     sets.append(sql.SQL("versao = versao + 1, atualizado_em = %(agora)s"))
     onde = [sql.SQL("atendimento_id = %(atd)s AND versao = %(versao)s")]
     if fase is not None:
         params["p_fase"] = fase
+    if isinstance(pausa, Pausa):
+        params["p_pausa"] = Jsonb(pausa.model_dump(mode="json", exclude_defaults=True))
     if de is not None:
         params["de"] = sorted(de)
         onde.append(sql.SQL("estado = ANY(%(de)s)"))
     if sem_assumido_em:
         onde.append(sql.SQL("assumido_em IS NULL"))
+    for coluna, valor in sorted((onde_igual or {}).items()):  # nomes de coluna do nosso código (fase, gatilho), nunca de entrada externa
+        onde.append(sql.SQL("{} = {}").format(sql.Identifier(coluna), sql.Placeholder(f"w_{coluna}")))
+        params[f"w_{coluna}"] = valor
     consulta = sql.SQL("UPDATE ia.atendimento SET {} WHERE {} RETURNING versao").format(
         sql.SQL(", ").join(sets), sql.SQL(" AND ").join(onde)
     )
@@ -626,17 +459,21 @@ def aplicar(
     fase: str | None = None,
     sem_assumido_em: bool = False,
     lease_so_cresce: bool = False,
+    pausa: Pausa | Literal["remover"] | None = None,
+    onde_igual: dict[str, str] | None = None,
 ) -> int:
     """`UPDATE … WHERE atendimento_id = $1 AND versao = $2 AND estado ∈ de` com `versao + 1`; devolve a nova `versao`.
 
     `de` tem por padrão os estados NÃO terminais: `encerrado` é absorvente (o trigger da 0003 também o garante no banco).
 
-    `fase` (E0..E10) é escrita no mesmo UPDATE dentro do `estado_conversa`. Zero linhas ⇒ `ConflitoVersao` / `AtendimentoInexistente` /
-    `TransicaoInvalida`. CHECK violado ⇒ `TransicaoInvalida` (com `restricao`); NOT NULL/tipo ⇒ `DadoRecusado`; sem valores da linha.
+    `fase` (E0..E10) é escrita no mesmo UPDATE dentro do `estado_conversa`. `pausa` põe (`Pausa`) ou tira (`"remover"`) a chave `pausa` do
+    `estado_conversa`, também no mesmo UPDATE. `onde_igual` acrescenta `coluna = valor` ao WHERE (ex.: `{"fase": "E3"}`).
+    Zero linhas ⇒ `ConflitoVersao` / `AtendimentoInexistente` / `TransicaoInvalida`. CHECK violado ⇒ `TransicaoInvalida` (com `restricao`);
+    NOT NULL/tipo ⇒ `DadoRecusado`; sem valores da linha.
     """
     if agora.tzinfo is None:
         raise ValueError("`agora` exige datetime com fuso")
-    consulta, params = _montar_update(mudancas, fase, de, sem_assumido_em, lease_so_cresce)
+    consulta, params = _montar_update(mudancas, fase, de, sem_assumido_em, lease_so_cresce, pausa, onde_igual)
     params.update({"agora": agora, "atd": atendimento_id, "versao": versao})
     linha = executar_traduzindo(conn, consulta, params, check_e_transicao=True)
     if linha is None:
@@ -756,7 +593,7 @@ def repassar(
     }  # fmt: skip
     if consultor_ref is not None:
         campos["repasse_consultor_ref"] = consultor_ref
-    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=_REPASSAVEIS, fase="E10")
+    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=_REPASSAVEIS, fase="E10", pausa="remover")
 
 
 def _exigir_timestamps(desfecho: str, motivo: str, opt_out_em: datetime | None, humano_assumiu_em: datetime | None) -> None:
@@ -800,7 +637,8 @@ def encerrar(
         campos["repasse_consultor_ref"] = consultor_ref
     # `repassado` só sai de `repassando` (repasse em duas fases); a devolução da S2 é a única exceção (nunca passou pela fase 1)
     de = {"repassando"} if desfecho == "repassado" and motivo != MOTIVO_DEVOLVIDO_S2 else ESTADOS_NAO_TERMINAIS
-    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=de, sem_assumido_em=desfecho == "abortado")
+    sem_assumido = desfecho == "abortado"
+    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=de, sem_assumido_em=sem_assumido, pausa="remover")
 
 
 def abortar(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, motivo: str, relogio: Relogio) -> int:

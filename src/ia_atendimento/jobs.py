@@ -39,6 +39,9 @@ DIAS_COFRE = 1
 DIAS_ATENDIMENTO = 365
 JANELA_DO_BLOQUEIO = timedelta(hours=11, minutes=30)  # 20:15 -> 07:45, quando o Danilo abre a entrada
 STATUS_CONCLUIDOS = ("succeeded", "cancelled", "aborted")
+# Estados que `expirar_parados` (B1.6) pode encerrar por tempo. `pausado` (dorme até `retoma_em`, M-Q2) e o `reservado` de agendamento
+# NÃO entram: só a parada leve MANUAL (`ia_ativa=false`, `config_rotas.ESTADOS_DA_PARADA_LEVE`) encerra `pausado`, e a vigia o devolve.
+ESTADOS_EXPIRAVEIS = frozenset({"aberto", "aguardando_cliente"})
 
 
 class ServicoNaoConfigurado(RuntimeError):
@@ -55,6 +58,12 @@ class _NaoConfigurado:
 
     async def __call__(self, *_: Any, **__: Any) -> Any:
         raise ServicoNaoConfigurado(f"serviço '{self._nome}' não foi injetado (Servicos)")
+
+
+def configurado(servico: object) -> bool:
+    """O serviço foi injetado? (`False` = ainda é o `_NaoConfigurado` que falha alto.) Quem não pode desfazer o que fez antes de chamar o
+    serviço confere antes (o `retomar`: reivindicar o agendamento e depois falhar perderia a volta)."""
+    return not isinstance(servico, _NaoConfigurado)
 
 
 @dataclass(frozen=True)
@@ -79,6 +88,36 @@ class LeaseVencido:
 
 
 @dataclass(frozen=True)
+class Volta:
+    """O que o job `retomar` entrega à volta combinada depois de ganhar o CAS `confirmado → disparado` (B5.7b; a volta em si é da B5.7c)."""
+
+    agendamento_id: uuid.UUID
+    atendimento_id: uuid.UUID
+    chat_id: str
+    entrada: str  # `pausa_ia` = caso (a), atendimento `pausado` · `dialogo_agendar` = caso (b), `reservado` que nunca tocou o chat
+    retoma_fase: str | None
+    dispara_em: datetime
+    # `versao` do atendimento lida SOB o lock do claim (o claim não a incrementa): é a CERCA da volta. A primeira escrita
+    # (`sair_da_pausa`, `iniciar_agendado`) usa esta versão; se um turno ou repasse mexeu depois do claim, leva `ConflitoVersao` e a
+    # volta superada não escreve nem envia por cima (R2-01).
+    atendimento_versao: int
+
+
+# O que a volta pode devolver como desfecho. `reagendado_sistema` NÃO está aqui de propósito (R2-04): reagendar é `Adiar` (rearme + alarme).
+# Devolvê-lo como texto deixaria o agendamento `disparado/reagendado_sistema` sem alarme, o beco sem saída do R1-02.
+DesfechoDaVolta = Literal["retomou", "resolvido", "repassou", "humano_atuou"]
+
+
+@dataclass(frozen=True)
+class Adiar:
+    """A volta decidiu NÃO falar agora e pede nova tentativa em `dispara_em`, no MESMO agendamento e sem consumir `seq` (R1-02, estudo M
+    §2.5 e §2.6): `reagendado_sistema` (calendário/DATAPREV: próximo horário válido) ou `tentar_de_novo` (falha transitória: +10 min)."""
+
+    dispara_em: datetime
+    motivo: Literal["reagendado_sistema", "tentar_de_novo"]
+
+
+@dataclass(frozen=True)
 class Servicos:
     relogio: Relogio
     abrir_conexao: Callable[[], AbstractContextManager[psycopg.Connection]]
@@ -91,6 +130,12 @@ class Servicos:
     expirar_parados: Callable[[], Awaitable[int]] = field(default=_NaoConfigurado("expirar_parados"))
     tratar_lease_vencido: Callable[[LeaseVencido], Awaitable[None]] = field(default=_NaoConfigurado("tratar_lease_vencido"))
     auditar_pii: Callable[[Sequence[uuid.UUID]], Awaitable[int]] = field(default=_NaoConfigurado("auditar_pii"))
+    encerrar_por_chave: Callable[[uuid.UUID], Awaitable[None]] = field(default=_NaoConfigurado("encerrar_por_chave"))
+    # a volta combinada (B5.7c): pré-checagens, `sair_da_pausa`/`iniciar_agendado`, mensagem.
+    # Devolve o desfecho (`None` = `retomou`) ou `Adiar` (nova tentativa no mesmo agendamento)
+    retomar_atendimento: Callable[[Volta], Awaitable[DesfechoDaVolta | Adiar | None]] = field(
+        default=_NaoConfigurado("retomar_atendimento")
+    )
 
     def leitor(self) -> LeitorConfig:
         return self.leitor_config or LeitorConfig(self.relogio, ttl_s=0)
@@ -105,6 +150,11 @@ async def executar_turno(servicos: Servicos, atendimento_id: uuid.UUID) -> None:
 
 async def executar_iniciar(servicos: Servicos, atendimento_id: uuid.UUID) -> None:
     await servicos.iniciar_atendimento(atendimento_id)
+
+
+async def executar_encerrar_por_chave(servicos: Servicos, atendimento_id: uuid.UUID) -> None:
+    """Parada leve manual (`PUT ia_ativa=false`, B1.5 agenda um job por atendimento, escalonado em ≤ 20 min). A implementação é da B1.6."""
+    await servicos.encerrar_por_chave(atendimento_id)
 
 
 async def executar_expirar(servicos: Servicos) -> int:

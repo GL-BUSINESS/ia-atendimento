@@ -1,0 +1,2130 @@
+{
+ "versao": 1,
+ "fonte": "tests/corpus/personas.jsonl + personas_m.jsonl (corpus B8.1a); coeficientes da tabela FACTA 115716 da camada A do bancos-duble @1305152; C6 e 3RN inventados (so forma). Tudo sintetico.",
+ "pessoas": [
+  {
+   "persona_id": "P01",
+   "pessoa_id": "00000000-0000-7000-8000-000000000001",
+   "cpf": "000.000.001-91",
+   "nome": "Zuleide Alvimar",
+   "telefone": "550090000001",
+   "duble": "aprovado-24",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000011",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "186.90",
+      "prazo_meses": 24,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0623",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P02",
+   "pessoa_id": "00000000-0000-7000-8000-000000000002",
+   "cpf": "000.000.002-72",
+   "nome": "Odair Calesco",
+   "telefone": "550090000002",
+   "duble": "aprovado-36",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000021",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P03",
+   "pessoa_id": "00000000-0000-7000-8000-000000000003",
+   "cpf": "000.000.003-53",
+   "nome": "Neusa Corravo",
+   "telefone": "550090000003",
+   "duble": "aprovado-48",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000031",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "129.90",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P04",
+   "pessoa_id": "00000000-0000-7000-8000-000000000004",
+   "cpf": "000.000.004-34",
+   "nome": "Wanderlei Engardi",
+   "telefone": "550090000004",
+   "duble": "aprovado-60",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000041",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "120.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P05",
+   "pessoa_id": "00000000-0000-7000-8000-000000000005",
+   "cpf": "000.000.100-73",
+   "nome": "Marlene Ferovim",
+   "telefone": "550090000100",
+   "duble": "aprovado-36-p05",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000051",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "172.55",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P06",
+   "pessoa_id": "00000000-0000-7000-8000-000000000006",
+   "cpf": "000.000.101-54",
+   "nome": "Ivo Gurovim",
+   "telefone": "550090000101",
+   "duble": "aprovado-48-p06",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000061",
+     "economia": {
+      "valor_liberado": "4000.00",
+      "valor_parcela": "173.20",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P07",
+   "pessoa_id": "00000000-0000-7000-8000-000000000007",
+   "cpf": "000.000.102-35",
+   "nome": "Delma Itaesco",
+   "telefone": "550090000102",
+   "duble": "aprovado-60-p07",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000071",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "140.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P08",
+   "pessoa_id": "00000000-0000-7000-8000-000000000008",
+   "cpf": "000.000.103-16",
+   "nome": "Genivaldo Lavardi",
+   "telefone": "550090000103",
+   "duble": "aprovado-60-p08",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000081",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "100.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P09",
+   "pessoa_id": "00000000-0000-7000-8000-000000000009",
+   "cpf": "000.000.104-05",
+   "nome": "Rosalvo Maruvel",
+   "telefone": "550090000104",
+   "duble": "aprovado-36-p09",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000091",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P10",
+   "pessoa_id": "00000000-0000-7000-8000-000000000010",
+   "cpf": "000.000.017-59",
+   "nome": "Clotilde Piresco",
+   "telefone": "550090000017",
+   "duble": "teto-politica",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000101",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P11",
+   "pessoa_id": "00000000-0000-7000-8000-000000000011",
+   "cpf": "000.000.105-88",
+   "nome": "Argemiro Ravovim",
+   "telefone": "550090000105",
+   "duble": "teto-politica-p11",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000111",
+     "economia": {
+      "valor_liberado": "6000.00",
+      "valor_parcela": "240.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P12",
+   "pessoa_id": "00000000-0000-7000-8000-000000000012",
+   "cpf": "000.000.106-69",
+   "nome": "Ivanilda Torardi",
+   "telefone": "550090000106",
+   "duble": "aprovado-36-p12",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000121",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P13",
+   "pessoa_id": "00000000-0000-7000-8000-000000000013",
+   "cpf": "000.000.075-28",
+   "nome": "Euclides Ulaardel",
+   "telefone": "550090000075",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000131",
+     "economia": {
+      "valor_liberado": "4000.00",
+      "valor_parcela": "173.20",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    },
+    {
+     "banco": "C6",
+     "produto": "CLT",
+     "oferta_id": "6000132",
+     "economia": {
+      "valor_liberado": "4800.00",
+      "valor_parcela": "197.76",
+      "prazo_meses": 60,
+      "tabela_identificador": "800077",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0412",
+      "coef_valor": "0.010000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P14",
+   "pessoa_id": "00000000-0000-7000-8000-000000000014",
+   "cpf": "000.000.107-40",
+   "nome": "Maristela Walardel",
+   "telefone": "550090000107",
+   "duble": "aprovado-48-p14",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000141",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P15",
+   "pessoa_id": "00000000-0000-7000-8000-000000000015",
+   "cpf": "000.000.018-30",
+   "nome": "Osmar Alvardi",
+   "telefone": "550090000018",
+   "duble": "corrige-celular-outro-cpf",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000151",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "123.25",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P16",
+   "pessoa_id": "00000000-0000-7000-8000-000000000016",
+   "cpf": "000.000.020-54",
+   "nome": "Lourdes Belesco",
+   "telefone": "550090000020",
+   "duble": "corrige-chave-pix",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000161",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P17",
+   "pessoa_id": "00000000-0000-7000-8000-000000000017",
+   "cpf": "000.000.019-10",
+   "nome": "Hermes Corardel",
+   "telefone": "550090000019",
+   "duble": "corrige-bairro-30-bytes",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000171",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P18",
+   "pessoa_id": "00000000-0000-7000-8000-000000000018",
+   "cpf": "000.000.024-88",
+   "nome": "Dilma Dorovim",
+   "telefone": "550090000024",
+   "duble": "corrige-nunca-bairro",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000181",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "129.90",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P19",
+   "pessoa_id": "00000000-0000-7000-8000-000000000019",
+   "cpf": "000.000.016-78",
+   "nome": "Aldemir Espesco",
+   "telefone": "550090000016",
+   "duble": "recusa-fora-politica-etapa1",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000191",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P20",
+   "pessoa_id": "00000000-0000-7000-8000-000000000020",
+   "cpf": "000.000.041-89",
+   "nome": "Sueli Gurelim",
+   "telefone": "550090000041",
+   "duble": "af-cancelada-nnn",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000201",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P21",
+   "pessoa_id": "00000000-0000-7000-8000-000000000021",
+   "cpf": "000.000.012-44",
+   "nome": "Jarbas Helovim",
+   "telefone": "550090000012",
+   "duble": "recusa-nao-perturbe",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000211",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P22",
+   "pessoa_id": "00000000-0000-7000-8000-000000000022",
+   "cpf": "000.000.011-63",
+   "nome": "Edna Jurovim",
+   "telefone": "550090000011",
+   "duble": "recusa-contrato-andamento",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000221",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "129.90",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P23",
+   "pessoa_id": "00000000-0000-7000-8000-000000000023",
+   "cpf": "000.000.014-06",
+   "nome": "Nelson Marorim",
+   "telefone": "550090000014",
+   "duble": "recusa-sem-margem",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000231",
+     "economia": {
+      "valor_liberado": "2000.00",
+      "valor_parcela": "98.60",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P24",
+   "pessoa_id": "00000000-0000-7000-8000-000000000024",
+   "cpf": "000.000.035-30",
+   "nome": "Cleusa Penorim",
+   "telefone": "550090000035",
+   "duble": "indet-criada-5min",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000241",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P25",
+   "pessoa_id": "00000000-0000-7000-8000-000000000025",
+   "cpf": "000.000.036-11",
+   "nome": "Valmir Ravesco",
+   "telefone": "550090000036",
+   "duble": "indet-criada-17min",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000251",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P26",
+   "pessoa_id": "00000000-0000-7000-8000-000000000026",
+   "cpf": "000.000.037-00",
+   "nome": "Irene Tavorim",
+   "telefone": "550090000037",
+   "duble": "indet-nunca-criada",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000261",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P27",
+   "pessoa_id": "00000000-0000-7000-8000-000000000027",
+   "cpf": "000.000.038-83",
+   "nome": "Moacir Torravo",
+   "telefone": "550090000038",
+   "duble": "indet-erro-banco-sem-codigo",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000271",
+     "economia": {
+      "valor_liberado": "4000.00",
+      "valor_parcela": "160.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P28",
+   "pessoa_id": "00000000-0000-7000-8000-000000000028",
+   "cpf": "000.000.108-20",
+   "nome": "Rute Verovim",
+   "telefone": "550090000108",
+   "duble": "indet-criada-5min-p28",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000281",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P29",
+   "pessoa_id": "00000000-0000-7000-8000-000000000029",
+   "cpf": "000.000.029-92",
+   "nome": "Anselmo Zanuvel",
+   "telefone": "550090000029",
+   "duble": "transitorio-html-522",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000291",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P30",
+   "pessoa_id": "00000000-0000-7000-8000-000000000030",
+   "cpf": "000.000.076-09",
+   "nome": "Berenice Barorim",
+   "telefone": "550090000076",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000301",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P31",
+   "pessoa_id": "00000000-0000-7000-8000-000000000031",
+   "cpf": "000.000.077-90",
+   "nome": "Heitor Calondi",
+   "telefone": "550090000077",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000311",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P32",
+   "pessoa_id": "00000000-0000-7000-8000-000000000032",
+   "cpf": "000.000.078-70",
+   "nome": "Gilda Doresco",
+   "telefone": "550090000078",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000321",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P33",
+   "pessoa_id": "00000000-0000-7000-8000-000000000033",
+   "cpf": "000.000.079-51",
+   "nome": "Emanuel Engorim",
+   "telefone": "550090000079",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000331",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P34",
+   "pessoa_id": "00000000-0000-7000-8000-000000000034",
+   "cpf": "000.000.109-01",
+   "nome": "Cecilia Filimar",
+   "telefone": "550090000109",
+   "duble": "aprovado-36-p34",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000341",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P35",
+   "pessoa_id": "00000000-0000-7000-8000-000000000035",
+   "cpf": "000.000.080-95",
+   "nome": "Raul Helimar",
+   "telefone": "550090000080",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000351",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P36",
+   "pessoa_id": "00000000-0000-7000-8000-000000000036",
+   "cpf": "000.000.081-76",
+   "nome": "Tereza Jurimar",
+   "telefone": "550090000081",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000361",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P37",
+   "pessoa_id": "00000000-0000-7000-8000-000000000037",
+   "cpf": "000.000.082-57",
+   "nome": "Fabiano Maresco",
+   "telefone": "550090000082",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000371",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "123.25",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P38",
+   "pessoa_id": "00000000-0000-7000-8000-000000000038",
+   "cpf": "000.000.083-38",
+   "nome": "Nair Monravo",
+   "telefone": "550090000083",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000381",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "129.90",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P39",
+   "pessoa_id": "00000000-0000-7000-8000-000000000039",
+   "cpf": "000.000.084-19",
+   "nome": "Ubirajara Pirovim",
+   "telefone": "550090000084",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000391",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P40",
+   "pessoa_id": "00000000-0000-7000-8000-000000000040",
+   "cpf": "000.000.085-08",
+   "nome": "Lidia Tavelim",
+   "telefone": "550090000085",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000401",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "123.25",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P41",
+   "pessoa_id": "00000000-0000-7000-8000-000000000041",
+   "cpf": "000.000.086-80",
+   "nome": "Otavio Torondi",
+   "telefone": "550090000086",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000411",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "123.25",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P42",
+   "pessoa_id": "00000000-0000-7000-8000-000000000042",
+   "cpf": "000.000.087-61",
+   "nome": "Marilda Verondi",
+   "telefone": "550090000087",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000421",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P43",
+   "pessoa_id": "00000000-0000-7000-8000-000000000043",
+   "cpf": "000.000.088-42",
+   "nome": "Sandro Walravo",
+   "telefone": "550090000088",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000431",
+     "economia": {
+      "valor_liberado": "2000.00",
+      "valor_parcela": "98.60",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P44",
+   "pessoa_id": "00000000-0000-7000-8000-000000000044",
+   "cpf": "000.000.110-45",
+   "nome": "Odete Alvovim",
+   "telefone": "550090000110",
+   "duble": "aprovado-36-p44",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000441",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P45",
+   "pessoa_id": "00000000-0000-7000-8000-000000000045",
+   "cpf": "000.000.089-23",
+   "nome": "Vagner Calimar",
+   "telefone": "550090000089",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000451",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P46",
+   "pessoa_id": "00000000-0000-7000-8000-000000000046",
+   "cpf": "000.000.090-67",
+   "nome": "Leila Davelim",
+   "telefone": "550090000090",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000461",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P47",
+   "pessoa_id": "00000000-0000-7000-8000-000000000047",
+   "cpf": "000.000.091-48",
+   "nome": "Ernesto Engelim",
+   "telefone": "550090000091",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000471",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "123.25",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P48",
+   "pessoa_id": "00000000-0000-7000-8000-000000000048",
+   "cpf": "000.000.111-26",
+   "nome": "Dora Ferravo",
+   "telefone": "550090000111",
+   "duble": "aprovado-36-p48",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000481",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P49",
+   "pessoa_id": "00000000-0000-7000-8000-000000000049",
+   "cpf": "000.000.092-29",
+   "nome": "Cassio Guruvel",
+   "telefone": "550090000092",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000491",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P50",
+   "pessoa_id": "00000000-0000-7000-8000-000000000050",
+   "cpf": "000.000.093-00",
+   "nome": "Alzira Jurardi",
+   "telefone": "550090000093",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000501",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "123.25",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P51",
+   "pessoa_id": "00000000-0000-7000-8000-000000000051",
+   "cpf": "000.000.094-90",
+   "nome": "Breno Lavovim",
+   "telefone": "550090000094",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000511",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P52",
+   "pessoa_id": "00000000-0000-7000-8000-000000000052",
+   "cpf": "000.000.112-07",
+   "nome": "Fatima Monelim",
+   "telefone": "550090000112",
+   "duble": "aprovado-48-p52",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000521",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P53",
+   "pessoa_id": "00000000-0000-7000-8000-000000000053",
+   "cpf": "000.000.095-71",
+   "nome": "Ciro Pirolim",
+   "telefone": "550090000095",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000531",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P54",
+   "pessoa_id": "00000000-0000-7000-8000-000000000054",
+   "cpf": "000.000.096-52",
+   "nome": "Glaucia Salesco",
+   "telefone": "550090000096",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000541",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P55",
+   "pessoa_id": "00000000-0000-7000-8000-000000000055",
+   "cpf": "000.000.097-33",
+   "nome": "Rubens Torimar",
+   "telefone": "550090000097",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000551",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P56",
+   "pessoa_id": "00000000-0000-7000-8000-000000000056",
+   "cpf": "000.000.113-98",
+   "nome": "Telma Ulaesco",
+   "telefone": "550090000113",
+   "duble": "aprovado-48-p56",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000561",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P57",
+   "pessoa_id": "00000000-0000-7000-8000-000000000057",
+   "cpf": "000.000.114-79",
+   "nome": "Enzo Walimar",
+   "telefone": "550090000114",
+   "duble": "aprovado-36-p57",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000571",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P58",
+   "pessoa_id": "00000000-0000-7000-8000-000000000058",
+   "cpf": "000.000.115-50",
+   "nome": "Vilma Alvelim",
+   "telefone": "550090000115",
+   "duble": "aprovado-48-p58",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000581",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P59",
+   "pessoa_id": "00000000-0000-7000-8000-000000000059",
+   "cpf": "000.000.044-21",
+   "nome": "Abel Calelim",
+   "telefone": "550090000044",
+   "duble": "proposta-viva",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000591",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": [
+      {
+       "contrato_id": "6000595",
+       "referencia_banco": "9000044",
+       "macro": "pendente",
+       "status_nativo_codigo": "12",
+       "status_nativo_texto": "12 - AGUARDANDO ASSINATURA DIGITAL",
+       "oferta_id": "6000599"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "persona_id": "P60",
+   "pessoa_id": "00000000-0000-7000-8000-000000000060",
+   "cpf": "000.000.098-14",
+   "nome": "Rosana Corimar",
+   "telefone": "550090000098",
+   "duble": null,
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6000601",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M01",
+   "pessoa_id": "00000000-0000-7000-8000-000000000101",
+   "cpf": "000.000.116-30",
+   "nome": "Plinio Engardel",
+   "telefone": "550090000116",
+   "duble": "aprovado-24-pm01",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001011",
+     "economia": {
+      "valor_liberado": "5000.00",
+      "valor_parcela": "311.50",
+      "prazo_meses": 24,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0623",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M02",
+   "pessoa_id": "00000000-0000-7000-8000-000000000102",
+   "cpf": "000.000.117-11",
+   "nome": "Cintia Espuvel",
+   "telefone": "550090000117",
+   "duble": "aprovado-36-pm02",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001021",
+     "economia": {
+      "valor_liberado": "5500.00",
+      "valor_parcela": "271.15",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M03",
+   "pessoa_id": "00000000-0000-7000-8000-000000000103",
+   "cpf": "000.000.118-00",
+   "nome": "Davi Gurimar",
+   "telefone": "550090000118",
+   "duble": "aprovado-48-pm03",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001031",
+     "economia": {
+      "valor_liberado": "6000.00",
+      "valor_parcela": "259.80",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M04",
+   "pessoa_id": "00000000-0000-7000-8000-000000000104",
+   "cpf": "000.000.119-83",
+   "nome": "Mirian Heluvel",
+   "telefone": "550090000119",
+   "duble": "aprovado-60-pm04",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001041",
+     "economia": {
+      "valor_liberado": "2000.00",
+      "valor_parcela": "80.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M05",
+   "pessoa_id": "00000000-0000-7000-8000-000000000105",
+   "cpf": "000.000.120-17",
+   "nome": "Lucio Juruvel",
+   "telefone": "550090000120",
+   "duble": "aprovado-24-pm05",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001051",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "155.75",
+      "prazo_meses": 24,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0623",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M06",
+   "pessoa_id": "00000000-0000-7000-8000-000000000106",
+   "cpf": "000.000.121-06",
+   "nome": "Selma Marovim",
+   "telefone": "550090000121",
+   "duble": "aprovado-36-pm06",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001061",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "147.90",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M07",
+   "pessoa_id": "00000000-0000-7000-8000-000000000107",
+   "cpf": "000.000.122-89",
+   "nome": "Tiago Pirardi",
+   "telefone": "550090000122",
+   "duble": "aprovado-48-pm07",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001071",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "151.55",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M08",
+   "pessoa_id": "00000000-0000-7000-8000-000000000108",
+   "cpf": "000.000.123-60",
+   "nome": "Jussara Ravorim",
+   "telefone": "550090000123",
+   "duble": "aprovado-60-pm08",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001081",
+     "economia": {
+      "valor_liberado": "4000.00",
+      "valor_parcela": "160.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M09",
+   "pessoa_id": "00000000-0000-7000-8000-000000000109",
+   "cpf": "000.000.124-40",
+   "nome": "Elias Tavovim",
+   "telefone": "550090000124",
+   "duble": "aprovado-24-pm09",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001091",
+     "economia": {
+      "valor_liberado": "4500.00",
+      "valor_parcela": "280.35",
+      "prazo_meses": 24,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0623",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M10",
+   "pessoa_id": "00000000-0000-7000-8000-000000000110",
+   "cpf": "000.000.125-21",
+   "nome": "Nadir Toruvel",
+   "telefone": "550090000125",
+   "duble": "aprovado-36-pm10",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001101",
+     "economia": {
+      "valor_liberado": "5000.00",
+      "valor_parcela": "246.50",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M11",
+   "pessoa_id": "00000000-0000-7000-8000-000000000111",
+   "cpf": "000.000.126-02",
+   "nome": "Murilo Verravo",
+   "telefone": "550090000126",
+   "duble": "aprovado-48-pm11",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001111",
+     "economia": {
+      "valor_liberado": "5500.00",
+      "valor_parcela": "238.15",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M12",
+   "pessoa_id": "00000000-0000-7000-8000-000000000112",
+   "cpf": "000.000.127-93",
+   "nome": "Carmem Alvardel",
+   "telefone": "550090000127",
+   "duble": "aprovado-60-pm12",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001121",
+     "economia": {
+      "valor_liberado": "6000.00",
+      "valor_parcela": "240.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M13",
+   "pessoa_id": "00000000-0000-7000-8000-000000000113",
+   "cpf": "000.000.128-74",
+   "nome": "Jonas Barovim",
+   "telefone": "550090000128",
+   "duble": "aprovado-24-pm13",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001131",
+     "economia": {
+      "valor_liberado": "2000.00",
+      "valor_parcela": "124.60",
+      "prazo_meses": 24,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0623",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M14",
+   "pessoa_id": "00000000-0000-7000-8000-000000000114",
+   "cpf": "000.000.129-55",
+   "nome": "Eliane Calovim",
+   "telefone": "550090000129",
+   "duble": "aprovado-36-pm14",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001141",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "123.25",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M15",
+   "pessoa_id": "00000000-0000-7000-8000-000000000115",
+   "cpf": "000.000.130-99",
+   "nome": "Lauro Dorimar",
+   "telefone": "550090000130",
+   "duble": "aprovado-48-pm15",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001151",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "129.90",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M16",
+   "pessoa_id": "00000000-0000-7000-8000-000000000116",
+   "cpf": "000.000.131-70",
+   "nome": "Regina Engovim",
+   "telefone": "550090000131",
+   "duble": "aprovado-60-pm16",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001161",
+     "economia": {
+      "valor_liberado": "3500.00",
+      "valor_parcela": "140.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M17",
+   "pessoa_id": "00000000-0000-7000-8000-000000000117",
+   "cpf": "000.000.132-50",
+   "nome": "Silas Galuvel",
+   "telefone": "550090000132",
+   "duble": "aprovado-24-pm17",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001171",
+     "economia": {
+      "valor_liberado": "4000.00",
+      "valor_parcela": "249.20",
+      "prazo_meses": 24,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0623",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M18",
+   "pessoa_id": "00000000-0000-7000-8000-000000000118",
+   "cpf": "000.000.013-25",
+   "nome": "Marcia Helolim",
+   "telefone": "550090000013",
+   "duble": "recusa-cpf-fora-da-base",
+   "pares": [
+    {
+     "banco": "C6",
+     "produto": "CLT",
+     "oferta_id": "6001182",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "157.80",
+      "prazo_meses": 36,
+      "tabela_identificador": "800077",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0526",
+      "coef_valor": "0.010000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M19",
+   "pessoa_id": "00000000-0000-7000-8000-000000000119",
+   "cpf": "000.000.133-31",
+   "nome": "Dario Jurolim",
+   "telefone": "550090000133",
+   "duble": "aprovado-48-pm19",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001191",
+     "economia": {
+      "valor_liberado": "5000.00",
+      "valor_parcela": "216.50",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M20",
+   "pessoa_id": "00000000-0000-7000-8000-000000000120",
+   "cpf": "000.000.134-12",
+   "nome": "Helena Marondi",
+   "telefone": "550090000134",
+   "duble": "aprovado-60-pm20",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001201",
+     "economia": {
+      "valor_liberado": "5500.00",
+      "valor_parcela": "220.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M21",
+   "pessoa_id": "00000000-0000-7000-8000-000000000121",
+   "cpf": "000.000.135-01",
+   "nome": "Gaspar Oriondi",
+   "telefone": "550090000135",
+   "duble": "aprovado-24-pm21",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001211",
+     "economia": {
+      "valor_liberado": "6000.00",
+      "valor_parcela": "373.80",
+      "prazo_meses": 24,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0623",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M22",
+   "pessoa_id": "00000000-0000-7000-8000-000000000122",
+   "cpf": "000.000.136-84",
+   "nome": "Lucia Ravelim",
+   "telefone": "550090000136",
+   "duble": "aprovado-36-pm22",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001221",
+     "economia": {
+      "valor_liberado": "2000.00",
+      "valor_parcela": "98.60",
+      "prazo_meses": 36,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0493",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M23",
+   "pessoa_id": "00000000-0000-7000-8000-000000000123",
+   "cpf": "000.000.137-65",
+   "nome": "Fausto Tavimar",
+   "telefone": "550090000137",
+   "duble": "aprovado-48-pm23",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001231",
+     "economia": {
+      "valor_liberado": "2500.00",
+      "valor_parcela": "108.25",
+      "prazo_meses": 48,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0433",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  },
+  {
+   "persona_id": "P-M24",
+   "pessoa_id": "00000000-0000-7000-8000-000000000124",
+   "cpf": "000.000.138-46",
+   "nome": "Isadora Torovim",
+   "telefone": "550090000138",
+   "duble": "aprovado-60-pm24",
+   "pares": [
+    {
+     "banco": "FACTA",
+     "produto": "CLT",
+     "oferta_id": "6001241",
+     "economia": {
+      "valor_liberado": "3000.00",
+      "valor_parcela": "120.00",
+      "prazo_meses": 60,
+      "tabela_identificador": "115716",
+      "convenio": "CLT",
+      "coeficiente_financeiro": "0.0400",
+      "coef_valor": "0.012000"
+     },
+     "contratos": []
+    }
+   ]
+  }
+ ]
+}
