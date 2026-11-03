@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import re
 import subprocess
 import sys
@@ -37,10 +36,10 @@ from ia_atendimento.pessoas_teste import (
 from ia_atendimento.pessoas_teste import catalogo as modulo_catalogo
 from ia_atendimento.pessoas_teste.formas import ResultadoPropostasPessoa, ResumosPessoas
 from ia_atendimento.relogio import RelogioFalso
+from tests.apoio_irmao import localizar
 
 RAIZ = Path(__file__).resolve().parent.parent
 AGORA = datetime(2026, 11, 17, 15, 0, tzinfo=UTC)
-BANCOS_DUBLE = Path(os.environ["BANCOS_DUBLE_PATH"]).expanduser() if os.environ.get("BANCOS_DUBLE_PATH") else None
 CPF_SINTETICO = re.compile(r"^000\.000\.[01]\d{2}-\d{2}$")  # 0nn: as personas do corpus; 1nn: os clones do dublê (R1-09)
 TELEFONE_SINTETICO = re.compile(r"^55009000\d{4}$")
 
@@ -383,18 +382,15 @@ def test_pessoas_teste_cli_monta_o_arquivo_da_api_e_nao_vaza_cpf(tmp_path):
         assert _cli("arquivo", *pares, cwd=tmp_path).returncode == 2, pares
 
 
-# --- consistência com o bancos-duble (BANCOS_DUBLE_PATH; sem ele, pulado) ------------------------------------------------------------------
+# --- consistência com o bancos-duble (BANCOS_DUBLE_PATH; o check.sh a EXIGE, sem ela o pytest solto pula) ------------------------------------
 
 
-@pytest.mark.skipif(
-    BANCOS_DUBLE is None or not (BANCOS_DUBLE / "personas" / "pessoas_teste.sha256").is_file(),
-    reason="defina BANCOS_DUBLE_PATH (checkout do bancos-duble com a B2.4) para comparar os dois repositorios",
-)
 def test_pessoas_teste_o_hash_e_o_mesmo_do_instantaneo_do_bancos_duble(catalogo):
     """O `bancos-duble` guarda `personas/pessoas_teste.yaml` (o instantâneo em YAML) e o MESMO `.sha256`; o teste dele confere o YAML contra o hash."""
-    do_duble = (BANCOS_DUBLE / "personas" / "pessoas_teste.sha256").read_text(encoding="utf-8")
+    duble = localizar("BANCOS_DUBLE_PATH", "personas/pessoas_teste.sha256", "bancos-duble")
+    do_duble = (duble / "personas" / "pessoas_teste.sha256").read_text(encoding="utf-8")
     assert do_duble == modulo_catalogo.ARQUIVO_HASH.read_text(encoding="utf-8"), (
         "regrave lá: scripts/atualizar_pessoas_teste.py <pessoas.json>"
     )
     assert do_duble.split()[0] == hash_canonico(catalogo.conteudo())
-    assert (BANCOS_DUBLE / "personas" / "pessoas_teste.yaml").is_file()
+    assert (duble / "personas" / "pessoas_teste.yaml").is_file()
