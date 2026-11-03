@@ -929,3 +929,29 @@ def test_montar_contexto_que_nao_cabe_chega_ao_processador_como_erro_do_modelo(d
     with pytest.raises(ErroDoModelo) as erro:  # é o `except` que a B1.6 escreve
         _montar(db_conn, atd, chaveiro, teto=100)
     assert erro.value.codigo == "contexto_nao_cabe"
+
+
+# --- o estimador não subestima emoji nem não latino (B-3) ---------------------------------------------------------------------------------
+
+
+def test_estimador_conta_o_caractere_nao_latino_a_dois_tokens():
+    """B-3 (sonda p7): 100 emojis custavam ~37 tokens estimados (≥ 2,7× abaixo do real); agora 2 por caractere."""
+    est = EstimadorPorCaracteres()
+    assert est.contar("😀" * 100) == 200 and est.contar("你好世界" * 25) == 200 and est.contar("مرحبا" * 20) == 200
+    assert est.contar("a" * 300) == 110 and est.contar("") == 0  # os fatores 3,0 × 1,10 do latim não mudam até a B8.2
+    assert est.contar("ação, você é «ok» — sim… → ≤") == est.contar(
+        "x" * len("ação, você é «ok» — sim… → ≤")
+    )  # acento e pontuação geral são latinos
+    assert est.contar("a" * 30 + "😀" * 5) == est.contar("a" * 30) + 10
+
+
+def test_prompt_de_emoji_estoura_o_teto_e_e_cortado_em_vez_de_passar_batido(db_conn, e3, chaveiro):
+    atd, _ = e3
+    for i in range(6):
+        receber(db_conn, atd, chaveiro, ("😀🔥👍🙏💸🏦" * 30)[: 150 - i], nomes=NOMES)
+        resposta_da_ia(db_conn, atd, chaveiro, ("😀🔥👍🙏💸🏦" * 30)[: 150 - i], nomes=NOMES)
+    receber(db_conn, atd, chaveiro, "e então?", nomes=NOMES)
+    cheio = _montar(db_conn, atd, chaveiro, teto=10**6)
+    assert cheio.tokens_total > ctx.TETO_TOKENS  # com o estimador antigo (0,37 token por emoji) isto dava < 3.000 e passava sem cortar
+    cortado = _montar(db_conn, atd, chaveiro)
+    assert cortado.cortes and cortado.tokens_total <= ctx.TETO_TOKENS
