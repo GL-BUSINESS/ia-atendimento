@@ -1,10 +1,12 @@
 """Quem serve T1 e T3 em `duble|teste` no lugar do 360 (B2.4, R2-07): as fixtures do catálogo, com `valid_until` RELATIVO ao servir.
 
 O gateway de ferramentas (B5.2) pergunta por `pessoa_id` (chat de teste não tem CPF) e recebe o MESMO corpo que o 360 devolveria:
-`ResumosPessoas` (T1, `pessoas:resumos`) e `ResultadoPropostasPessoa` (T3, `pessoas:propostas`). Em `real` e `sombra` a fonte se recusa
-(`ForaDoModoDeTeste`): fixture nunca responde por cliente de verdade. Em `teste` o 360 real não tem a pessoa (CPF `000.000.0nn`), por isso
-o roteiro (B2.4/B5.2) manda ler fixture em `duble` **e** em `teste`; a tabela do contrato 08 §6 diz «360 real» na linha «Ler» de `teste`
-e precisa ser emendada (DECISOES-B2.4).
+`ResumosPessoas` (T1, `pessoas:resumos`) e `ResultadoPropostasPessoa` (T3, `pessoas:propostas`). Em `real` e `sombra` a fonte se
+recusa (`ForaDoModoDeTeste`): fixture nunca responde por cliente de verdade. Também com `posse_real=True`: atendimento com posse real
+sob parada dura (`config.modo = sombra|duble`) tem `modo_efetivo` `sombra|duble`, mas a «Tabela final» do contrato manda ler o 360
+REAL, só leitura; a posse real é um predicado do ledger que o gateway calcula e passa (R2-02). Em `teste` o 360 real não tem a pessoa
+(CPF `000.000.nnn`), por isso o roteiro (B2.4/B5.2) manda ler fixture em `duble` **e** em `teste`; a tabela do contrato 08 §6 diz
+«360 real» na linha «Ler» de `teste` e precisa ser emendada (DECISOES-B2.4).
 
 Nada é lido de disco aqui: o catálogo chega pronto e o relógio é injetado, então `valid_until` = agora + validade em qualquer teste.
 Pessoa que o catálogo não conhece responde como o 360: `encontrado:false` / `itens: []`, 200.
@@ -56,24 +58,28 @@ class FontePessoasTeste:
             raise ValueError("a validade da oferta de teste é positiva")
         self._catalogo, self._relogio, self._validade = catalogo, relogio, validade
 
-    def _pessoa(self, pessoa_id: UUID | str, modo: str) -> PessoaDeTeste | None:
-        if modo not in MODOS_COM_FIXTURES:
-            raise ForaDoModoDeTeste(f"fixtures de pessoas de teste só valem em duble|teste (modo pedido: {modo!r})")
+    def _pessoa(self, pessoa_id: UUID | str, modo: str, posse_real: bool) -> PessoaDeTeste | None:
+        if modo not in MODOS_COM_FIXTURES or posse_real:
+            raise ForaDoModoDeTeste(
+                f"fixtures de pessoas de teste só valem em duble|teste e sem posse real (modo pedido: {modo!r}, posse real: {posse_real})"
+            )
         return self._catalogo.por_pessoa(pessoa_id)
 
-    def resumo(self, pessoa_id: UUID | str, modo: str) -> dict[str, Any]:
+    def resumo(self, pessoa_id: UUID | str, modo: str, *, posse_real: bool = False) -> dict[str, Any]:
         """T1 cru: `{"itens": [PessoaResumo]}` (vazio se a pessoa não é do catálogo, como `pessoas:resumos`, que omite id desconhecido).
 
         Projeção do `pessoas:resumos` COM as duas flags do T1 ligadas (`incluir_nao_perturbe`, `incluir_limite_contratos`): `nao_perturbe` e
         `limite_contratos` saem `null` («a pessoa não está nisso»); `status_atendimento` não existe na projeção real e fica de fora.
         """
-        pessoa = self._pessoa(pessoa_id, modo)
+        pessoa = self._pessoa(pessoa_id, modo, posse_real)
         itens = [] if pessoa is None else [self._resumo(pessoa)]
         return ResumosPessoas(itens=itens).model_dump(mode="json", exclude_unset=True)
 
-    def propostas(self, pessoa_id: UUID | str, modo: str, *, validade: timedelta | None = None, versao: int = 1) -> dict[str, Any]:
+    def propostas(
+        self, pessoa_id: UUID | str, modo: str, *, validade: timedelta | None = None, versao: int = 1, posse_real: bool = False
+    ) -> dict[str, Any]:
         """T3 cru: `ResultadoPropostasPessoa`. `validade`/`versao` deixam o harness (B8.1b) fabricar «a oferta vence» e «a versão mudou»."""
-        pessoa = self._pessoa(pessoa_id, modo)
+        pessoa = self._pessoa(pessoa_id, modo, posse_real)
         agora = self._relogio.agora()
         if pessoa is None:
             vazio = ResultadoPropostasPessoa(
@@ -94,9 +100,9 @@ class FontePessoasTeste:
         )
         return resultado.model_dump(mode="json", exclude_unset=True)
 
-    def cpf_de(self, pessoa_id: UUID | str, modo: str) -> str | None:
+    def cpf_de(self, pessoa_id: UUID | str, modo: str, *, posse_real: bool = False) -> str | None:
         """CPF (11 dígitos) da pessoa de teste, para as chamadas ao dublê (T5/T7/T8). Só o gateway o usa; nunca vai ao modelo nem ao log."""
-        pessoa = self._pessoa(pessoa_id, modo)
+        pessoa = self._pessoa(pessoa_id, modo, posse_real)
         return None if pessoa is None else pessoa.cpf_digitos
 
     # ------------------------------------------------------------------------------------------------------------- montagem

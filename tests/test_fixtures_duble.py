@@ -293,6 +293,16 @@ def test_fixtures_duble_cpf_eco_e_modo(fixtures):
             fixtures.calcular_3rn("P14", ruim, "duble")
 
 
+def test_fixtures_duble_de_banco_tambem_se_recusam_com_posse_real(fixtures):
+    """R2-02: sob parada dura com posse real o T5 de 3RN/C6 lê o banco real (só leitura), nunca a fixture."""
+    for modo in ("duble", "teste"):
+        with pytest.raises(ForaDoModoDeTeste, match="posse real"):
+            fixtures.calcular_3rn("P14", CPF_P14, modo, posse_real=True)
+        with pytest.raises(ForaDoModoDeTeste, match="posse real"):
+            fixtures.simular_c6("P13", CPF_P13, modo, posse_real=True)
+        assert fixtures.simular_c6("P13", CPF_P13, modo, posse_real=False)[0] == 200
+
+
 def test_fixtures_duble_so_persona_do_corpus_tem_caso_proprio(fixtures):
     personas = {p.persona_id for p in catalogo_padrao().pessoas}
     assert set(fixtures.tres_rn.por_persona) <= personas and set(fixtures.c6.por_persona) <= personas

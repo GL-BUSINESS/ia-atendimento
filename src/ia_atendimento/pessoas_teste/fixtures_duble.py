@@ -134,18 +134,20 @@ class FixturesDuble(_Fechado):
     tres_rn: Arquivo3rn
     c6: ArquivoC6
 
-    def calcular_3rn(self, persona_id: str, cpf: str, modo: str) -> tuple[int, dict[str, Any]]:
+    def calcular_3rn(self, persona_id: str, cpf: str, modo: str, *, posse_real: bool = False) -> tuple[int, dict[str, Any]]:
         """`POST /3rn/calcular` (modo `nao_repagar`) da persona: `calculado` com par 3RN ativo; senão `SIM_AUSENTE`."""
-        return _servir(self.tres_rn, persona_id, cpf, modo)
+        return _servir(self.tres_rn, persona_id, cpf, modo, posse_real)
 
-    def simular_c6(self, persona_id: str, cpf: str, modo: str) -> tuple[int, dict[str, Any]]:
+    def simular_c6(self, persona_id: str, cpf: str, modo: str, *, posse_real: bool = False) -> tuple[int, dict[str, Any]]:
         """`POST /c6/oferta/simular` da persona (P13: simulado com a oferta do T3) ou o padrão (sem oferta)."""
-        return _servir(self.c6, persona_id, cpf, modo)
+        return _servir(self.c6, persona_id, cpf, modo, posse_real)
 
 
-def _servir(arquivo: Arquivo3rn | ArquivoC6, persona_id: str, cpf: str, modo: str) -> tuple[int, dict[str, Any]]:
-    if modo not in MODOS_COM_FIXTURES:
-        raise ForaDoModoDeTeste(f"fixtures de bancos só valem em duble|teste (modo pedido: {modo!r})")
+def _servir(arquivo: Arquivo3rn | ArquivoC6, persona_id: str, cpf: str, modo: str, posse_real: bool) -> tuple[int, dict[str, Any]]:
+    if modo not in MODOS_COM_FIXTURES or posse_real:
+        raise ForaDoModoDeTeste(
+            f"fixtures de bancos só valem em duble|teste e sem posse real (modo pedido: {modo!r}, posse real: {posse_real})"
+        )
     if len(cpf) != 11 or not cpf.isdigit():
         raise ValueError("cpf com 11 dígitos")
     pessoa = catalogo_padrao().por_persona(persona_id)

@@ -281,6 +281,16 @@ def test_pessoas_teste_nao_serve_em_real_nem_em_sombra(catalogo, fonte):
                 chamada(pessoa, modo)
 
 
+def test_pessoas_teste_nao_serve_com_posse_real_nem_sob_parada_dura(catalogo, fonte):
+    """R2-02: atendimento com posse real sob `config.modo = duble` tem `modo_efetivo = duble`, mas a «Tabela final» do contrato manda ler o 360 REAL (só leitura): a fixture se recusa."""
+    pessoa = catalogo.por_persona("P01").pessoa_id
+    for modo in ("duble", "teste"):
+        for chamada in (fonte.resumo, fonte.propostas, fonte.cpf_de):
+            with pytest.raises(ForaDoModoDeTeste, match="posse real"):
+                chamada(pessoa, modo, posse_real=True)
+            chamada(pessoa, modo, posse_real=False)  # sem posse real, serve
+
+
 # --- «[TESTE]» -----------------------------------------------------------------------------------------------------------------------
 
 
