@@ -12,11 +12,14 @@ from typing import Any
 import httpx
 import pytest
 from pydantic_ai import ModelRetry, RunContext
+from pydantic_ai.exceptions import ToolFailed
 
 from ia_atendimento.agente import ErroDoModelo, ResolvedorModelo, criar_agente, executar_turno
 from ia_atendimento.contexto import Contexto, ContextoComDadoPessoal
 from ia_atendimento.ferramentas import (
+    MENSAGEM_DE_NOVA_TENTATIVA,
     Deps,
+    FerramentaFalhou,
     FerramentaSemProjecao,
     RetornoDeFerramentaInvalido,
     proteger_retorno,
@@ -197,3 +200,50 @@ async def test_falha_da_protecao_de_ferramenta_chega_como_erro_do_modelo_com_o_g
     assert isinstance(erro.value, RetornoDeFerramentaInvalido) and erro.value.codigo == "retorno_de_ferramenta_invalido"
     assert erro.value.uso is not None and erro.value.uso.tokens_in == 1000 and erro.value.uso.custo_brl > 0
     assert CPF not in str(erro.value)
+
+
+# --- qualquer exceção da ferramenta vira ErroDoModelo de texto fixo (R2-02) -------------------------------------------------------------------
+
+
+def _ferramenta_que_levanta(erro: Exception):
+    def funcao(ctx: RunContext[Deps]) -> Any:
+        raise erro
+
+    return funcao
+
+
+@pytest.mark.parametrize(
+    "erro",
+    [
+        ValueError(f"cpf={CPF} nome={NOME_DO_CLIENTE}"),
+        RuntimeError(f"timeout no gateway para o CPF {CPF} ({NOME_DO_CLIENTE})"),
+        KeyError(CPF),
+        httpx.ConnectError(f"sem rota para o cliente {CPF}"),
+        OSError(f"falha ao ler {EMAIL}"),
+    ],
+)
+async def test_qualquer_excecao_da_ferramenta_vira_erro_do_modelo_com_texto_fixo_e_o_gasto(erro):
+    """R2-02: só `ToolRetryError`/`ToolFailedError` viravam texto fixo; um `RuntimeError` escapava de `executar_turno` com o CPF na mensagem e sem contar."""
+    with pytest.raises(ErroDoModelo) as capturado:
+        await _turno_com_ferramenta(_ferramenta_que_levanta(erro))
+    falha = capturado.value
+    assert isinstance(falha, FerramentaFalhou) and falha.codigo == "ferramenta_falhou" and str(falha) == "a ferramenta T3 falhou"
+    assert CPF not in repr(falha) and NOME_DO_CLIENTE not in repr(falha) and EMAIL not in repr(falha)
+    assert falha.__cause__ is None and falha.__context__ is None
+    assert falha.uso is not None and falha.uso.tokens_in == 1000 and falha.uso.custo_brl > 0  # o gasto da 1ª chamada vai junto
+
+
+async def test_toolfailed_da_ferramenta_vai_ao_modelo_com_texto_fixo():
+    """A1f da revisão 2: o texto fixo do `ToolFailed` não tinha teste (o mutante sobrevivia)."""
+    rede = RedeSimulada([_chamada_de_ferramenta("T3"), resposta_openai(TURNO_E2)])
+    await executar_turno(_agente(rede, {"T3": _ferramenta_que_levanta(ToolFailed(f"cpf {CPF} recusado"))}), DEPS, contexto_falso("E3"))
+    corpo = json.dumps(rede.corpos[1]["messages"], ensure_ascii=False)
+    assert CPF not in corpo and MENSAGEM_DE_NOVA_TENTATIVA in corpo
+
+
+async def test_erro_do_modelo_levantado_dentro_da_ferramenta_passa_sem_ser_trocado():
+    class Proprio(ErroDoModelo):
+        pass
+
+    with pytest.raises(Proprio):
+        await _turno_com_ferramenta(_ferramenta_que_levanta(Proprio("meu_codigo", "fixa")))

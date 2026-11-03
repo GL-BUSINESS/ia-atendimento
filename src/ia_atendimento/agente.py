@@ -331,6 +331,7 @@ def _erro_do_modelo(erro: BaseException, uso: UsoDoTurno) -> ErroDoModelo:
     """Mensagem FIXA (tipo de falha e status): o texto do SDK ou da validação pode citar o corpo da resposta ou a saída do modelo."""
     if isinstance(erro, ErroDoModelo):  # já é nosso (a proteção do retorno de ferramenta): só ganha o gasto do turno
         erro.uso = uso
+        erro.__context__ = erro.__cause__ = None  # o TaskGroup do Pydantic AI o embrulha num ExceptionGroup: sem encadeamento
         return erro
     if isinstance(erro, UnexpectedModelBehavior):
         return SaidaInvalida("saida_invalida", "o modelo não devolveu um Turno válido", uso=uso)

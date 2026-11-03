@@ -27,13 +27,14 @@ from uuid import UUID
 
 from pydantic_ai import ModelRetry, RunContext
 from pydantic_ai.capabilities import AbstractCapability
-from pydantic_ai.exceptions import ToolFailed, ToolFailedError, ToolRetryError
+from pydantic_ai.exceptions import ApprovalRequired, CallDeferred, SkipToolExecution, ToolFailed, ToolFailedError, ToolRetryError
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import Tool, ToolDefinition
 
 from ia_atendimento.contexto import PROJECAO_DAS_FERRAMENTAS, Apelidos, auditar_textos, projetar_resultado
 from ia_atendimento.turno import ErroDoModelo
 
+_CONTROLE_DO_PYDANTIC_AI: Final = (ApprovalRequired, CallDeferred, SkipToolExecution)  # sinais de fluxo, não falha da função
 MENSAGEM_DE_NOVA_TENTATIVA: Final = "A ferramenta não conseguiu responder agora; siga sem ela."
 
 
@@ -49,6 +50,13 @@ class Deps:
     pessoa_id: UUID
     nomes: tuple[str, ...] = field(default=(), repr=False)
     apelidos: Apelidos = field(default_factory=Apelidos, repr=False, compare=False)
+
+
+class FerramentaFalhou(ErroDoModelo):
+    """A função da ferramenta levantou uma exceção que não era `ModelRetry`/`ToolFailed`. Conta como falha do turno; a mensagem é fixa."""
+
+    def __init__(self, nome: str) -> None:
+        super().__init__("ferramenta_falhou", f"a ferramenta {nome} falhou")
 
 
 class FerramentaSemProjecao(ValueError):
@@ -92,14 +100,23 @@ class ProjecaoDeFerramentas(AbstractCapability[Deps]):
     async def wrap_tool_execute(
         self, ctx: RunContext[Deps], *, call: ToolCallPart, tool_def: ToolDefinition, args: Any, handler: Any
     ) -> Any:
-        """O texto de um `ModelRetry`/`ToolFailed` da ferramenta é lido pelo modelo e pode citar o dado que falhou: vai um texto fixo
-        no lugar."""
+        """O texto de um `ModelRetry`/`ToolFailed` da ferramenta é lido pelo modelo e pode citar o dado que falhou: vai um texto fixo no
+        lugar. QUALQUER outra exceção da ferramenta (`ValueError("cpf=…")`, erro do cliente do gateway) vira `FerramentaFalhou`, um
+        `ErroDoModelo` de mensagem fixa e sem causa encadeada: o `except ErroDoModelo` da B1.6 a conta, o gasto do turno vai junto e o
+        texto original (que pode citar CPF e nome) não sai (R2-02)."""
+        falhou = False
         try:
             return await handler(args)
         except ToolRetryError:
             raise ModelRetry(MENSAGEM_DE_NOVA_TENTATIVA) from None
         except ToolFailedError:
             raise ToolFailed(MENSAGEM_DE_NOVA_TENTATIVA) from None
+        except (ErroDoModelo, *_CONTROLE_DO_PYDANTIC_AI):
+            raise
+        except Exception:
+            falhou = True
+        if falhou:
+            raise FerramentaFalhou(tool_def.name)  # fora do `except`: sem `__context__`
 
 
 def registrar(ferramentas: Mapping[str, Callable[..., Any]]) -> tuple[list[Tool[Deps]], list[AbstractCapability[Deps]]]:
