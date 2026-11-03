@@ -229,7 +229,7 @@ def test_a_allowlist_de_resultado_de_ferramenta_continua_so_em_minusculas():
                 "T10": {"status": "MARIA", "macro": "Pago_Por_Fulano"},
                 "T2": {"status": "FACTA", "etapa": "proposta"},
             },
-            ctx._Apelidos(),
+            ctx.Apelidos(),
         )
     )
     assert saida["T3"] == {"status": "ativa", "versao": 2}
@@ -238,9 +238,9 @@ def test_a_allowlist_de_resultado_de_ferramenta_continua_so_em_minusculas():
 
 
 def test_nome_conhecido_nao_passa_como_folha_de_resultado_de_ferramenta():
-    projetado = ctx.projetar_resultado({"T3": {"status": "alvardel", "placeholders": ["nome", "alvardel"]}}, ctx._Apelidos(), NOMES)
+    projetado = ctx.projetar_resultado({"T3": {"status": "alvardel", "placeholders": ["nome", "alvardel"]}}, ctx.Apelidos(), NOMES)
     assert json.loads(projetado) == {"T3": {"placeholders": ["nome"]}}  # o sobrenome do cliente sai, o placeholder fica
-    sem_nomes = ctx.projetar_resultado({"T3": {"status": "alvardel"}}, ctx._Apelidos())
+    sem_nomes = ctx.projetar_resultado({"T3": {"status": "alvardel"}}, ctx.Apelidos())
     assert json.loads(sem_nomes) == {"T3": {"status": "alvardel"}}  # prova que é o `nomes` que barra, não a regra de forma
 
 
@@ -298,7 +298,7 @@ def test_janela_de_24h_vai_como_flag_e_fecha_sem_ultima_fala_do_cliente(db_conn,
 
 
 def test_resultado_de_ferramenta_so_passa_pela_allowlist_e_com_apelidos():
-    apelidos = ctx._Apelidos()
+    apelidos = ctx.Apelidos()
     t5 = {
         "opcoes": [
             {
@@ -324,7 +324,7 @@ def test_resultado_de_ferramenta_so_passa_pela_allowlist_e_com_apelidos():
     assert "T7" not in saida  # ferramenta que o modelo não usa: descartada
     assert saida["T3"] == {"vencida": False}  # 123456 passa de 99: não é contador, pode ser valor
     assert apelidos.mapa == {"opcao-1": "uuid-real-1", "opcao-2": "uuid-real-2"}
-    assert ctx.projetar_resultado({}, ctx._Apelidos()) == "" and ctx.projetar_resultado({"T7": {"a": 1}}, ctx._Apelidos()) == ""
+    assert ctx.projetar_resultado({}, ctx.Apelidos()) == "" and ctx.projetar_resultado({"T7": {"a": 1}}, ctx.Apelidos()) == ""
 
 
 # --- as trocas, o resumo, a rajada -----------------------------------------------------------------------------------------------------

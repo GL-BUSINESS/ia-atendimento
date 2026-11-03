@@ -446,14 +446,14 @@ async def test_ferramenta_do_agente_e_registrada_em_ferramentas_chamadas_e_nao_v
         json={
             "id": "x", "object": "chat.completion", "created": 1, "model": "m",
             "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "c1", "type": "function", "function": {"name": "ferramenta_falsa", "arguments": "{}"}}]}}],
+                {"id": "c1", "type": "function", "function": {"name": "T3", "arguments": "{}"}}]}}],
             "usage": {"prompt_tokens": 500, "completion_tokens": 10, "total_tokens": 510},
         },
     )  # fmt: skip
     rede = RedeSimulada([chamada, resposta_openai(TURNO_E2)])
-    agente = agente_na_rede(rede, ferramentas=[ferramenta_falsa], settings=settings_de_teste(modelo_tentativas_http=0))
+    agente = agente_na_rede(rede, ferramentas={"T3": ferramenta_falsa}, settings=settings_de_teste(modelo_tentativas_http=0))
     r = await executar_turno(agente, DEPS, ContextoFalso("E2"))
-    assert r.ferramentas_chamadas == ("ferramenta_falsa",) and len(rede.requisicoes) == 2
+    assert r.ferramentas_chamadas == ("T3",) and len(rede.requisicoes) == 2
     segunda = str(rede.corpos[1])
     assert "oferta-1" in segunda and "valor_liberado" in segunda  # só placeholders
     assert str(DEPS.pessoa_id) not in str(rede.corpos) and str(DEPS.atendimento_id) not in str(rede.corpos)  # Deps nunca vai ao modelo

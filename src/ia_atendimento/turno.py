@@ -18,7 +18,7 @@ import json
 import re
 import unicodedata
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Decimal
 from functools import cache
 from types import MappingProxyType
@@ -316,6 +316,9 @@ class ResultadoTurno:
     ferramentas_chamadas: tuple[str, ...] = ()
     raciocinio_detectado: bool = False
     acao_invalida: bool = False
+    referencias: Mapping[str, str] = field(
+        default_factory=dict, repr=False
+    )  # apelido (`oferta-1`) → id real, contexto E ferramentas do turno
 
     @property
     def tokens_in(self) -> int:

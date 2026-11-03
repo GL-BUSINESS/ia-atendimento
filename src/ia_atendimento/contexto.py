@@ -283,7 +283,11 @@ def auditar_prompt(contexto: Contexto, nomes: Collection[str] = ()) -> None:
 
     `nomes` (o nome do cliente e variantes) vale só para a parte que muda a cada turno (blocos 4 a 8): o texto fixo (sistema, módulo,
     ferramentas) cita «Amado Batista» e palavras comuns, e um cliente de mesmo nome faria o turno falhar sem motivo."""
-    fixo, variavel = contexto.sistema, contexto.usuario
+    auditar_textos(contexto.sistema, contexto.usuario, nomes)
+
+
+def auditar_textos(fixo: str, variavel: str, nomes: Collection[str] = ()) -> None:
+    """A mesma auditoria sobre textos soltos (o retorno de ferramenta usa só a parte variável). Não diz o que casou."""
     if mascarar(fixo) != fixo or mascarar(variavel, nomes) != variavel or _PROIBIDO_NO_PROMPT.search(f"{fixo}\n{variavel}"):
         raise ContextoComDadoPessoal("o prompt montado ainda tem dado pessoal ou valor; o turno não sai")
 
@@ -334,12 +338,17 @@ def _linhas_pendentes(
 # --- estado e resultados para o modelo ---------------------------------------------------------------------------------------------------
 
 
-class _Apelidos:
+class Apelidos:
     """`oferta-1`, `opcao-2`...: o modelo cita a referência pelo apelido e o processador (B1.6) volta ao id real por `referencias`."""
 
-    def __init__(self) -> None:
+    def __init__(self, mapa: Mapping[str, str] | None = None) -> None:
+        """`mapa` (apelido → id real) semeia os apelidos já dados no contexto: o mesmo id real recebe o MESMO apelido no resultado de "
+        "ferramenta."""
         self.mapa: dict[str, str] = {}
         self._por_valor: dict[tuple[str, str], str] = {}
+        for apelido, real in (mapa or {}).items():
+            self.mapa[apelido] = real
+            self._por_valor[(apelido.rsplit("-", 1)[0], real)] = apelido
 
     def de(self, prefixo: str, real: str) -> str:
         existente = self._por_valor.get((prefixo, real))
@@ -352,7 +361,7 @@ class _Apelidos:
 
 
 def _estado_para_o_modelo(
-    estado: EstadoConversa, perfil: Mapping[str, Any], janela_aberta: bool, apelidos: _Apelidos, nomes: Collection[str]
+    estado: EstadoConversa, perfil: Mapping[str, Any], janela_aberta: bool, apelidos: Apelidos, nomes: Collection[str]
 ) -> str:
     corpo: dict[str, Any] = {"fase": estado.fase}
     if contadores := estado.contadores.model_dump(exclude_defaults=True):
@@ -411,7 +420,7 @@ def _folha_segura(valor: Any, nomes: Collection[str] = ()) -> tuple[bool, Any]:
     return False, None
 
 
-def _projetar(valor: Any, regra: Any, chave: str, apelidos: _Apelidos, nomes: Collection[str]) -> tuple[bool, Any]:
+def _projetar(valor: Any, regra: Any, chave: str, apelidos: Apelidos, nomes: Collection[str]) -> tuple[bool, Any]:
     if regra is True:
         if isinstance(valor, (list, tuple)):
             itens = [item for ok, item in (_folha_segura(v, nomes) for v in valor[:MAX_ITENS_DE_LISTA]) if ok]
@@ -429,7 +438,7 @@ def _projetar(valor: Any, regra: Any, chave: str, apelidos: _Apelidos, nomes: Co
     return False, None
 
 
-def _projetar_objeto(bruto: Mapping[str, Any], regra: Mapping[str, Any], apelidos: _Apelidos, nomes: Collection[str]) -> dict[str, Any]:
+def _projetar_objeto(bruto: Mapping[str, Any], regra: Mapping[str, Any], apelidos: Apelidos, nomes: Collection[str]) -> dict[str, Any]:
     saida: dict[str, Any] = {}
     for chave, sub in regra.items():
         if chave in bruto:
@@ -439,7 +448,7 @@ def _projetar_objeto(bruto: Mapping[str, Any], regra: Mapping[str, Any], apelido
     return saida
 
 
-def projetar_resultado(resultados: Mapping[str, Mapping[str, Any]], apelidos: _Apelidos, nomes: Collection[str] = ()) -> str:
+def projetar_resultado(resultados: Mapping[str, Mapping[str, Any]], apelidos: Apelidos, nomes: Collection[str] = ()) -> str:
     """Bloco 7: só as chaves da allowlist de cada ferramenta, com ids trocados por apelidos. Ferramenta fora da lista é descartada."""
     projetado = {
         nome: _projetar_objeto(bruto, PROJECAO_DAS_FERRAMENTAS[nome], apelidos, nomes)
@@ -494,7 +503,7 @@ def montar_contexto(
     seqs_pendentes = {seq for seq, _ in achados.values()}
     conversa = ler_trocas(conn, atendimento_id, chaveiro=chaveiro, trocas=TROCAS_NO_PROMPT + len(pendentes))
     historico = [m for m in conversa.mensagens if m.seq not in seqs_pendentes][-2 * TROCAS_NO_PROMPT :]
-    apelidos = _Apelidos()
+    apelidos = Apelidos()
     janela = janela_24h_aberta(atendimento.ultimo_cliente_em, agora)
     insumos = Insumos(
         fase=estado.fase,

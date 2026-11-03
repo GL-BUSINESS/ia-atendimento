@@ -19,7 +19,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any, Final, Protocol
-from uuid import UUID
 
 import httpx
 from openai import AsyncOpenAI, OpenAIError
@@ -44,7 +43,8 @@ from pydantic_ai.usage import RequestUsage
 
 from ia_atendimento import observabilidade
 from ia_atendimento.config import PRECOS_PADRAO, Precos, Settings
-from ia_atendimento.contexto import ler_do_prompt
+from ia_atendimento.contexto import Apelidos, ler_do_prompt
+from ia_atendimento.ferramentas import Deps, registrar
 from ia_atendimento.turno import (
     ACOES_POR_FASE,
     FERRAMENTAS_DO_MODELO_POR_FASE,
@@ -75,14 +75,6 @@ _ERROS_DE_TEMPO: Final = (TimeoutError, httpx.TimeoutException, ModelRequestTime
 
 
 # --- dependências e faixa ---------------------------------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Deps:
-    """O que as ferramentas recebem do turno. Sem CPF e sem `cpf_hash`: o CPF só existe em memória no gateway (D18)."""
-
-    atendimento_id: UUID
-    pessoa_id: UUID
 
 
 @dataclass(frozen=True)
@@ -239,7 +231,7 @@ class AgenteDoTurno:
 def criar_agente(
     provedor: Provedor,
     modelo_faixa: ModeloDaFaixa,
-    ferramentas: Sequence[Callable[..., Any]] = (),
+    ferramentas: Mapping[str, Callable[..., Any]] | None = None,
     *,
     settings: Settings | None = None,
     precos: Precos = PRECOS_PADRAO,
@@ -248,13 +240,19 @@ def criar_agente(
     """`Agent[Deps, Turno]` com a saída por ferramenta e `output_retries=1`. Sem `FallbackModel`: `provedor.resolver` devolve UM modelo.
 
     Com `settings`, vale o preço e o tempo dele (o tempo total do turno é o de uma chamada vezes as tentativas de saída). A instrumentação
-    padrão é a de `observabilidade.configurar` (nenhuma, se não foi configurada)."""
+    padrão é a de `observabilidade.configurar` (nenhuma, se não foi configurada).
+
+    `ferramentas` é um mapa `{"T3": função}` e TODA ferramenta passa por `ferramentas.registrar`: o nome precisa ter projeção em
+    `PROJECAO_DAS_FERRAMENTAS` (senão `FerramentaSemProjecao`, antes de qualquer chamada) e o retorno só volta ao modelo projetado e
+    auditado."""
+    tools, capacidades = registrar(ferramentas or {})
     modelo = provedor.resolver(modelo_faixa.modelo, modelo_faixa.provedor, modelo_faixa.raciocinio)
     agente: Agent[Deps, Turno] = Agent(
         modelo,
         output_type=Turno,
         deps_type=Deps,
-        tools=list(ferramentas),
+        tools=tools,
+        capabilities=capacidades or None,
         retries={"output": OUTPUT_RETRIES, "tools": RETENTATIVAS_DE_FERRAMENTA},
         name="turno",
     )
@@ -262,7 +260,7 @@ def criar_agente(
     if instrumento is not None:
         agente.instrument = instrumento
     timeout = settings.modelo_timeout_s * (OUTPUT_RETRIES + 1) if settings else None
-    return AgenteDoTurno(agente, modelo_faixa, settings.precos() if settings else precos, timeout, tuple(f.__name__ for f in ferramentas))
+    return AgenteDoTurno(agente, modelo_faixa, settings.precos() if settings else precos, timeout, tuple(ferramentas or ()))
 
 
 class ContextoDoTurno(Protocol):
@@ -341,6 +339,9 @@ async def executar_turno(
     Levanta `ProvedorIndisponivel`/`SaidaInvalida` (falha do provedor) ou `TurnoForaDaFase` (o modelo pediu o que a fase não permite); as
     duas famílias são `ErroDoModelo` e carregam o gasto em `.uso`. Cada tentativa vale uma falha; o processador conta as 2 (B1.6)."""
     modelo, provedor = agente.modelo.modelo, agente.modelo.provedor
+    deps = replace(
+        deps, apelidos=Apelidos(getattr(contexto, "referencias", None))
+    )  # o resultado de ferramenta reusa os apelidos do contexto
     with observabilidade.span_do_turno(fase=contexto.fase, modelo=modelo, provedor=provedor) as span:
         trace_id = observabilidade.trace_id_atual()
         inicio = cronometro()
@@ -363,8 +364,9 @@ async def executar_turno(
         if raciocinio:
             observabilidade.alertar_raciocinio(numeros[3], modelo=modelo, provedor=provedor)
         resultado = ResultadoTurno(
-            execucao.output, modelo, provedor, uso, _ferramentas_chamadas(historico, agente.ferramentas), raciocinio_detectado=raciocinio
-        )
+            execucao.output, modelo, provedor, uso, _ferramentas_chamadas(historico, agente.ferramentas),
+            raciocinio_detectado=raciocinio, referencias=dict(deps.apelidos.mapa),
+        )  # fmt: skip
         span.set_attributes(
             {"turno.acao": resultado.turno.acao, "turno.intencao": resultado.turno.intencao, "turno.custo_brl": str(uso.custo_brl)}
         )

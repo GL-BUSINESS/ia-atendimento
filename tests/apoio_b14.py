@@ -119,6 +119,7 @@ class ContextoFalso:
     fase: str
     sistema: str = "Instruções do teste."
     usuario: str = '## Estado\n{"fase":"E2"}'
+    referencias: Mapping[str, str] = field(default_factory=dict)
 
 
 def agente_falso(roteiro, **opcoes: Any):
