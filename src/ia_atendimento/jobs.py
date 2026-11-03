@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 import psycopg
 
+from ia_atendimento.agenda_estado import Desfecho
 from ia_atendimento.calendario import (
     BLOQUEIO_DATAPREV_EM,
     DATAPREV_ATE,
@@ -97,6 +98,15 @@ class Volta:
 
 
 @dataclass(frozen=True)
+class Adiar:
+    """A volta decidiu NÃO falar agora e pede nova tentativa em `dispara_em`, no MESMO agendamento e sem consumir `seq` (R1-02, estudo M
+    §2.5 e §2.6): `reagendado_sistema` (calendário/DATAPREV: próximo horário válido) ou `tentar_de_novo` (falha transitória: +10 min)."""
+
+    dispara_em: datetime
+    motivo: Literal["reagendado_sistema", "tentar_de_novo"]
+
+
+@dataclass(frozen=True)
 class Servicos:
     relogio: Relogio
     abrir_conexao: Callable[[], AbstractContextManager[psycopg.Connection]]
@@ -110,8 +120,9 @@ class Servicos:
     tratar_lease_vencido: Callable[[LeaseVencido], Awaitable[None]] = field(default=_NaoConfigurado("tratar_lease_vencido"))
     auditar_pii: Callable[[Sequence[uuid.UUID]], Awaitable[int]] = field(default=_NaoConfigurado("auditar_pii"))
     encerrar_por_chave: Callable[[uuid.UUID], Awaitable[None]] = field(default=_NaoConfigurado("encerrar_por_chave"))
-    # a volta combinada (B5.7c): pré-checagens, `sair_da_pausa`/`iniciar_agendado`, mensagem. Devolve o desfecho (`None` = `retomou`)
-    retomar_atendimento: Callable[[Volta], Awaitable[str | None]] = field(default=_NaoConfigurado("retomar_atendimento"))
+    # a volta combinada (B5.7c): pré-checagens, `sair_da_pausa`/`iniciar_agendado`, mensagem.
+    # Devolve o desfecho (`None` = `retomou`) ou `Adiar` (nova tentativa no mesmo agendamento)
+    retomar_atendimento: Callable[[Volta], Awaitable[Desfecho | Adiar | None]] = field(default=_NaoConfigurado("retomar_atendimento"))
 
     def leitor(self) -> LeitorConfig:
         return self.leitor_config or LeitorConfig(self.relogio, ttl_s=0)

@@ -34,7 +34,7 @@ import psycopg
 
 from ia_atendimento import agenda_estado as ae
 from ia_atendimento.estado_erros import ConflitoVersao, TransicaoInvalida
-from ia_atendimento.jobs import LIMITE_LOTE, ServicoNaoConfigurado, Servicos, Volta, configurado
+from ia_atendimento.jobs import LIMITE_LOTE, Adiar, ServicoNaoConfigurado, Servicos, Volta, configurado
 
 PREFIXO_ALARME: Final = "retomar:"
 PREFIXO_EXEC: Final = "retomar_exec:"
@@ -53,28 +53,17 @@ class Reivindicacao:
     dispara_em: datetime | None = None
 
 
-def _esperando_a_volta(entrada: str, estado: str, gatilho: str) -> bool:
-    """O atendimento ainda espera a volta combinada: (a) `pausado`, ou (b) `reservado` de agendamento que não tocou o chat."""
-    return (entrada == "pausa_ia" and estado == "pausado") or (
-        entrada == "dialogo_agendar" and estado == "reservado" and gatilho == "agendamento"
-    )
-
-
 def _reivindicar(servicos: Servicos, agendamento_id: uuid.UUID, agora: datetime, job_id: int | None) -> Reivindicacao:
     with servicos.abrir_conexao() as conn, conn.transaction():
         # ordem de locks: atendimento, depois agendamento (a mesma da API e da B5.7c); o CAS por `versao` continua sendo a prova
-        dono = conn.execute(
-            "SELECT a.atendimento_id, a.estado, a.gatilho, a.chat_id, a.lease_ate FROM ia.atendimento a"
-            " WHERE a.atendimento_id = (SELECT atendimento_id FROM ia.agendamento WHERE agendamento_id = %s) FOR UPDATE",
-            (agendamento_id,),
-        ).fetchone()
+        dono = ae.travar_dono(conn, agendamento_id)
         if dono is None:
             return Reivindicacao("inexistente")
-        atendimento_id, estado, gatilho, chat_id, lease_ate = dono
+        atendimento_id, chat_id, lease_ate = dono.atendimento_id, dono.chat_id, dono.lease_ate
         linha = ae.ler_agendamento(conn, agendamento_id, travar=True)
         if linha.estado != "confirmado" or linha.dispara_em is None:
             return Reivindicacao("nao_confirmado")  # pendente (a confirmação ainda não veio), ou já disparado/cancelado/expirado
-        if not _esperando_a_volta(linha.entrada, estado, gatilho):
+        if not ae.esperando_a_volta(linha.entrada, dono.estado, dono.gatilho):
             ae.cancelar(conn, agendamento_id, linha.versao, por="sistema", agora=agora)
             ae.passo_de_agendamento(conn, atendimento_id, agendamento_id, "cancelado")
             return Reivindicacao("fora_do_estado")  # alguém tirou o atendimento da espera: não se fala com o cliente
@@ -96,6 +85,7 @@ def _reivindicar(servicos: Servicos, agendamento_id: uuid.UUID, agora: datetime,
 
 def _registrar_desfecho(servicos: Servicos, volta: Volta, desfecho: ae.Desfecho) -> None:
     with servicos.abrir_conexao() as conn, conn.transaction():
+        ae.travar_dono(conn, volta.agendamento_id)  # a mesma ordem de locks de `_reivindicar`: atendimento, depois agendamento (R1-08)
         ae.registrar_desfecho(conn, volta.agendamento_id, desfecho, agora=servicos.relogio.agora())
         if desfecho == "resolvido":
             ae.passo_de_agendamento(conn, volta.atendimento_id, volta.agendamento_id, "resolvido")
@@ -107,6 +97,14 @@ def atraso_do_rearme(dispara_em: datetime, agora: datetime) -> float:
     O alarme dispara pelo `now()` do banco e a conferência é pelo relógio da aplicação. Se este atrasa, `dispara_em` já é passado para o
     banco, e rearmar PARA `dispara_em` faria o job voltar na hora, em laço (277 jobs em 3 s com 2 s de atraso). O relativo converge."""
     return (max(dispara_em, agora + FOLGA_REARME) - agora).total_seconds()
+
+
+def _adiar(servicos: Servicos, volta: Volta, adiar: Adiar) -> None:
+    """A volta pediu nova tentativa: `disparado → confirmado` no mesmo agendamento, atendimento movido junto. Falhou (limite de rearmes,
+    atendimento que saiu da espera): a exceção sobe, o agendamento fica `disparado` e é o lease que devolve o lead ao humano."""
+    with servicos.abrir_conexao() as conn, conn.transaction():
+        folga = servicos.leitor().valor(conn, "agenda_folga_min")
+        ae.rearmar(conn, volta.agendamento_id, dispara_em=adiar.dispara_em, agora=servicos.relogio.agora(), folga_min=folga)
 
 
 async def executar_retomar(
@@ -123,9 +121,12 @@ async def executar_retomar(
     if r.codigo == "cedo" and r.dispara_em is not None:
         await reagendar(atraso_do_rearme(r.dispara_em, agora))
     if r.volta is not None:
-        desfecho = await servicos.retomar_atendimento(r.volta)
-        if desfecho not in (None, "retomou"):
-            await asyncio.to_thread(_registrar_desfecho, servicos, r.volta, desfecho)
+        resultado = await servicos.retomar_atendimento(r.volta)
+        if isinstance(resultado, Adiar):
+            await asyncio.to_thread(_adiar, servicos, r.volta, resultado)
+            await reagendar(atraso_do_rearme(resultado.dispara_em, servicos.relogio.agora()))  # alarme novo, na hora nova
+        elif resultado not in (None, "retomou"):
+            await asyncio.to_thread(_registrar_desfecho, servicos, r.volta, resultado)
     return r.codigo
 
 

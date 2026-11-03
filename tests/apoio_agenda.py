@@ -38,14 +38,15 @@ class Voltas:
     """Espião do serviço `retomar_atendimento` (a volta é da B5.7c): guarda cada `Volta` recebida e devolve o desfecho pedido."""
 
     recebidas: list[Volta] = field(default_factory=list)
-    desfecho: str | None = None
+    desfecho: Any = None  # o que cada volta devolve (um desfecho, um `Adiar` ou `None`)
+    sequencia: list[Any] = field(default_factory=list)  # se houver, uma resposta por volta, na ordem (depois, `desfecho`)
     erro: Exception | None = None
 
-    async def __call__(self, volta: Volta) -> str | None:
+    async def __call__(self, volta: Volta) -> Any:
         self.recebidas.append(volta)
         if self.erro is not None:
             raise self.erro
-        return self.desfecho
+        return self.sequencia.pop(0) if self.sequencia else self.desfecho
 
     @property
     def ids(self) -> list[uuid.UUID]:

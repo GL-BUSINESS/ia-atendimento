@@ -9,7 +9,11 @@ quem perde a corrida leva `ConflitoVersao` (outro escritor mexeu) ou `TransicaoI
 - Os CHECKs de forma do estado (`confirmado` exige `confirmado_em` e `confirmacao_origem`; `disparado`, `disparado_em` e `desfecho_disparo`;
   `cancelado`, `cancelado_por`) são do banco: violação sai como `TransicaoInvalida` com o NOME da restrição.
 - Cada mudança relevante grava o passo `agendamento` da linha do tempo (`passo_de_agendamento`), com texto montado por código.
-- A confirmação do cliente (TX-M02/M08), a expiração e o reagendamento são da B5.7c; `confirmar` existe aqui porque o `retomar` só dispara
+- **`disparado` não é beco sem saída (R1-02):** a reivindicação vem ANTES das pré-checagens da volta, e o estudo M §2.5/§2.6 manda
+  `reagendado_sistema` («próximo horário válido, MESMO agendamento») e «tentar a +10 min». `rearmar` faz `disparado → confirmado` com novo
+  `dispara_em`, sem consumir `seq` (o teto de 2 é do CLIENTE reagendar) e movendo `retoma_em`/`lease_ate` do atendimento junto; no máximo
+  `MAX_REARMES` por agendamento, senão o lead ficaria preso fora do `reaper_lease` para sempre.
+- A confirmação do cliente (TX-M02/M08) e o reagendamento pelo cliente são da B5.7c; `confirmar` existe aqui porque o `retomar` só dispara
   `confirmado` e porque ela é a única porta para esse estado.
 """
 
@@ -17,15 +21,16 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, fields
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Final, Literal
 
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
-from ia_atendimento.estado import executar_traduzindo
-from ia_atendimento.estado_erros import ConflitoVersao, EstadoErro, TransicaoInvalida
+from ia_atendimento.estado import Mudancas, aplicar, executar_traduzindo
+from ia_atendimento.estado_erros import ConflitoVersao, EntradaInvalida, EstadoErro, TransicaoInvalida
+from ia_atendimento.estado_pausa import AGENDA_FOLGA_MIN
 from ia_atendimento.linha_tempo import CtxPasso, gravar_passo, travar_atendimento
 from ia_atendimento.passos import Agendamento as PassoAgendamento
 
@@ -35,10 +40,36 @@ Origem = Literal["cliente", "tacita", "operador"]
 CanceladoPor = Literal["cliente", "humano_assumiu", "operador", "opt_out", "reagendado", "sistema"]
 ResultadoDoPasso = Literal["proposto", "confirmado", "reagendado", "cancelado", "expirado", "disparado", "resolvido"]
 ATIVOS: Final = ("pendente", "confirmado")
+MAX_REARMES: Final = 2  # volta + até 2 novas tentativas (calendário ou +10 min) por agendamento; depois é o lease que devolve o lead
 
 
 class AgendamentoInexistente(EstadoErro):
     pass
+
+
+class LimiteDeRearmes(EstadoErro):
+    """O agendamento já foi rearmado `MAX_REARMES` vezes: o lead segue para o `reaper_lease` (devolução ao humano)."""
+
+
+@dataclass(frozen=True)
+class Dono:
+    """O atendimento dono do agendamento, lido com `FOR UPDATE` (a ordem de locks é sempre atendimento, depois agendamento)."""
+
+    atendimento_id: uuid.UUID
+    estado: str
+    gatilho: str
+    chat_id: str
+    lease_ate: datetime | None
+    versao: int
+
+
+def travar_dono(conn: psycopg.Connection, agendamento_id: uuid.UUID | str) -> Dono | None:
+    linha = conn.execute(
+        "SELECT a.atendimento_id, a.estado, a.gatilho, a.chat_id, a.lease_ate, a.versao FROM ia.atendimento a"
+        " WHERE a.atendimento_id = (SELECT atendimento_id FROM ia.agendamento WHERE agendamento_id = %s) FOR UPDATE",
+        (agendamento_id,),
+    ).fetchone()
+    return None if linha is None else Dono(*linha)
 
 
 @dataclass(frozen=True)
@@ -134,6 +165,56 @@ def expirar(conn: psycopg.Connection, agendamento_id: uuid.UUID | str, versao: i
     """`confirmado → expirado`: a hora combinada passou do teto de atraso (o lease do atendimento já venceu) e a volta NÃO sai. O lead é do
     `reaper_lease` (`retomada_perdida`), que o devolve ao humano. O CHECK de `expirado` só exige `cancelado_por` e `disparado_em` nulos."""
     return _transicionar(conn, agendamento_id, versao, de=("confirmado",), mudancas={"estado": "expirado"}, agora=agora)
+
+
+def esperando_a_volta(entrada: str, estado: str, gatilho: str) -> bool:
+    """O atendimento ainda espera a volta combinada: (a) `pausado`, ou (b) `reservado` de agendamento que não tocou o chat."""
+    return (entrada == "pausa_ia" and estado == "pausado") or (
+        entrada == "dialogo_agendar" and estado == "reservado" and gatilho == "agendamento"
+    )
+
+
+def rearmar(
+    conn: psycopg.Connection,
+    agendamento_id: uuid.UUID | str,
+    *,
+    dispara_em: datetime,
+    agora: datetime,
+    folga_min: int = AGENDA_FOLGA_MIN,
+) -> int:
+    """`disparado → confirmado` com novo `dispara_em`: MESMO agendamento, `seq` intacto (R1-02). Para a volta que decidiu adiar
+    (`reagendado_sistema`: calendário/DATAPREV; ou «tentar» a +10 min). Na transação de quem chama, que já é o dono do disparo.
+
+    Move o atendimento junto (`retoma_em = dispara_em`, `lease_ate = dispara_em + folga`, nunca encurtando): sem isso o `reaper_lease`
+    devolveria o lead no lease velho. Exige o atendimento ainda à espera. Limite de `MAX_REARMES` (`LimiteDeRearmes`). Grava o passo
+    `reagendado`. Devolve a nova `versao` do agendamento."""
+    if agora.tzinfo is None or dispara_em.tzinfo is None:
+        raise ValueError("`agora` e `dispara_em` exigem datetime com fuso")
+    if dispara_em <= agora:
+        raise EntradaInvalida("o rearme precisa de um dispara_em no futuro")
+    dono = travar_dono(conn, agendamento_id)
+    if dono is None:
+        raise AgendamentoInexistente("agendamento não existe")
+    linha = ler_agendamento(conn, agendamento_id, travar=True)
+    if not esperando_a_volta(linha.entrada, dono.estado, dono.gatilho):
+        raise TransicaoInvalida(f"atendimento {dono.estado} não espera mais a volta: não se rearma")
+    feitos = conn.execute(
+        "SELECT count(*) FROM ia.passo WHERE agendamento_id = %s AND tipo = 'agendamento' AND resultado = 'reagendado'", (agendamento_id,)
+    ).fetchone()[0]
+    if feitos >= MAX_REARMES:
+        raise LimiteDeRearmes(f"agendamento já rearmado {feitos} vez(es)")
+    nova = _transicionar(
+        conn,
+        agendamento_id,
+        linha.versao,
+        de=("disparado",),
+        mudancas={"estado": "confirmado", "dispara_em": dispara_em, "disparado_em": None, "desfecho_disparo": None, "job_id": None},
+        agora=agora,
+    )
+    movido = Mudancas(retoma_em=dispara_em, lease_ate=dispara_em + timedelta(minutes=folga_min))
+    aplicar(conn, dono.atendimento_id, dono.versao, movido, agora=agora, de={dono.estado}, lease_so_cresce=True)
+    passo_de_agendamento(conn, dono.atendimento_id, uuid.UUID(str(agendamento_id)), "reagendado")
+    return nova
 
 
 def cancelar(conn: psycopg.Connection, agendamento_id: uuid.UUID | str, versao: int, *, por: CanceladoPor, agora: datetime) -> int:
