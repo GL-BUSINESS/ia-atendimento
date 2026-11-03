@@ -172,12 +172,96 @@ def test_perfil_leva_so_a_allowlist_e_inclui_ultimo_sentido_tipo_da_fala_e_etapa
     assert set(lead) <= set(ctx.PERFIL_PARA_O_MODELO)
 
 
-def test_valor_de_perfil_que_parece_dinheiro_ou_dado_e_descartado_mesmo_na_allowlist(db_conn, relogio, versoes, chaveiro):
-    perfil = {"banco": "5000.00", "origem": "inapp", "etapa_inapp": "tela_dados", "idade_do_lead_min": 45, "tipo_ultima_fala": "texto"}
+def _lead(db_conn, relogio, versoes, chaveiro, perfil, nomes=NOMES) -> dict:
     atd, _ = abrir_em(db_conn, relogio, versoes, fase="E2", perfil=perfil)
-    receber(db_conn, atd, chaveiro, "oi", nomes=NOMES)
-    lead = json.loads(_montar(db_conn, atd, chaveiro).insumos.estado)["lead"]
-    assert lead == {"etapa_inapp": "tela_dados", "idade_do_lead_min": 45, "origem": "inapp", "tipo_ultima_fala": "texto"}  # sem o «banco»
+    receber(db_conn, atd, chaveiro, "oi", nomes=nomes)
+    return json.loads(_montar(db_conn, atd, chaveiro, nomes=nomes).insumos.estado).get("lead", {})
+
+
+def test_inteiro_so_passa_na_chave_que_tem_limite_inteiro_e_dentro_do_limite(db_conn, relogio, versoes, chaveiro):
+    """Achado MEDIUM da revisão de segurança: um limite único (9999) deixava `{"banco": 5000}` chegar ao modelo por uma chave errada."""
+    perfil = {"banco": 5000, "origem": 7, "ultimo_sentido": 3, "tipo_ultima_fala": 1, "etapa_inapp": 12, "idade_do_lead_min": 45}
+    assert _lead(db_conn, relogio, versoes, chaveiro, perfil) == {"idade_do_lead_min": 45}  # só a chave com limite inteiro leva inteiro
+
+
+@pytest.mark.parametrize(
+    ("chave", "valor"),
+    [
+        ("idade_do_lead_min", 10_000),  # acima do limite DA chave (9999)
+        ("idade_do_lead_min", -1),
+        ("idade_do_lead_min", True),  # bool é int em Python, e não é minuto
+        ("etapas_do_robo_concluidas", 5000),  # limite 20, não 9999
+        ("etapas_do_robo_concluidas", 21),
+        ("banco", "facta"),  # minúscula fora do padrão do banco
+        ("banco", "5000.00"),
+        ("banco", "FACTA_" + "X" * 30),
+        ("origem", "outra_coisa"),  # fora do enum
+        ("etapa_inapp", "tela_de_dados_do_cliente"),
+        ("ultimo_sentido", "ambos"),
+        ("tipo_ultima_fala", "video"),
+    ],
+)
+def test_valor_do_perfil_fora_da_regra_da_propria_chave_e_descartado(db_conn, relogio, versoes, chaveiro, chave, valor):
+    assert chave not in _lead(
+        db_conn, relogio, versoes, chaveiro, {chave: valor, "origem": "inapp"} if chave != "origem" else {chave: valor}
+    )
+
+
+def test_perfil_valido_chega_inteiro_com_banco_em_maiuscula_e_enums_fechados(db_conn, relogio, versoes, chaveiro):
+    perfil = {
+        "banco": "FACTA", "origem": "leilao", "ultimo_sentido": "in", "tipo_ultima_fala": "audio", "etapa_inapp": "simulou",
+        "idade_do_lead_min": 9999, "etapas_do_robo_concluidas": 20,
+    }  # fmt: skip
+    assert _lead(db_conn, relogio, versoes, chaveiro, perfil) == perfil
+
+
+def test_nome_do_cliente_nao_entra_no_lead_nem_por_enum(db_conn, relogio, versoes, chaveiro):
+    """Um cliente chamado «Facta» (ou «Inapp») não leva o próprio nome ao modelo por uma chave do perfil: fail-closed, o campo some."""
+    assert _lead(db_conn, relogio, versoes, chaveiro, {"banco": "FACTA", "origem": "inapp"}, nomes=("Facta Silva",)) == {"origem": "inapp"}
+
+
+def test_a_allowlist_de_resultado_de_ferramenta_continua_so_em_minusculas():
+    """Achado MEDIUM: alargar `_FOLHA_TEXTO` para maiúsculas relaxava a allowlist de PII de TODO resultado. Maiúscula só onde a regra da chave pede."""
+    saida = json.loads(
+        ctx.projetar_resultado(
+            {
+                "T3": {"status": "ativa", "versao": 2},
+                "T10": {"status": "MARIA", "macro": "Pago_Por_Fulano"},
+                "T2": {"status": "FACTA", "etapa": "proposta"},
+            },
+            ctx._Apelidos(),
+        )
+    )
+    assert saida["T3"] == {"status": "ativa", "versao": 2}
+    assert "T10" not in saida  # as duas folhas têm maiúscula: nada sobra
+    assert saida["T2"] == {"etapa": "proposta"}
+
+
+def test_nome_conhecido_nao_passa_como_folha_de_resultado_de_ferramenta():
+    projetado = ctx.projetar_resultado({"T3": {"status": "alvardel", "placeholders": ["nome", "alvardel"]}}, ctx._Apelidos(), NOMES)
+    assert json.loads(projetado) == {"T3": {"placeholders": ["nome"]}}  # o sobrenome do cliente sai, o placeholder fica
+    sem_nomes = ctx.projetar_resultado({"T3": {"status": "alvardel"}}, ctx._Apelidos())
+    assert json.loads(sem_nomes) == {"T3": {"status": "alvardel"}}  # prova que é o `nomes` que barra, não a regra de forma
+
+
+def test_auditar_prompt_com_nomes_barra_o_nome_na_parte_variavel_mas_nao_no_texto_fixo():
+    nome_no_estado = ctx.Insumos(
+        "E3", '{"fase":"E3","lead":{"origem":"alvardel"}}', modulo_da_fase("E3"), esquemas_das_ferramentas("E3"), (), None, (), "", ("oi",)
+    )
+    contexto = ctx.construir(nome_no_estado, {}, EstimadorPorCaracteres())
+    ctx.auditar_prompt(contexto)  # sem os nomes, a máscara não sabe que «alvardel» é nome
+    with pytest.raises(ctx.ContextoComDadoPessoal) as erro:
+        ctx.auditar_prompt(contexto, NOMES)
+    assert "alvardel" not in str(erro.value).lower()
+    # o texto fixo cita «Amado Batista»: um cliente que se chame Amado não pode derrubar o turno
+    ctx.auditar_prompt(
+        ctx.construir(
+            ctx.Insumos("E3", '{"fase":"E3"}', modulo_da_fase("E3"), esquemas_das_ferramentas("E3"), (), None, (), "", ("oi",)),
+            {},
+            EstimadorPorCaracteres(),
+        ),
+        ("Amado Batista",),
+    )
 
 
 def test_perfil_sem_os_campos_do_braco_simplesmente_nao_traz_lead(db_conn, relogio, versoes, chaveiro):

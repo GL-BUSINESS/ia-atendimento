@@ -4,6 +4,25 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **B1.4, contexto do turno, agente `Turno` e observabilidade** (sp01 T6; branch `feat/b1-4-agente-turno`; `docs/DECISOES-B1.4-0211.md`). Sem rede, sem
+  chave de provedor: o provedor real fica atrás de `Provedor` e nos testes roda só o `ProvedorFalso` (responde pelo roteiro da F3).
+  - `turno.py`: `Turno` (H §2.2 + `sinal`, `extra=forbid`, 20 intenções, texto ≤ 320 sem dígito, «R$», e-mail, link nem placeholder fora do conjunto
+    fechado, `motivo` padrão «(não informado)»), `ACOES_POR_FASE` (batem com o gabarito da F3), `validar_turno_na_fase` (ação, ferramenta, TX e
+    campo fora da fase ⇒ `AcaoForaDaFase` e irmãs, `acao_invalida=true`), `custo_brl` (contrato 08 §9, 6 casas) e `ResultadoTurno.como_decisao()`.
+  - `agente.py`: `ResolvedorModelo` (UM `OpenAIChatModel` em `us.api.fireworks.ai/inference/v1`, roteador `…-1017-us`, **sem `FallbackModel`**),
+    `criar_agente` (`output_retries=1`), `executar_turno` (custo, latência, `trace_id`; falha do provedor, tempo ou saída inválida ⇒ `ErroDoModelo` com
+    mensagem fixa e o gasto em `.uso`), raciocínio desligado por `extra_body` (forma em `Settings`, HIPÓTESE até a A2.9), `ProvedorFalso`.
+  - `contexto.py` + `modulos_fase.py` + `tokens.py`: os 8 blocos de H §3.1 montados do estado, `perfil` (allowlist com `ultimo_sentido`, `tipo_ultima_fala`,
+    `etapa_inapp`), conversa cifrada, resumo e exemplos da F3 (fora do hold-out); estimador de tokens plugável (HIPÓTESE, medir em B8.2); corte
+    resumo → trocas antigas → exemplos até ≤ 4.000; CPF, telefone, e-mail, nome, valores e ids reais nunca vão ao modelo (máscara de novo, `[VALOR]`/`[PRAZO]`,
+    apelidos `oferta-1`, auditoria do prompt inteiro). Oferta só a partir da E3 (Q1).
+  - `observabilidade.py`: OTel → Phoenix (desligado por padrão), exportador que mascara todo span, filtro de logs, segredos como `[SEGREDO]`, alerta de raciocínio.
+  - `config.py`: `modelo_roteador` (só `-us`), `modelo_raciocinio_off`, `modelo_temperatura`, `modelo_max_tokens`, `modelo_timeout_s`, `modelo_tentativas_http`,
+    `preco_in_usd`/`preco_cache_usd`/`preco_out_usd`/`cambio` (≤ 0 derruba o boot), `phoenix_projeto`, `phoenix_api_key`.
+  - Revisão automática de segurança (2 MEDIUM em `contexto.py`, corrigidos): o `perfil` ao modelo passou a allowlist **por chave** (inteiro só em `idade_do_lead_min`/`etapas_do_robo_concluidas`, cada
+    um com seu limite; `banco` `^[A-Z0-9_]{1,32}$`; `origem`, `ultimo_sentido`, `tipo_ultima_fala` e `etapa_inapp` em enums fechados) e a folha de resultado de ferramenta voltou a só minúsculas; ambas rejeitam
+    os nomes da conversa, e `auditar_prompt` também.
+  - Testes: `tests/test_agente.py`, `tests/test_contexto.py`, `tests/test_observabilidade.py` (cobertura do código novo ≈ 98%).
 - **B8.1a, corpus da F3** (`tests/corpus/`, pacote `src/ia_atendimento/corpus/`, `tests/test_corpus*.py`): 60 personas P01-P60 (40 da F3 curta,
   C5) + 24 P-M, 60 diálogos-gabarito (40 da F3 curta + as 20 P-M críticas; 739 turnos; o texto da IA não é fixado), semente determinística
   (ordem, hold-out de 20%, 3 execuções por persona, escolha da variação do cliente) e carregador/validador Pydantic estrito (`extra='forbid'`,

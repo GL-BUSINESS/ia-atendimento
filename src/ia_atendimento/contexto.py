@@ -64,11 +64,26 @@ CABECALHO_TROCAS: Final = "## Últimas trocas (mascaradas)"
 CABECALHO_RESUMO: Final = "## Resumo da conversa"
 CABECALHO_ESTADO: Final = "## Estado"
 CABECALHO_RESULTADOS: Final = "## Resultado das ferramentas neste turno"
-# Chaves do `perfil` que o modelo pode ver (n §2.2/§3: quem falou por último, tipo da última fala, etapa do in-app). Faixas de parcela ou
-# valor ficam de fora: são valores. Chave fora daqui não chega ao prompt, exista ou não no `perfil`.
-PERFIL_PARA_O_MODELO: Final = (
-    "banco", "etapa_inapp", "etapas_do_robo_concluidas", "idade_do_lead_min", "origem", "tipo_ultima_fala", "ultimo_sentido",
-)  # fmt: skip
+# `perfil` ao modelo (n §2.2/§3: quem falou por último, tipo da última fala, etapa do in-app). Allowlist POR CHAVE e com regra própria de
+# valor: um limite único para todas as chaves deixaria um valor da oferta ou um número sensível entrar por uma chave errada. Faixas de
+# parcela ou valor ficam de fora (são valores). Chave fora daqui não chega ao prompt, e valor fora da regra da SUA chave é descartado,
+# sem aviso e sem eco.
+LEAD_ENUMS: Final[Mapping[str, frozenset[str]]] = {
+    "origem": frozenset({"inapp", "leilao"}),  # H §3.6
+    "ultimo_sentido": frozenset({"in", "out"}),  # n §1: quem falou por último
+    "tipo_ultima_fala": frozenset({"texto", "audio", "imagem", "documento", "sticker", "localizacao", "outro"}),  # igual a `msg_tipo`
+    "etapa_inapp": frozenset(
+        {"proposta_vista", "simulou", "tela_dados", "saiu_da_tela", "desconhecida"}
+    ),  # n §3.1 (e); B6.2 fixa os códigos (L3)
+}
+LEAD_PADROES: Final[Mapping[str, re.Pattern[str]]] = {
+    "banco": re.compile(r"^[A-Z0-9_]{1,32}$"),  # igual a `EntradaAtendimento.banco` e a `OfertaCorrente.banco`
+}
+LIMITES_INTEIROS_DO_LEAD: Final[Mapping[str, int]] = {
+    "idade_do_lead_min": 9999,  # minutos desde a simulação
+    "etapas_do_robo_concluidas": 20,  # quantas etapas do in-app o lead já fez
+}
+PERFIL_PARA_O_MODELO: Final = tuple(sorted({*LEAD_ENUMS, *LEAD_PADROES, *LIMITES_INTEIROS_DO_LEAD}))
 FASES_COM_VALORES: Final = frozenset({"E3", "E4", "E5", "E6", "E7", "E8"})  # Q1: antes da E3 nem a oferta aparece no estado
 PLACEHOLDERS_DA_FASE: Final[Mapping[str, tuple[str, ...]]] = {
     "E2": ("nome",),
@@ -90,8 +105,8 @@ PROJECAO_DAS_FERRAMENTAS: Final[Mapping[str, Mapping[str, Any]]] = {
 }
 MAX_ITENS_DE_LISTA: Final = 5
 MAX_INTEIRO_DE_RESULTADO: Final = 99  # contador; acima disso pode ser valor, prazo ou id (ver o teste de projeção)
-MAX_INTEIRO_DO_LEAD: Final = 9999  # `idade_do_lead_min`: minutos desde a simulação
-_FOLHA_TEXTO: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,39}$")
+# SÓ minúsculas: maiúscula tem de ser pedida pela regra da chave (ver LEAD_PADROES), nunca alargada para todos os resultados de ferramenta
+_FOLHA_TEXTO: Final = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,39}$")
 _PARECE_NUMERO: Final = re.compile(
     r"^[0-9][0-9.,:-]*$|[0-9][.,][0-9]{2}(?![0-9])"
 )  # «5000.00», «1,5»: dinheiro ou taxa disfarçados de código
@@ -263,10 +278,13 @@ def cortar_ate_caber(contexto: Contexto, teto: int = TETO_TOKENS) -> Contexto:
     return atual
 
 
-def auditar_prompt(contexto: Contexto) -> None:
-    """Último portão: o prompt inteiro tem de passar na máscara sem mudar e não pode ter símbolo de moeda. Não diz o que casou."""
-    prompt = f"{contexto.sistema}\n{contexto.usuario}"
-    if mascarar(prompt) != prompt or _PROIBIDO_NO_PROMPT.search(prompt):
+def auditar_prompt(contexto: Contexto, nomes: Collection[str] = ()) -> None:
+    """Último portão: o prompt inteiro tem de passar na máscara sem mudar e não pode ter símbolo de moeda. Não diz o que casou.
+
+    `nomes` (o nome do cliente e variantes) vale só para a parte que muda a cada turno (blocos 4 a 8): o texto fixo (sistema, módulo,
+    ferramentas) cita «Amado Batista» e palavras comuns, e um cliente de mesmo nome faria o turno falhar sem motivo."""
+    fixo, variavel = contexto.sistema, contexto.usuario
+    if mascarar(fixo) != fixo or mascarar(variavel, nomes) != variavel or _PROIBIDO_NO_PROMPT.search(f"{fixo}\n{variavel}"):
         raise ContextoComDadoPessoal("o prompt montado ainda tem dado pessoal ou valor; o turno não sai")
 
 
@@ -333,7 +351,9 @@ class _Apelidos:
         return apelido
 
 
-def _estado_para_o_modelo(estado: EstadoConversa, perfil: Mapping[str, Any], janela_aberta: bool, apelidos: _Apelidos) -> str:
+def _estado_para_o_modelo(
+    estado: EstadoConversa, perfil: Mapping[str, Any], janela_aberta: bool, apelidos: _Apelidos, nomes: Collection[str]
+) -> str:
     corpo: dict[str, Any] = {"fase": estado.fase}
     if contadores := estado.contadores.model_dump(exclude_defaults=True):
         corpo["contadores"] = contadores
@@ -353,57 +373,81 @@ def _estado_para_o_modelo(estado: EstadoConversa, perfil: Mapping[str, Any], jan
     if estado.pausa is not None:
         corpo["pausa"] = {"retoma_fase": estado.pausa.retoma_fase}
     corpo["flags"] = {**estado.flags, "janela_aberta": janela_aberta}
-    seguros = {chave: _folha_segura(perfil.get(chave), MAX_INTEIRO_DO_LEAD) for chave in PERFIL_PARA_O_MODELO}
-    if lead := {chave: valor for chave, (ok, valor) in seguros.items() if ok and valor is not None}:
+    lead = {chave: valor for chave in PERFIL_PARA_O_MODELO if (valor := _valor_do_lead(chave, perfil.get(chave), nomes)) is not None}
+    if lead:
         corpo["lead"] = lead
     return json.dumps(corpo, ensure_ascii=False, separators=(",", ":"))
 
 
-def _folha_segura(valor: Any, maximo_inteiro: int = MAX_INTEIRO_DE_RESULTADO) -> tuple[bool, Any]:
-    """Folha que pode ir ao modelo: booleano, contador pequeno ou código curto que a máscara não troca e que não parece dinheiro."""
+def _sem_nome(texto: str, nomes: Collection[str]) -> bool:
+    """O texto passa na máscara (com os nomes da conversa) sem mudar: nenhum nome, CPF, telefone ou e-mail dentro."""
+    return mascarar(texto, nomes) == texto
+
+
+def _valor_do_lead(chave: str, valor: Any, nomes: Collection[str]) -> Any:
+    """O valor da chave do `perfil` se obedece à regra DA PRÓPRIA CHAVE (enum, padrão ou limite inteiro); senão `None` (descartado).
+    Inteiro só em chave com limite inteiro (um `{"banco": 5000}` não passa) e `bool` nunca (é `int` em Python)."""
+    if valor is None or isinstance(valor, bool):
+        return None
+    if chave in LIMITES_INTEIROS_DO_LEAD:
+        return valor if isinstance(valor, int) and 0 <= valor <= LIMITES_INTEIROS_DO_LEAD[chave] else None
+    if not isinstance(valor, str) or not _sem_nome(valor, nomes):
+        return None
+    if chave in LEAD_ENUMS:
+        return valor if valor in LEAD_ENUMS[chave] else None
+    padrao = LEAD_PADROES.get(chave)
+    return valor if padrao is not None and padrao.fullmatch(valor) and not _PARECE_NUMERO.search(valor) else None
+
+
+def _folha_segura(valor: Any, nomes: Collection[str] = ()) -> tuple[bool, Any]:
+    """Folha de RESULTADO de ferramenta que pode ir ao modelo: booleano, contador pequeno ou código curto em minúsculas que a máscara
+    (com os nomes da conversa) não troca e que não parece dinheiro."""
     if valor is None or isinstance(valor, bool):
         return True, valor
-    if isinstance(valor, int) and 0 <= valor <= maximo_inteiro:
+    if isinstance(valor, int) and 0 <= valor <= MAX_INTEIRO_DE_RESULTADO:
         return True, valor
-    if isinstance(valor, str) and _FOLHA_TEXTO.fullmatch(valor) and not _PARECE_NUMERO.search(valor) and mascarar(valor) == valor:
+    if isinstance(valor, str) and _FOLHA_TEXTO.fullmatch(valor) and not _PARECE_NUMERO.search(valor) and _sem_nome(valor, nomes):
         return True, valor
     return False, None
 
 
-def _projetar(valor: Any, regra: Any, chave: str, apelidos: _Apelidos) -> tuple[bool, Any]:
+def _projetar(valor: Any, regra: Any, chave: str, apelidos: _Apelidos, nomes: Collection[str]) -> tuple[bool, Any]:
     if regra is True:
         if isinstance(valor, (list, tuple)):
-            itens = [item for ok, item in map(_folha_segura, valor[:MAX_ITENS_DE_LISTA]) if ok]
+            itens = [item for ok, item in (_folha_segura(v, nomes) for v in valor[:MAX_ITENS_DE_LISTA]) if ok]
             return bool(itens), itens
         if chave in _ALIAS_DE_REF and isinstance(valor, (str, int)) and not isinstance(valor, bool):
             return True, apelidos.de(_ALIAS_DE_REF[chave], str(valor))  # id real (até UUID) nunca vai ao modelo: vai o apelido
-        return _folha_segura(valor)
+        return _folha_segura(valor, nomes)
     if isinstance(regra, Mapping):
         if isinstance(valor, Mapping):
-            return True, _projetar_objeto(valor, regra, apelidos)
+            return True, _projetar_objeto(valor, regra, apelidos, nomes)
         if isinstance(valor, (list, tuple)):
-            return True, [_projetar_objeto(item, regra, apelidos) for item in valor[:MAX_ITENS_DE_LISTA] if isinstance(item, Mapping)]
+            return True, [
+                _projetar_objeto(item, regra, apelidos, nomes) for item in valor[:MAX_ITENS_DE_LISTA] if isinstance(item, Mapping)
+            ]
     return False, None
 
 
-def _projetar_objeto(bruto: Mapping[str, Any], regra: Mapping[str, Any], apelidos: _Apelidos) -> dict[str, Any]:
+def _projetar_objeto(bruto: Mapping[str, Any], regra: Mapping[str, Any], apelidos: _Apelidos, nomes: Collection[str]) -> dict[str, Any]:
     saida: dict[str, Any] = {}
     for chave, sub in regra.items():
         if chave in bruto:
-            ok, valor = _projetar(bruto[chave], sub, chave, apelidos)
+            ok, valor = _projetar(bruto[chave], sub, chave, apelidos, nomes)
             if ok:
                 saida[chave] = valor
     return saida
 
 
-def projetar_resultado(resultados: Mapping[str, Mapping[str, Any]], apelidos: _Apelidos) -> str:
+def projetar_resultado(resultados: Mapping[str, Mapping[str, Any]], apelidos: _Apelidos, nomes: Collection[str] = ()) -> str:
     """Bloco 7: só as chaves da allowlist de cada ferramenta, com ids trocados por apelidos. Ferramenta fora da lista é descartada."""
     projetado = {
-        nome: _projetar_objeto(bruto, PROJECAO_DAS_FERRAMENTAS[nome], apelidos)
+        nome: _projetar_objeto(bruto, PROJECAO_DAS_FERRAMENTAS[nome], apelidos, nomes)
         for nome, bruto in resultados.items()
         if nome in PROJECAO_DAS_FERRAMENTAS and isinstance(bruto, Mapping)
     }
-    return json.dumps(projetado, ensure_ascii=False, separators=(",", ":")) if any(projetado.values()) else ""
+    projetado = {nome: valores for nome, valores in projetado.items() if valores}  # ferramenta que não deixou nada passar não aparece
+    return json.dumps(projetado, ensure_ascii=False, separators=(",", ":")) if projetado else ""
 
 
 def _linhas_das_trocas(mensagens: Sequence[Any], nomes: Collection[str]) -> tuple[str, ...]:
@@ -454,17 +498,17 @@ def montar_contexto(
     janela = janela_24h_aberta(atendimento.ultimo_cliente_em, agora)
     insumos = Insumos(
         fase=estado.fase,
-        estado=_estado_para_o_modelo(estado, _ler_perfil(conn, atendimento_id), janela, apelidos),
+        estado=_estado_para_o_modelo(estado, _ler_perfil(conn, atendimento_id), janela, apelidos, nomes),
         modulo=modulo_da_fase(estado.fase),  # type: ignore[arg-type]
         ferramentas=esquemas_das_ferramentas(estado.fase),  # type: ignore[arg-type]
         exemplos=_exemplos_da_fase(exemplos, estado.fase, nomes),
         resumo=proteger_texto(conversa.resumo, nomes) if conversa.resumo else None,
         trocas=_linhas_das_trocas(historico, nomes),
-        resultados=projetar_resultado(resultados or {}, apelidos),
+        resultados=projetar_resultado(resultados or {}, apelidos, nomes),
         pendentes=_linhas_pendentes(pendentes, achados, nomes),
     )
     contexto = cortar_ate_caber(construir(insumos, apelidos.mapa, estimador), teto)
-    auditar_prompt(contexto)
+    auditar_prompt(contexto, nomes)
     return contexto
 
 

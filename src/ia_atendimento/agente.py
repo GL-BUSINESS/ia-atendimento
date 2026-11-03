@@ -146,7 +146,7 @@ class ResolvedorModelo:
 
     def resolver(self, modelo: str, provedor: str, raciocinio: bool) -> OpenAIChatModel:
         s = self._settings
-        if (modelo, provedor) != (s.modelo_nome, PROVEDOR_FIREWORKS_US):
+        if not modelo.startswith("deepseek-") or (modelo, provedor) != (s.modelo_nome, PROVEDOR_FIREWORKS_US):
             raise ProvedorNaoConfigurado(f"par {modelo}/{provedor} não configurado (MVP: {s.modelo_nome}/{PROVEDOR_FIREWORKS_US})")
         if raciocinio:
             raise RaciocinioNaoLiberado("raciocinio=true só depois da F3 (A2.9 mede o parâmetro e a F3 aprova)")

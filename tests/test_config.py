@@ -130,7 +130,7 @@ def test_env_example_so_tem_nomes_dos_campos():
     nomes = {linha.split("=", 1)[0] for linha in exemplo.splitlines() if linha and not linha.startswith("#")}
     assert nomes == {campo.upper() for campo in Settings.model_fields}
     for linha in exemplo.splitlines():
-        if linha.startswith(("DATABASE_URL", "MODELO_API_KEY_1", "API_TOKEN")):
+        if linha.startswith(("DATABASE_URL", "MODELO_API_KEY_1", "API_TOKEN", "PHOENIX_API_KEY")):
             assert linha.split("=", 1)[1] == "", f"valor secreto no exemplo: {linha.split('=', 1)[0]}"
 
 

@@ -622,3 +622,12 @@ def test_limites_do_modelo_no_settings():
     for ruim in ({"modelo_temperatura": 1.5}, {"modelo_max_tokens": 10}, {"modelo_timeout_s": 0}, {"modelo_tentativas_http": 9}):
         with pytest.raises(ValidationError):
             settings_de_teste(**ruim)
+
+
+def test_env_vazio_do_phoenix_e_sem_chave_e_gemini_nao_exige_o_roteador_do_deepseek():
+    assert settings_de_teste(phoenix_api_key="").phoenix_api_key is None
+    assert (
+        settings_de_teste(modelo_nome="gemini-2.5-flash").modelo_nome == "gemini-2.5-flash"
+    )  # o resolvedor é que recusa o par (MVP: só DeepSeek)
+    with pytest.raises(ProvedorNaoConfigurado):
+        ResolvedorModelo(settings_de_teste(modelo_nome="gemini-2.5-flash")).resolver("gemini-2.5-flash", PROVEDOR_FIREWORKS_US, False)

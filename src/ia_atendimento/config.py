@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _roteador_e_o_do_modelo(self) -> Settings:
         """O roteador só-EUA tem de ser o do `modelo_nome` (`<modelo>-us`): fixa a versão (1017) e a região no mesmo golpe."""
-        if "/" not in self.modelo_nome and self.modelo_roteador.rsplit("/", 1)[-1] != f"{self.modelo_nome}-us":
+        if self.modelo_nome.startswith("deepseek-") and self.modelo_roteador.rsplit("/", 1)[-1] != f"{self.modelo_nome}-us":
             raise ValueError("modelo_roteador deve ser o roteador só-EUA do modelo_nome (<modelo_nome>-us)")
         return self
 
@@ -176,6 +176,12 @@ class Settings(BaseSettings):
         if partes.scheme != "https" or host not in HOSTS_DO_MODELO or porta not in PORTAS_HTTPS:
             raise ValueError("modelo_base_url_1 deve ser https://us.api.fireworks.ai (provedor só-EUA aprovado) ou loopback do dublê")
         return valor
+
+    @field_validator("phoenix_api_key", mode="before")
+    @classmethod
+    def _phoenix_sem_chave_vazia(cls, valor: object) -> object:
+        """`PHOENIX_API_KEY=` vazio no `.env` é «sem chave», não uma chave vazia."""
+        return None if valor is None or valor == "" else valor
 
     @field_validator("phoenix_endpoint", mode="before")
     @classmethod
