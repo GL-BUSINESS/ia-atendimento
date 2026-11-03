@@ -58,5 +58,6 @@ def proteger_texto(texto: str, nomes: Collection[str]) -> str:
     """Texto de cliente (ou da IA) pronto para o prompt (ver o docstring do módulo). Idempotente."""
     protegido = _DATA_COMPLETA.sub("[DATA]", mascarar(texto, nomes))
     protegido = _PRAZO.sub("[PRAZO]", _DINHEIRO.sub("[VALOR]", protegido))
+    protegido = _SIMBOLO_DE_MOEDA_SOLTO.sub("[VALOR]", protegido)
     protegido = _NUMERO.sub(_trocar_numero, protegido)
     return re.sub(r"\s+", " ", protegido.replace("«", "").replace("»", "")).strip()

@@ -832,3 +832,39 @@ def test_a_guarda_da_e5_nao_toca_nas_outras_fases_nem_na_midia(db_conn, relogio,
     assert _montar(db_conn, atd5, chaveiro, pendentes=[midia]).insumos.pendentes == (
         "[mídia sem texto: audio]",
     )  # mídia não tem texto a esconder
+
+
+# --- «r$» solto não derruba o turno (M-7) -----------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("texto", ["preciso de r$ urgente", "quanto em US$?", "sou da Mr$ Ltda", "R$", "r$ e us$ juntos", "R$ mil"])
+def test_simbolo_de_moeda_solto_vira_valor_em_vez_de_derrubar_o_turno(db_conn, e3, chaveiro, texto):
+    """M-7: `auditar_prompt` barra `r$`/`us$`, mas `proteger_texto` só trocava `R$` com número: o cliente forçava `ContextoComDadoPessoal` em 3 turnos."""
+    assert "$" not in ctx.proteger_texto(texto, ())
+    atd, _ = e3
+    receber(db_conn, atd, chaveiro, texto, nomes=NOMES)
+    c = _montar(db_conn, atd, chaveiro)  # não levanta
+    assert "$" not in c.usuario and "[VALOR]" in c.usuario
+
+
+def test_simbolo_de_moeda_solto_numa_troca_antiga_tambem_nao_derruba_os_turnos_seguintes(db_conn, e3, chaveiro):
+    atd, _ = e3
+    receber(db_conn, atd, chaveiro, "sou da Mr$ Ltda, preciso de r$ urgente", nomes=NOMES)
+    consumir(
+        db_conn,
+        atd,
+        versao=db_conn.execute("SELECT versao FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone()[0],
+        ate_ordem=1,
+    )
+    resposta_da_ia(db_conn, atd, chaveiro, "Entendi.", nomes=NOMES)
+    for i in range(3):  # a linha continua entre as 3 últimas trocas por alguns turnos
+        receber(db_conn, atd, chaveiro, f"mais uma mensagem {i}", nomes=NOMES)
+        c = _montar(db_conn, atd, chaveiro)
+        assert "$" not in c.usuario
+        consumir(
+            db_conn,
+            atd,
+            versao=db_conn.execute("SELECT versao FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone()[0],
+            ate_ordem=2 + i,
+        )
+        resposta_da_ia(db_conn, atd, chaveiro, f"ok {i}", nomes=NOMES)
