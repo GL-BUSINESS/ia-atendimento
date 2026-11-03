@@ -26,6 +26,7 @@ POR = "operador.teste@glcapital.invalid"
 class ApiFalsa:
     def __init__(self) -> None:
         self.versao, self.valor, self.pedidos, self.recusar = 3, [A], [], None
+        self.arquivo: set[str] | None = None  # chats do `PESSOAS_TESTE_ARQUIVO` lido no boot; None = não valida (como o ensaio anterior)
         api = self
 
         class H(BaseHTTPRequestHandler):
@@ -58,6 +59,10 @@ class ApiFalsa:
                     return
                 if api.recusar:
                     return self._json(*api.recusar)
+                if (
+                    api.arquivo is not None and not set(corpo["valor"]) <= api.arquivo
+                ):  # a API real valida a lista INTEIRA contra o arquivo do boot
+                    return self._json(422, {"erro": {"codigo": "pessoa_fora_de_pessoas_teste"}})
                 if corpo["versao_esperada"] != api.versao:
                     return self._json(409, {"erro": {"codigo": "config_corrida"}})
                 api.versao, api.valor = api.versao + 1, corpo["valor"]
@@ -66,6 +71,10 @@ class ApiFalsa:
         self.servidor = HTTPServer(("127.0.0.1", 0), H)
         self.url = f"http://127.0.0.1:{self.servidor.server_port}"
         threading.Thread(target=self.servidor.serve_forever, daemon=True).start()
+
+    def reiniciar_com(self, arquivo: Path) -> None:
+        """«Entregar o arquivo à VPS e reiniciar o orquestrador»: a API passa a validar contra os chats DESTE arquivo."""
+        self.arquivo = set(json.loads(arquivo.read_text())["chats"])
 
     def puts(self) -> list[dict]:
         return [c for m, c in self.pedidos if m == "PUT"]
@@ -233,3 +242,63 @@ def test_gerar_sem_checkout_com_a_b2_4_diz_o_que_fazer(ambiente, tmp_path):
     # o kit do próprio repositório SEMPRE acha o checkout dele (é o primeiro candidato), então `gerar` funciona sem IA_REPO
     sem_repo = {k: v for k, v in ambiente.items() if k != "IA_REPO"}
     assert kit(sem_repo, "gerar", "--par", f"{B}=P13", "--confirmo").returncode == 0
+
+
+def test_gerar_preserva_os_pares_do_arquivo_anterior_e_o_fluxo_gerar_aplicar_limpar_nao_toma_422(ambiente, api, tmp_path):
+    """R2-03, ponta a ponta contra a API em processo que valida a lista inteira contra o arquivo do boot: gerar A → aplicar A → gerar B (preserva A) → aplicar B
+    em merge → limpar (restaura [A]). Sem 422 em nenhum passo."""
+    api.valor = []
+    saida = Path(ambiente["SAIDA_ARQUIVO"])
+    assert kit(ambiente, "gerar", "--par", f"{A}=P01", "--confirmo").returncode == 0
+    api.reiniciar_com(saida)
+    assert _aplicar(ambiente, f"{A}=P01").returncode == 0 and api.valor == [A]
+
+    r = kit(ambiente, "gerar", "--par", f"{B}=P02", "--confirmo")
+    assert r.returncode == 0 and "2 chat(s)" in r.stdout, r.stdout + r.stderr
+    assert set(json.loads(saida.read_text())["chats"]) == {A, B}, "o arquivo preserva o par antigo e acrescenta o novo"
+    assert not Path(str(saida) + ".anterior").exists(), "a cópia temporária some"
+    api.reiniciar_com(saida)
+    r = _aplicar(ambiente, f"{B}=P02")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert api.valor == [A, B]
+    r = kit(ambiente, "limpar", "--motivo", "fim", "--por", POR, "--confirmo")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert api.valor == [A]
+
+
+def test_gerar_sem_preservar_derruba_o_aplicar_em_merge_e_o_limpar_por_422(ambiente, api, tmp_path):
+    """O defeito que o R2-03 achou, agora como contraprova: arquivo só com o chat novo + merge com a lista vigente = 422 pelos chats antigos; `--recomecar` faz isso de propósito."""
+    api.valor = [A]
+    saida = Path(ambiente["SAIDA_ARQUIVO"])
+    saida.write_text(json.dumps({"pessoas": [], "chats": {A: "00000000-0000-7000-8000-000000000001"}}))
+    saida.chmod(0o600)
+    assert kit(ambiente, "gerar", "--par", f"{B}=P02", "--recomecar", "--confirmo").returncode == 0
+    assert set(json.loads(saida.read_text())["chats"]) == {B}, "--recomecar ignora o arquivo anterior"
+    api.reiniciar_com(saida)
+    r = _aplicar(ambiente, f"{B}=P02")
+    assert r.returncode == 1 and "pessoa_fora_de_pessoas_teste" in r.stderr and api.valor == [A]
+
+
+def test_gerar_com_arquivo_anterior_de_pessoa_fora_do_catalogo_ou_conflitante_recusa(ambiente, tmp_path):
+    saida = Path(ambiente["SAIDA_ARQUIVO"])
+    saida.write_text(json.dumps({"pessoas": [], "chats": {A: "11111111-1111-7111-8111-111111111111"}}))
+    saida.chmod(0o600)
+    r = kit(ambiente, "gerar", "--par", f"{B}=P02", "--confirmo")
+    assert r.returncode != 0 and "catálogo" in r.stderr, "não adivinha a persona de uma pessoa que o catálogo não conhece"
+    assert json.loads(saida.read_text())["chats"] == {A: "11111111-1111-7111-8111-111111111111"}, (
+        "arquivo anterior intacto quando o gerar falha"
+    )
+    saida.write_text(json.dumps({"pessoas": [], "chats": {A: "00000000-0000-7000-8000-000000000001"}}))  # A = P01
+    saida.chmod(0o600)
+    assert kit(ambiente, "gerar", "--par", f"{A}=P02", "--confirmo").returncode != 0, "mesmo chat, outra persona: recusa"
+    assert kit(ambiente, "gerar", "--par", f"{A}=P01", "--confirmo").returncode == 0, "mesmo chat, mesma persona: idempotente"
+    assert kit(ambiente, "aplicar", "--recomecar", "--par", f"{A}=P01", "--motivo", "m1", "--por", POR, "--confirmo").returncode == 1
+
+
+def test_ensaio_do_gerar_diz_se_preserva_ou_recomeca(ambiente):
+    saida = Path(ambiente["SAIDA_ARQUIVO"])
+    novo = kit(ambiente, "gerar", "--par", f"{B}=P02", "--ensaio")
+    assert "arquivo novo ou --recomecar" in novo.stdout
+    saida.write_text(json.dumps({"pessoas": [], "chats": {}}))
+    assert "PRESERVA os pares" in kit(ambiente, "gerar", "--par", f"{B}=P02", "--ensaio").stdout
+    assert "arquivo novo ou --recomecar" in kit(ambiente, "gerar", "--par", f"{B}=P02", "--recomecar", "--ensaio").stdout

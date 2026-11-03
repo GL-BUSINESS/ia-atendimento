@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # chats-teste.sh — chats de teste da TI <-> `pessoas_teste` e a lista `chats_teste` do orquestrador (B2.4; risco 103 «fantasma de venda em teste»).
 #
-#   bash chats-teste.sh gerar   --par CHAT=PERSONA [--par …] [--saida ARQ]                     monta o PESSOAS_TESTE_ARQUIVO (as 84 pessoas + estes chats), 0600
+#   bash chats-teste.sh gerar   --par CHAT=PERSONA [--par …] [--saida ARQ] [--recomecar]         monta o PESSOAS_TESTE_ARQUIVO (as 84 pessoas + os chats), 0600.
+#                                                                                               PRESERVA os pares do arquivo de saída que já existe e acrescenta os --par
+#                                                                                               (--recomecar ignora o arquivo anterior: então passe TODOS os pares)
 #   bash chats-teste.sh aplicar --par CHAT=PERSONA [--par …] --motivo CODIGO --por LOGIN        ACRESCENTA estes chats à lista vigente (merge); guarda a lista anterior
 #   bash chats-teste.sh aplicar … --substituir                                                  a lista passa a ser SÓ estes chats (a anterior também fica guardada)
 #   bash chats-teste.sh limpar  --motivo CODIGO --por LOGIN                                     desfaz o último `aplicar`: restaura a lista que ele guardou
@@ -9,6 +11,8 @@
 #   (cada um exige --ensaio, que só imprime o plano e NÃO abre conexão, ou --confirmo, que executa)
 #
 # POR QUE DUAS FASES: a API recusa `chats_teste` com chat cuja pessoa não está no arquivo `PESSOAS_TESTE_ARQUIVO`, e esse arquivo é lido NO BOOT.
+#   A API valida a lista INTEIRA (a vigente + os novos) contra o arquivo: por isso o `gerar` preserva os pares do arquivo anterior. Se o arquivo
+#   anterior se perdeu, o `gerar --recomecar` exige TODOS os pares vigentes; sem eles o `aplicar` em merge e o `limpar` tomam 422 pelos chats antigos.
 #   1) `gerar` escreve o arquivo localmente (nada remoto). 2) VOCÊ o entrega à VPS no caminho do `PESSOAS_TESTE_ARQUIVO` e reinicia o orquestrador
 #   (este kit não mexe na VPS). 3) `aplicar` grava a lista. Chat que a TI não tem no arquivo = 422 `pessoa_fora_de_pessoas_teste`; chat de cliente
 #   (atendimento `real`/`sombra`, ou `duble` de pessoa fora de `pessoas_teste`) = 422 `chat_de_cliente`; ambos antes de gravar nada.
@@ -37,13 +41,14 @@ ajuda() { sed -n '2,/^set /p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
 [ $# -ge 1 ] || { ajuda; exit 2; }
 CMD="$1"; shift
-ENSAIO=0; CONFIRMO=0; POR=""; MOTIVO="${IA_MOTIVO:-}"; SUBSTITUIR=0; VAZIO=0; PARES=()
+ENSAIO=0; CONFIRMO=0; POR=""; MOTIVO="${IA_MOTIVO:-}"; SUBSTITUIR=0; VAZIO=0; RECOMECAR=0; PARES=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --ensaio) ENSAIO=1 ;;
     --confirmo) CONFIRMO=1 ;;
     --substituir) SUBSTITUIR=1 ;;
     --vazio) VAZIO=1 ;;
+    --recomecar) RECOMECAR=1 ;;
     --par) [ $# -ge 2 ] || falha "--par exige CHAT=PERSONA"; PARES+=("$2"); shift ;;
     --por) [ $# -ge 2 ] || falha "--por exige o login do operador"; POR="$2"; shift ;;
     --motivo) [ $# -ge 2 ] || falha "--motivo exige um código"; MOTIVO="$2"; shift ;;
@@ -60,6 +65,7 @@ fi
 [ "$ENSAIO" = 1 ] && [ "$CONFIRMO" = 1 ] && falha "--ensaio e --confirmo juntos não fazem sentido"
 [ "$SUBSTITUIR" = 1 ] && [ "$CMD" != aplicar ] && falha "--substituir só vale em aplicar"
 [ "$VAZIO" = 1 ] && [ "$CMD" != limpar ] && falha "--vazio só vale em limpar"
+[ "$RECOMECAR" = 1 ] && [ "$CMD" != gerar ] && falha "--recomecar só vale em gerar"
 
 # --- validações que valem nos dois modos (sem rede) -----------------------------------------------------------------------------------------
 CHATS=()
@@ -97,7 +103,10 @@ anterior_mais_recente() { # lista de `anterior-<versao>.json` ainda não restaur
 # --- plano ---------------------------------------------------------------------------------------------------------------------------------
 titulo "plano ($CMD)"
 case "$CMD" in
-  gerar)   echo "grava $SAIDA_ARQUIVO (0600) com as 84 pessoas e ${#CHATS[@]} chat(s) ligado(s); roda 'python -m ia_atendimento.pessoas_teste arquivo' no checkout do ia-atendimento" ;;
+  gerar)
+    if [ -f "$SAIDA_ARQUIVO" ] && [ "$RECOMECAR" = 0 ]; then JUNTA="PRESERVA os pares de $SAIDA_ARQUIVO e acrescenta ${#CHATS[@]} chat(s)"
+    else JUNTA="grava SÓ os ${#CHATS[@]} chat(s) dos --par (arquivo novo ou --recomecar: passe TODOS os pares vigentes)"; fi
+    echo "grava $SAIDA_ARQUIVO (0600) com as 84 pessoas; $JUNTA; roda 'python -m ia_atendimento.pessoas_teste arquivo' no checkout do ia-atendimento" ;;
   aplicar) echo "PUT $IA_API_URL/config/chats_teste: lista vigente $( [ "$SUBSTITUIR" = 1 ] && echo SUBSTITUÍDA por || echo ACRESCIDA de ) ${#CHATS[@]} chat(s); por=$POR, motivo=$MOTIVO, versao_esperada = a vigente (lida antes); a lista anterior fica em $CHATS_TESTE_ESTADO" ;;
   limpar)
     if [ "$VAZIO" = 1 ]; then echo "PUT $IA_API_URL/config/chats_teste = [] (todos os chats de teste caem), por=$POR, motivo=$MOTIVO"
@@ -113,12 +122,17 @@ if [ "$ENSAIO" = 1 ]; then echo "--ensaio: nada executado, nenhuma conexão aber
 if [ "$CMD" = gerar ]; then
   REPO="$(repo_com_b24)" || falha "nenhum checkout do ia-atendimento com a B2.4 (src/ia_atendimento/pessoas_teste/__main__.py): defina IA_REPO"
   args=(arquivo --saida "$SAIDA_ARQUIVO")
+  if [ -f "$SAIDA_ARQUIVO" ] && [ "$RECOMECAR" = 0 ]; then
+    cp -p "$SAIDA_ARQUIVO" "$SAIDA_ARQUIVO.anterior" && args+=(--juntar "$SAIDA_ARQUIVO.anterior")   # a saída é truncada: lê da cópia
+    trap 'rm -f "$SAIDA_ARQUIVO.anterior"' EXIT
+  fi
   for p in "${PARES[@]}"; do args+=(--par "$p"); done
   umask 077
   if [ -n "${IA_PY:-}" ]; then (cd "$REPO" && "$IA_PY" -m ia_atendimento.pessoas_teste "${args[@]}")
   else (cd "$REPO" && uv run --quiet python -m ia_atendimento.pessoas_teste "${args[@]}"); fi
   [ "$(stat -c %a "$SAIDA_ARQUIVO")" = 600 ] || falha "$SAIDA_ARQUIVO não ficou 0600"
-  ok "arquivo escrito (0600). Entregue-o à VPS no caminho do PESSOAS_TESTE_ARQUIVO e REINICIE o orquestrador; depois rode 'aplicar'."
+  NCHATS=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["chats"]))' "$SAIDA_ARQUIVO")
+  ok "arquivo escrito (0600) com $NCHATS chat(s). Entregue-o à VPS no caminho do PESSOAS_TESTE_ARQUIVO e REINICIE o orquestrador; depois rode 'aplicar'."
   exit 0
 fi
 

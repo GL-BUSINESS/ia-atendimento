@@ -1,8 +1,9 @@
 """CLI do kit `config/chats-teste.sh` (B2.4). Sem rede, sem banco: só monta o arquivo `PESSOAS_TESTE_ARQUIVO` e lista as pessoas.
 
-python -m ia_atendimento.pessoas_teste arquivo --par <chat_id 24 hex>=<persona_id> [--par …] [--saida CAMINHO]
+python -m ia_atendimento.pessoas_teste arquivo --par <chat_id 24 hex>=<persona_id> [--par …] [--saida CAMINHO] [--juntar ARQUIVO]
     JSON `{"pessoas": [<as 84>], "chats": {chat_id: pessoa_id}}` (stdout ou arquivo 0600). O chat de teste é da TI;
-    a persona só diz de qual pessoa ele vale.
+    a persona só diz de qual pessoa ele vale. `--juntar` PRESERVA os chats de um arquivo anterior (o orquestrador valida a lista
+    inteira de `chats_teste` contra o arquivo lido no boot: arquivo só com o chat novo derruba o `aplicar` em merge e o `limpar`).
 python -m ia_atendimento.pessoas_teste listar        persona_id e pessoa_id (sem CPF, sem nome)
 """
 
@@ -18,12 +19,28 @@ from ia_atendimento.pessoas_teste.arquivo import PessoasTesteInvalidas
 from ia_atendimento.pessoas_teste.catalogo import catalogo_padrao
 
 
-def _arquivo(pares: list[str], saida: str | None) -> int:
+def _pares_do_arquivo(caminho: str) -> dict[str, str] | None:
+    """`{chat: persona_id}` de um `PESSOAS_TESTE_ARQUIVO` anterior (a pessoa de cada chat volta a ser a persona do catálogo)."""
+    catalogo = catalogo_padrao()
+    try:
+        dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
+        return {chat: catalogo.por_pessoa(pessoa).persona_id for chat, pessoa in dados["chats"].items()}  # type: ignore[union-attr]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def _arquivo(pares: list[str], saida: str | None, juntar: str | None = None) -> int:
     chats: dict[str, str] = {}
+    if juntar is not None:
+        anteriores = _pares_do_arquivo(juntar)
+        if anteriores is None:
+            print("--juntar: arquivo ausente, ilegível ou com pessoa fora do catálogo", file=sys.stderr)
+            return 2
+        chats.update(anteriores)
     for par in pares:
         chat, separador, persona = par.partition("=")
-        if not separador or chat in chats:
-            print("--par: use CHAT=PERSONA, sem repetir o chat", file=sys.stderr)
+        if not separador or (chat in chats and chats[chat] != persona):
+            print("--par: use CHAT=PERSONA, sem repetir o chat com outra persona", file=sys.stderr)
             return 2
         chats[chat] = persona
     catalogo = catalogo_padrao()
@@ -55,13 +72,14 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("arquivo")
     a.add_argument("--par", action="append", default=[], metavar="CHAT=PERSONA", help="chat de teste (24 hex) e a persona dele; repetível")
     a.add_argument("--saida", help="caminho do arquivo (0600); sem ele imprime em stdout")
+    a.add_argument("--juntar", metavar="ARQUIVO", help="preserva os chats de um arquivo anterior e acrescenta os --par")
     sub.add_parser("listar")
     args = ap.parse_args(argv)
     if args.comando == "listar":
         for p in catalogo_padrao().pessoas:
             print(f"{p.persona_id}\t{p.pessoa_id}")
         return 0
-    return _arquivo(args.par, args.saida)
+    return _arquivo(args.par, args.saida, args.juntar)
 
 
 if __name__ == "__main__":
