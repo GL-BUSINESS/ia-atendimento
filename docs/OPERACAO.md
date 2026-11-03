@@ -117,8 +117,7 @@ Tag semver e `gh release create` só depois da revisão (rodízio: quem implemen
 
 Pré-requisitos (ordem do contrato 08 §10): migrações 0003 e 0004 (seção 3) **antes** da imagem; os três arquivos de segredo abaixo montados `:ro`; o worker do
 Procrastinate de pé (o `/readyz` dá 503 sem batimento de worker). Nada disto roda na S4 nem é feito por este repositório; a imagem e o Coolify são do dono.
-O worker sobe por `fila.rodar_worker` e **precisa de supervisor que o reinicie** (política `restart` do contêiner): ele sai com erro (`WorkerPerdeuOBatimento`) se perder a própria
-linha ou o batimento por 40 s, abortando os jobs em voo, e a periódica `jobs_presos` libera o `lock=chat:` de quem levou `SIGKILL` (margem de 60 s; B5.7b, `docs/DECISOES-B5.7b-0211.md` D14).
+O worker é outro processo (próxima seção). Sem ele a API enfileira e nada executa.
 
 ```bash
 # arquivos de segredo (modo 0600, dono do usuário do contêiner; nunca em variável de ambiente do Coolify, nunca no git)
@@ -154,3 +153,46 @@ uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90
   conexão direta ao Postgres (nunca por pooler em modo transação).
 - **Parada leve:** `PUT /config/ia_ativa` com `false` agenda um alarme (`alarme_encerrar_por_chave`, sem lock do chat) por atendimento aberto, aguardando ou pausado (até 19 min); ao disparar ele enfileira o `encerrar_por_chave` com o lock do chat, então o cliente que responde nesse intervalo não fica preso. O serviço que executa o job
   é da B1.6: até lá o job falha alto (`ServicoNaoConfigurado`) e a vigia alerta; a chave desligada já recusa entrada nova.
+
+## 9. Subir o worker da fila (B5.7b) — gate de deploy: o compose da esteira ainda NÃO faz isto
+
+O ponto de entrada é `python -m ia_atendimento.worker` (o mesmo que o script `ia-worker` do pacote). Ele monta `Settings`, o pool, os `Servicos` e chama
+`fila.rodar_worker`: reconciliação do bloqueio das 20:15 na subida, `stalled_worker_timeout` de 60 s, `shutdown_graceful_timeout` de 30 s, a **vigia do
+batimento** (para o worker e aborta os jobs em voo se ele perder a própria linha, o batimento ou o banco por 40 s) e as periódicas (`jobs_presos`,
+`reaper_lease`, `reaper_agenda`, bloqueio das 20:15...). O que a esteira tinha era `procrastinate --app=ia_atendimento.fila.app worker`: módulo e atributo que
+**não existem**, sem `Servicos`, sem vigia e com poda de 30 s. **Trocar o `command` é a mudança que falta no compose** (repositório da esteira, branch
+`feat/esteira`; este repositório não o edita). Bloco exato:
+
+```yaml
+  ia-worker:
+    image: <a MESMA imagem da API>
+    command: ["python", "-m", "ia_atendimento.worker"]
+    restart: unless-stopped            # a vigia sai com código 3 e o SIGKILL do deploy também: o supervisor reinicia nos dois casos
+    stop_grace_period: 40s             # MAIOR que o shutdown_graceful_timeout (30 s) do worker: a drenagem termina antes do SIGKILL
+    environment:                       # as MESMAS variáveis da API (Settings); o worker lê o conteúdo dos mesmos arquivos de segredo, montados :ro
+      - DATABASE_URL
+      - MODELO_API_KEY_1
+      - API_TOKENS
+      - CHAVE_AES_ID
+      - CHAVE_AES_ARQUIVO
+      - CHAVE_H16
+      - CHAVE_FINGERPRINT
+      - CHAT_REF_CHAVE
+      - GATEWAY_HMAC_ARQUIVO
+      - SEGREDOS_SAIDA_ARQUIVO
+      - RESPONSAVEL_IA
+    healthcheck:                       # prova BATIMENTO no banco; `import ia_atendimento` não prova nada (worker vivo-mas-preso passaria)
+      test: ["CMD", "python", "-m", "ia_atendimento.worker", "--saude"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    # sem portas; UMA réplica (o healthcheck lê a tabela de workers inteira, sem saber qual linha é a dele)
+```
+
+Margens, em ordem (cada uma menor que a seguinte, de propósito): `/readyz` e `--saude` dão o worker por morto com batimento > **30 s**; a vigia do próprio
+worker o para com **40 s**; a periódica `jobs_presos` falha o job de worker morto com **60 s**; o `stop_grace_period` é de **40 s** e o
+`shutdown_graceful_timeout` de **30 s**. Códigos de saída: 0 parada limpa, 3 vigia, 1 outra falha (configuração inválida não cita o valor).
+**Regra de código para a B1.6: nenhum I/O síncrono dentro do laço do worker** (SDK síncrono do modelo ou do ChatGuru ⇒ `asyncio.to_thread`): a vigia e o batimento
+rodam no mesmo laço, e um handler que o bloqueie por mais de ~40 s derruba o worker, e por mais de 60 s deixa a fila liberar o chat com o job ainda rodando.
+Prova: `tests/test_worker_real.py` sobe o comando de verdade, vê o batimento no banco, o healthcheck, a vigia (código 3) e o SIGTERM (código 0).

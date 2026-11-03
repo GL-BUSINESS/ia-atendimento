@@ -6,7 +6,6 @@ um subprocesso sobe, recebe requisições de verdade e o teste lê o STDERR dele
 
 from __future__ import annotations
 
-import json
 import socket
 import subprocess
 import sys
@@ -17,7 +16,7 @@ import httpx
 import pytest
 
 from tests import apoio_api
-from tests.apoio_api import CHAT_REF, FINGERPRINT, H16, RESPONSAVEL_IA, TOKENS
+from tests.apoio_api import TOKENS, env_de_processo
 
 ambiente = apoio_api.ambiente
 pytestmark = pytest.mark.banco
@@ -28,17 +27,6 @@ def _porta_livre() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
-
-
-def _env(ambiente, tmp_path: Path, dialeto: str) -> dict[str, str]:
-    s = ambiente.banco.servidor
-    return {
-        "PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "PYTHONUNBUFFERED": "1",
-        "DATABASE_URL": f"postgresql{dialeto}://ia_app_a:x@{s.host}:{s.port}/{ambiente.banco.nome}",
-        "MODELO_API_KEY_1": "fw_chave-do-modelo-descartavel-123", "API_TOKENS": json.dumps(TOKENS), "CHAVE_AES_ID": "2",
-        "CHAVE_AES_ARQUIVO": str(tmp_path / "chaves-api.json"), "CHAVE_H16": H16, "CHAVE_FINGERPRINT": FINGERPRINT, "CHAT_REF_CHAVE": CHAT_REF,
-        "GATEWAY_HMAC_ARQUIVO": str(tmp_path / "gw.keys"), "SEGREDOS_SAIDA_ARQUIVO": str(tmp_path / "saida.json"), "RESPONSAVEL_IA": RESPONSAVEL_IA,
-    }  # fmt: skip
 
 
 @pytest.fixture
@@ -52,7 +40,7 @@ def servidor_real(ambiente, tmp_path):
             processo = subprocess.Popen(
                 [sys.executable, "-m", "uvicorn", "--factory", "ia_atendimento.api.ambiente:criar_app_de_ambiente", "--host", "127.0.0.1",
                  "--port", str(porta), "--log-level", "info"],
-                env=_env(ambiente, tmp_path, dialeto), stdout=saida, stderr=subprocess.STDOUT, cwd="/",
+                env=env_de_processo(ambiente, tmp_path, dialeto), stdout=saida, stderr=subprocess.STDOUT, cwd="/",
             )  # fmt: skip
         processos.append(processo)
         url = f"http://127.0.0.1:{porta}"
@@ -133,7 +121,7 @@ def test_subida_real_com_dialeto_psycopg_na_url_morre_com_mensagem_sem_a_senha(a
                 "--port",
                 str(_porta_livre()),
             ],
-            env=_env(ambiente, tmp_path, "+psycopg"),
+            env=env_de_processo(ambiente, tmp_path, "+psycopg"),
             stdout=saida,
             stderr=subprocess.STDOUT,
             cwd="/",

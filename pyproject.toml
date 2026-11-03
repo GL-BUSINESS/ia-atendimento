@@ -23,6 +23,9 @@ dependencies = [
   "tzdata==2026.6",
 ]
 
+[project.scripts]
+ia-worker = "ia_atendimento.worker:main"  # = `python -m ia_atendimento.worker` (R2-02); `--saude` é o healthcheck
+
 [dependency-groups]
 dev = [
   "pytest==9.2.0",
