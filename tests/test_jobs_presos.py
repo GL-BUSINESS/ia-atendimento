@@ -257,6 +257,9 @@ async def _subir_worker_com_turno_em_voo(banco, conninfo_app, conn_super, relogi
     app = criar(conninfo_app)
     await app.open_async()
     await fila.enfileirar_turno(app, uuid.uuid4(), hex24(), rajada_s=0)
+    # graceful longo DE PROPÓSITO: só a vigia (`shutdown_graceful_timeout = 0`) aborta o job em voo; se ela deixasse de zerar o prazo o worker esperaria
+    # e o teste FALHARIA no `wait_for` abaixo (sem travar a suíte: há `pytest-timeout`)
+    opcoes.setdefault("shutdown_graceful_timeout", 3600.0)
     worker = asyncio.create_task(
         fila.rodar_worker(app, servicos, wait=True, install_signal_handlers=False, fetch_job_polling_interval=0.05, **opcoes)
     )
@@ -264,6 +267,7 @@ async def _subir_worker_com_turno_em_voo(banco, conninfo_app, conn_super, relogi
     return app, turno, worker
 
 
+@pytest.mark.timeout(60)
 @pytest.mark.parametrize("como", ["linha_sumiu", "batimento_velho"])
 async def test_worker_que_perde_a_linha_ou_o_batimento_aborta_o_job_em_voo_e_sai_com_erro(banco, conninfo_app, conn_super, relogio, como):
     app, turno, worker = await _subir_worker_com_turno_em_voo(
@@ -280,7 +284,7 @@ async def test_worker_que_perde_a_linha_ou_o_batimento_aborta_o_job_em_voo_e_sai
         assert turno.cancelado, "o job em voo foi abortado: não segue enviando com o chat já liberado para outro"
     finally:
         worker.cancel()
-        await asyncio.gather(worker, return_exceptions=True)
+        await asyncio.wait_for(asyncio.gather(worker, return_exceptions=True), 10)  # limitado: nunca segura a suíte
         await app.close_async()
 
 

@@ -13,11 +13,12 @@ from typing import Any
 import psycopg
 
 from ia_atendimento import agenda_estado as ae
-from ia_atendimento import estado, estado_pausa
+from ia_atendimento import estado, estado_pausa, fila
 from ia_atendimento.estado import Versoes
 from ia_atendimento.estado_conversa import EstadoConversa, gravar_estado_conversa
 from ia_atendimento.jobs import Volta
 from tests.estado_apoio import entrada
+from tests.fixtures_fila import Chamadas, montar_servicos
 
 _SEQ = itertools.count(1)
 FOLGA_MIN = 30
@@ -193,3 +194,51 @@ def novo_worker(conn: psycopg.Connection, segundos_atras: int) -> int:
         "INSERT INTO procrastinate.procrastinate_workers (last_heartbeat) VALUES (now() - make_interval(secs => %s)) RETURNING id",
         (segundos_atras,),
     ).fetchone()[0]
+
+
+# --- ajudantes dos testes de agenda (compartilhados por test_agenda_jobs e test_agenda_retomar) ---
+
+
+def criar(conninfo: str, **opcoes):
+    return fila.criar_app(conninfo, com_periodicas=opcoes.pop("com_periodicas", False))
+
+
+async def rodar(app, servicos, **opcoes) -> None:
+    """Worker que processa o que está vencido e sai (`wait=False`): um «processo» do worker."""
+    await app.run_worker_async(
+        wait=False, install_signal_handlers=False, additional_context={"servicos": servicos}, fetch_job_polling_interval=0.05, **opcoes
+    )
+
+
+def jobs_da_tarefa(conn: psycopg.Connection, tarefa: str):
+    return conn.execute(
+        "SELECT status::text, lock, queueing_lock, args, scheduled_at FROM procrastinate.procrastinate_jobs WHERE task_name = %s ORDER BY id",
+        (tarefa,),
+    ).fetchall()
+
+
+def estado_e_versao(conn: psycopg.Connection, atendimento_id: uuid.UUID) -> tuple[str, int]:
+    return conn.execute("SELECT estado, versao FROM ia.atendimento WHERE atendimento_id = %s", (atendimento_id,)).fetchone()
+
+
+def linha_do_agendamento(conn: psycopg.Connection, agendamento_id: uuid.UUID) -> tuple[str, int, str | None, int | None]:
+    return conn.execute(
+        "SELECT estado, versao, desfecho_disparo, job_id FROM ia.agendamento WHERE agendamento_id = %s", (agendamento_id,)
+    ).fetchone()
+
+
+def passos_do_agendamento(conn: psycopg.Connection, atendimento_id: uuid.UUID) -> list[str]:
+    return [
+        r[0]
+        for r in conn.execute(
+            "SELECT resultado FROM ia.passo WHERE atendimento_id = %s AND tipo = 'agendamento' ORDER BY ordem", (atendimento_id,)
+        )
+    ]
+
+
+async def reagendar_ignorando(_: datetime) -> None:
+    raise AssertionError("não era para reagendar")
+
+
+def servicos_com_volta(banco, relogio, voltas, **troca):
+    return montar_servicos(banco, relogio, Chamadas(), retomar_atendimento=voltas, **troca)
