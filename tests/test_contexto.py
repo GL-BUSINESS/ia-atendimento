@@ -993,3 +993,94 @@ def test_rajada_enorme_entra_limitada_com_uma_linha_de_omitidas(db_conn, e3, cha
 def test_link_digitado_pelo_cliente_vira_marcador(bruto, esperado):
     """H §3.3: URL/link nunca entra no prompt; na sonda p2 a URL que o cliente digitou chegava ao corpo da requisição."""
     assert ctx.proteger_texto(bruto, ()) == esperado
+
+
+# --- link até o próximo espaço e vista NFKC (achados da revisão automática: _LINK incompleto e de largura inteira) --------------------------
+
+
+@pytest.mark.parametrize(
+    ("bruto", "esperado"),
+    [
+        ("veja meusite.com.evil.xyz/x?y=1#f ok", "veja [LINK] ok"),  # TLD fora da lista antiga e `?query#frag`
+        ("acesse meusite.com:8080/path?q=1#frag", "acesse [LINK]"),  # porta, query e fragmento
+        ("http://a.test:99/x?y#z fim", "[LINK] fim"),
+        ("www.exemplo.test?x=1", "[LINK]"),
+        ("ftp://exemplo.test/a", "[LINK]"),
+        ("meusite.com?token=abc123", "[LINK]"),
+        ("meusite.com#ancora", "[LINK]"),
+    ],
+)
+def test_link_vai_ate_o_proximo_espaco_com_porta_query_e_fragmento(bruto, esperado):
+    assert ctx.proteger_texto(bruto, ()) == esperado
+
+
+def test_resto_do_link_depois_do_host_nao_fica_no_texto():
+    for bruto in ("x .evil.xyz/segredo?token=zzz", "meusite.com:8080/a?b=senha#frag", "http://h.test/a?b=senha#frag"):
+        protegido = ctx.proteger_texto(bruto, ())
+        assert (
+            "evil" not in protegido
+            and "senha" not in protegido
+            and "zzz" not in protegido
+            and "frag" not in protegido
+            and "8080" not in protegido
+        )
+
+
+@pytest.mark.parametrize(
+    ("bruto", "esperado"),
+    [
+        ("ｈｔｔｐ：／／ｅｘａｍｐｌｅ．ｔｅｓｔ／ｘ", "[LINK]"),  # largura inteira
+        ("ｗｗｗ．ｅｘｅｍｐｌｏ．ｃｏｍ", "[LINK]"),
+        ("meusite。com。br/oferta", "[LINK]"),  # ponto ideográfico
+        ("meusite｡com｡br/oferta", "[LINK]"),  # ponto ideográfico de meia largura
+        ("veja ｈｔｔｐｓ：／／ｘ．ｔｅｓｔ／ａ e depois", "veja [LINK] e depois"),
+        ("quero Ｒ＄ ５.０００,００", "quero [VALOR]"),  # a mesma vista vale para o dinheiro
+        ("ｆｏｒａ ｄｏ ｌｉｎｋ", "fora do link"),  # largura inteira sem link vira ASCII (o modelo lê igual)
+    ],
+)
+def test_link_e_moeda_de_largura_inteira_nao_escapam(bruto, esperado):
+    assert ctx.proteger_texto(bruto, ()) == esperado
+
+
+def test_texto_normal_com_ponto_continua_igual():
+    for texto in ("ok.obrigado", "tudo bem. mais tarde", "oi, sou o Sr.Silva", "obs.: depois eu vejo"):
+        assert ctx.proteger_texto(texto, ()) == texto
+
+
+def test_a_vista_normalizada_tem_o_mesmo_comprimento_do_texto():
+    from ia_atendimento.protecao import normalizar
+
+    for texto in ("ｈｔｔｐ：／／ｅｘ．ｔｅｓｔ", "meusite。com", "reticências… e ™ e ① e ﬁ", "😀 ação"):
+        assert len(normalizar(texto)) == len(texto)
+    assert normalizar("…") == "…" and normalizar("①") == "1"
+
+
+def test_auditar_textos_barra_link_residual_e_de_largura_inteira():
+    """Fail-closed: o que a proteção devia ter trocado e não trocou (resumo legado, resultado de ferramenta, bug) não chega ao provedor."""
+    for sujo in (
+        "veja meusite.com:8080/x",
+        "veja ｈｔｔｐ：／／ｅｘ．ｔｅｓｔ",
+        "acesse meusite。com。br",
+        "x https://a.test/y?z#w",
+        "Ｒ＄ mil",
+    ):
+        with pytest.raises(ctx.ContextoComDadoPessoal):
+            ctx.auditar_textos("", sujo)
+        with pytest.raises(ctx.ContextoComDadoPessoal):
+            ctx.auditar_textos(sujo, "")
+    ctx.auditar_textos("", "oi, tudo bem. [LINK] e [VALOR] e [NUMERO] às 15h30")  # o que a proteção produz passa
+
+
+def test_montar_contexto_barra_o_link_que_a_protecao_nao_pegou(db_conn, e3, chaveiro, monkeypatch):
+    atd, _ = e3
+    receber_cru(db_conn, atd, chaveiro, "me manda em meusite.com:8080/oferta?token=abc#x")  # linha legada, sem máscara
+    monkeypatch.setattr(ctx, "proteger_texto", lambda texto, nomes: texto)
+    with pytest.raises(ctx.ContextoComDadoPessoal):
+        _montar(db_conn, atd, chaveiro)
+
+
+def test_o_texto_fixo_do_prompt_nao_tem_link():
+    from ia_atendimento.protecao import ha_link
+
+    for fase in ("E2", "E3", "E4", "E5", "E6", "E7", "E8", "E10"):
+        assert not ha_link(SISTEMA) and not ha_link(modulo_da_fase(fase)) and not ha_link(esquemas_das_ferramentas(fase))

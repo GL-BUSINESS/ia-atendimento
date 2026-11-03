@@ -47,7 +47,7 @@ from ia_atendimento.linha_tempo import Pendente
 from ia_atendimento.mascara import mascarar
 from ia_atendimento.modelos_conversa import EstadoConversa
 from ia_atendimento.modulos_fase import FASES_SEM_TURNO_DO_MODELO, SISTEMA, esquemas_das_ferramentas, modulo_da_fase
-from ia_atendimento.protecao import proteger_texto
+from ia_atendimento.protecao import ha_link, normalizar, proteger_texto
 from ia_atendimento.tokens import ESTIMADOR_PADRAO, EstimadorDeTokens
 from ia_atendimento.turno import PLACEHOLDERS_DA_FASE, PLACEHOLDERS_DO_TEXTO, ErroDoModelo, Turno, formato_do_turno
 
@@ -148,7 +148,7 @@ class ContextoNaoCabe(FalhaDoContexto):
 class ContextoComDadoPessoal(FalhaDoContexto):
     """A máscara ainda mudaria o prompt montado (ou há símbolo de moeda): nada vai ao modelo. Não diz o que casou."""
 
-    def __init__(self, mensagem: str = "o prompt montado ainda tem dado pessoal ou valor; o turno não sai") -> None:
+    def __init__(self, mensagem: str = "o prompt montado ainda tem dado pessoal, valor ou link; o turno não sai") -> None:
         super().__init__("contexto_com_dado_pessoal", mensagem)
 
 
@@ -286,8 +286,9 @@ def auditar_prompt(contexto: Contexto, nomes: Collection[str] = ()) -> None:
 
 def auditar_textos(fixo: str, variavel: str, nomes: Collection[str] = ()) -> None:
     """A mesma auditoria sobre textos soltos (o retorno de ferramenta usa só a parte variável). Não diz o que casou."""
-    if mascarar(fixo) != fixo or mascarar(variavel, nomes) != variavel or _PROIBIDO_NO_PROMPT.search(f"{fixo}\n{variavel}"):
-        raise ContextoComDadoPessoal("o prompt montado ainda tem dado pessoal ou valor; o turno não sai")
+    visto = normalizar(f"{fixo}\n{variavel}")  # também na vista NFKC: `Ｒ＄` e `ｈｔｔｐ：／／` de largura inteira não escapam do portão
+    if mascarar(fixo) != fixo or mascarar(variavel, nomes) != variavel or _PROIBIDO_NO_PROMPT.search(visto) or ha_link(visto):
+        raise ContextoComDadoPessoal("o prompt montado ainda tem dado pessoal, valor ou link; o turno não sai")
 
 
 # --- leitura do banco --------------------------------------------------------------------------------------------------------------------

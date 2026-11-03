@@ -3,8 +3,9 @@
 `proteger_texto` é a ÚLTIMA cerca do texto de cliente (ou da IA) antes do modelo; a primeira é a máscara da gravação
 (`conversa.gravar_troca`). Em ordem:
 
-1. `mascarar` (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos e os nomes da conversa), que é idempotente; link digitado vira
-   `[LINK]` (H §3.3);
+0. vista NFKC do texto (largura inteira, pontos ideográficos: `ｈｔｔｐ：／／` é `http://`); o resto olha SEMPRE esta vista;
+1. `mascarar` (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos e os nomes da conversa), que é idempotente; link digitado (esquema, `www.` ou
+   host com TLD conhecido, até o próximo espaço) vira `[LINK]` (H §3.3);
 2. data completa (`dd/mm/aaaa`) vira `[DATA]`: nascimento é dado que H §3.3 proíbe; a data de agendamento do cliente não leva o ano
    («dia 5», «05/11») e fica;
 3. dinheiro (`R$ 5.000,00`, `3 mil`, `800 reais`, `5k`) e prazo (`36x`, `12 parcelas`, `60 meses`) viram `[VALOR]` e `[PRAZO]`; um `r$`
@@ -20,13 +21,21 @@ O número do pedido («queria 250 por mês») é extraído por CÓDIGO da mensag
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Collection
 from typing import Final
 
 from ia_atendimento.mascara import mascarar
 
-# Link que o cliente digitou (H §3.3: URL/link nunca entra no prompt): com esquema, `www.` ou domínio conhecido sem esquema.
-_LINK: Final = re.compile(r"(?i)\b(?:https?://|www\.)\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|br|io|app|me|link|ly)\b(?:/\S*)?")
+# Link que o cliente digitou (H §3.3: URL/link nunca entra no prompt). Depois de casar o ESQUEMA (`xxx://`), `www.` ou o host com TLD
+# conhecido, o link vai até o próximo espaço: porta, caminho, `?query` e `#fragmento` não ficam no texto (um `.evil.xyz/…` ou
+# `:8080?token=…` chegava ao provedor).
+_TLDS: Final = (
+    "com|net|org|br|io|app|me|link|ly|xyz|info|biz|site|online|top|club|shop|store|tech|dev|cc|co|tk|ml|ga|cf|gq|ru|cn|pw|click|live|win|vip|fun|ws|gl"
+    "|page|cloud|digital"
+)
+_LINK: Final = re.compile(rf"(?i)(?<!\w)(?:[a-z][a-z0-9+.\-]*://|www\.)\S+|(?<!\w)(?:[a-z0-9-]+\.)+(?:{_TLDS})\b\S*")
+_PONTO_IDEOGRAFICO: Final = {"\u3002": ".", "\uff61": "."}  # «。» e «｡»: NFKC não os leva a «.»
 _DATA_COMPLETA: Final = re.compile(r"(?<!\d)(?:0?[1-9]|[12]\d|3[01])([/.\-])(?:0?[1-9]|1[0-2])\1(?:19|20)\d{2}(?!\d)")
 _DINHEIRO: Final = re.compile(
     r"(?i)(?<![\w])(?:r\$|rs)\s*\d[\d.,]*(?:\s*(?:mil|milh(?:ão|ões|ao|oes)|k|reais))?(?![\w])"
@@ -53,13 +62,30 @@ _NUMERO: Final = re.compile(
 )
 
 
+def _normalizar_caractere(caractere: str) -> str:
+    normal = unicodedata.normalize("NFKC", caractere)
+    return _PONTO_IDEOGRAFICO.get(normal, normal) if len(normal) == 1 else caractere
+
+
+def normalizar(texto: str) -> str:
+    """Vista NFKC caractere a caractere (largura inteira, círculos e pontos ideográficos viram ASCII) com o MESMO comprimento: a URL
+    de largura inteira vira `http://...`. Um caractere cuja forma NFKC tem outro tamanho (`…`, `™`) fica como está. Todo validador
+    olha esta vista."""
+    return "".join(_normalizar_caractere(c) for c in texto)
+
+
+def ha_link(texto: str) -> bool:
+    """O texto (na vista normalizada) ainda tem link? Usado pela auditoria final: o que a proteção devia ter trocado e não trocou."""
+    return _LINK.search(normalizar(texto)) is not None
+
+
 def _trocar_numero(achado: re.Match[str]) -> str:
     return achado.group("fica") if achado.group("fica") is not None else "[NUMERO]"
 
 
 def proteger_texto(texto: str, nomes: Collection[str]) -> str:
     """Texto de cliente (ou da IA) pronto para o prompt (ver o docstring do módulo). Idempotente."""
-    protegido = _LINK.sub("[LINK]", mascarar(texto, nomes))
+    protegido = _LINK.sub("[LINK]", mascarar(normalizar(texto), nomes))  # tudo olha a vista normalizada (largura inteira não escapa)
     protegido = _DATA_COMPLETA.sub("[DATA]", protegido)
     protegido = _PRAZO.sub("[PRAZO]", _DINHEIRO.sub("[VALOR]", protegido))
     protegido = _SIMBOLO_DE_MOEDA_SOLTO.sub("[VALOR]", protegido)

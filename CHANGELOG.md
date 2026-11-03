@@ -27,7 +27,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
     auditado (`ferramentas.py`, A-1); `protecao.py` (número «nu» → `[NUMERO]`, data → `[DATA]`, link → `[LINK]`, `r$` solto → `[VALOR]`); mensagem da E5 oculta por padrão; nome colado a `_`/dígito mascarado
     (`mascara.py`); `banco` só do catálogo e folhas por domínio fechado; placeholder fora da fase ⇒ `TextoForaDaFase`; `executar_turno` só aceita o `Contexto` montado; tempo-limite de 8 s (teto 10) e
     `max_retries=0`; fábrica de `LogRecord` que nunca levanta; `ContextoNaoCabe`/`ContextoComDadoPessoal` são `ErroDoModelo`; estimador com não latino a 2 tokens/caractere; scrubber cobre chave,
-    nome de evento, link e JSON; texto livre sem promessa; `ArgsDaFerramenta`. `MODELO_TENTATIVAS_HTTP` saiu. Testes novos: `test_ferramentas.py`, `test_timeout.py`, `test_vazamento_corpo.py`.
+    nome de evento, link e JSON; link digitado até o próximo espaço e em largura inteira (`normalizar`, `ha_link` na auditoria); texto livre sem promessa; `ArgsDaFerramenta`. `MODELO_TENTATIVAS_HTTP` saiu. Testes novos: `test_ferramentas.py`, `test_timeout.py`, `test_vazamento_corpo.py`.
 - **B8.1a, corpus da F3** (`tests/corpus/`, pacote `src/ia_atendimento/corpus/`, `tests/test_corpus*.py`): 60 personas P01-P60 (40 da F3 curta,
   C5) + 24 P-M, 60 diálogos-gabarito (40 da F3 curta + as 20 P-M críticas; 739 turnos; o texto da IA não é fixado), semente determinística
   (ordem, hold-out de 20%, 3 execuções por persona, escolha da variação do cliente) e carregador/validador Pydantic estrito (`extra='forbid'`,

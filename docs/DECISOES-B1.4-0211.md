@@ -112,6 +112,15 @@ Um commit `fix:` por item, cada um com teste que reprova sem a correção (muta�
 | **B-9** | Texto livre recusa «aprovado/garantido/garantia», link sem esquema e `R $`/`R＄` (o resto, número por extenso, é do T15 na B5) | `test_agente.py` |
 | **B-11** | `ArgsDaFerramenta`: só `oferta_ref` (`oferta-N`), `opcao_ref` (`opcao-N`) e `alvo` (`valor|parcela|prazo`) | `test_agente.py` |
 
+**Achados da revisão automática em `protecao.py` (2 × MEDIUM), corrigidos:**
+1. `_LINK` só consumia o host quando não havia `http`: `.evil.xyz/…`, `:porta`, `?query` e `#fragmento` ficavam no texto e iam ao provedor. Agora, depois de casar o esquema (`xxx://`), `www.` ou o host com TLD conhecido (lista ampliada: `xyz`, `info`,
+   `site`, `online`, `top`, `club`...), o link vai **até o próximo espaço**; e `auditar_textos` ganhou a checagem de link (`ha_link`) que falha fechada (texto com link residual ⇒ `ContextoComDadoPessoal`, também no retorno de ferramenta).
+2. `_LINK` rodava no texto cru e os demais validadores numa vista normalizada: URL e `Ｒ＄` de largura inteira (`ｈｔｔｐ：／／`), pontos ideográficos (`。`, `｡`) escapavam. Agora `normalizar()` (NFKC caractere a caractere, **mesmo comprimento**,
+   mais o ponto ideográfico) roda **antes de todo o pipeline** de `proteger_texto` e também dentro de `auditar_textos`. Em vez de casar na vista e substituir no original pelos índices, o pipeline inteiro trabalha sobre a vista (o mesmo efeito para
+   todos os validadores, sem divergência possível; o modelo lê «fora do link» no lugar de «ｆｏｒａ ｄｏ ｌｉｎｋ»). Testes: `test_link_vai_ate_o_proximo_espaco_…`, `test_link_e_moeda_de_largura_inteira_nao_escapam`, `test_auditar_textos_barra_link_residual_…`,
+   `test_montar_contexto_barra_o_link_que_a_protecao_nao_pegou` (cada um reprova sem a sua correção, mutação conferida). Custo aceito: «ok.obrigado» e «Sr.Silva» continuam iguais (TLD fora da lista), mas um domínio real fora da lista segue como texto
+   (a auditoria só barra o que a lista conhece; a B8.2 mede os falsos negativos).
+
 Também: a URL que o cliente digitou chegava ao corpo da requisição (sonda p2): agora `[LINK]`. A prova p2 (corpo HTTP completo por fase, 49 itens proibidos) virou `tests/test_vazamento_corpo.py`.
 
 **Deixados (BAIXOS, de propósito):** **B-2 (b)(c)** helper para gravar o gasto do turno que FALHA e a coluna `tokens_cache` (depende do contrato 08 §9 e da B1.6; hoje a fórmula não se reproduz a partir da linha do passo); **B-5** esquema do `Turno` igual em todas as
