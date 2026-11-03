@@ -89,6 +89,24 @@ FERRAMENTAS_DO_MODELO_POR_FASE: Final[Mapping[Fase, frozenset[str]]] = MappingPr
         "E5": frozenset(), "E6": frozenset(), "E7": frozenset(), "E8": frozenset({"T10"}), "E9": frozenset(), "E10": frozenset(),
     }
 )  # fmt: skip
+# Placeholders que o TEXTO LIVRE do modelo pode usar em cada fase (o código os resolve). É a mesma tabela que o prompt mostra ao modelo e
+# que `validar_turno_na_fase` aplica: `{{valor_liberado}}` na E2 quebraria a Q1 (abertura sem valores) e `{{link}}` fora da E8 entregaria
+# o link (M-6).
+PLACEHOLDERS_DA_FASE: Final[Mapping[Fase, tuple[str, ...]]] = MappingProxyType(
+    {
+        "E0": (),
+        "E1": (),
+        "E2": ("nome",),
+        "E3": ("nome", "banco", "valor_liberado", "valor_parcela", "prazo"),
+        "E4": ("nome", "banco", "valor_liberado", "valor_parcela", "prazo", "pedido"),
+        "E5": ("nome", "campo"),
+        "E6": ("nome", "banco", "valor_liberado", "valor_parcela", "prazo", "destino"),
+        "E7": ("nome",),
+        "E8": ("nome", "banco", "link"),
+        "E9": (),
+        "E10": (),
+    }
+)
 # Textos fixos que o modelo pode ESCOLHER (H §2.3, E2: FAQ fechada). O resto do catálogo quem escolhe é o código.
 TX_FAQ: Final = frozenset({"TX-32", "TX-33", "TX-39", "TX-40", "TX-41"})
 TX_DO_MODELO_POR_FASE: Final[Mapping[Fase, frozenset[str]]] = MappingProxyType(
@@ -272,6 +290,10 @@ class CampoForaDaFase(TurnoForaDaFase):
     pass
 
 
+class TextoForaDaFase(TurnoForaDaFase):
+    """O texto livre usa um placeholder que a fase não libera."""
+
+
 def validar_turno_na_fase(fase: str, turno: Turno, *, resultado: ResultadoTurno | None = None) -> None:
     """Confere o `Turno` contra a fase. Levanta o erro específico (todos `TurnoForaDaFase`); fase sem turno do modelo recusa toda ação."""
     if fase not in ACOES_POR_FASE:
@@ -290,6 +312,12 @@ def validar_turno_na_fase(fase: str, turno: Turno, *, resultado: ResultadoTurno 
         raise TxForaDaFase(
             "tx_fora_da_fase", f"texto {turno.tx_id} não é do modelo na fase {fase}", turno=turno, fase=fase, resultado=resultado
         )
+    if turno.texto is not None:
+        fora = sorted(set(_PLACEHOLDER.findall(turno.texto)) - set(PLACEHOLDERS_DA_FASE[fase]))  # type: ignore[index]
+        if fora:
+            raise TextoForaDaFase(
+                "texto_fora_da_fase", f"placeholder {', '.join(fora)} não vale na fase {fase}", turno=turno, fase=fase, resultado=resultado
+            )
     if turno.campo_alvo is not None and fase != FASE_DO_CAMPO_ALVO:
         raise CampoForaDaFase(
             "campo_fora_da_fase", f"campo_alvo só vale na fase {FASE_DO_CAMPO_ALVO}", turno=turno, fase=fase, resultado=resultado

@@ -47,7 +47,7 @@ from ia_atendimento.mascara import mascarar
 from ia_atendimento.modelos_conversa import EstadoConversa
 from ia_atendimento.modulos_fase import FASES_SEM_TURNO_DO_MODELO, SISTEMA, esquemas_das_ferramentas, modulo_da_fase
 from ia_atendimento.tokens import ESTIMADOR_PADRAO, EstimadorDeTokens
-from ia_atendimento.turno import PLACEHOLDERS_DO_TEXTO, Turno, formato_do_turno
+from ia_atendimento.turno import PLACEHOLDERS_DA_FASE, PLACEHOLDERS_DO_TEXTO, Turno, formato_do_turno
 
 TETO_TOKENS: Final = 4000  # H §3.1: teto duro de entrada
 TROCAS_NO_PROMPT: Final = 3
@@ -85,16 +85,6 @@ LIMITES_INTEIROS_DO_LEAD: Final[Mapping[str, int]] = {
 }
 PERFIL_PARA_O_MODELO: Final = tuple(sorted({*LEAD_ENUMS, *LIMITES_INTEIROS_DO_LEAD}))
 FASES_COM_VALORES: Final = frozenset({"E3", "E4", "E5", "E6", "E7", "E8"})  # Q1: antes da E3 nem a oferta aparece no estado
-PLACEHOLDERS_DA_FASE: Final[Mapping[str, tuple[str, ...]]] = {
-    "E2": ("nome",),
-    "E3": ("nome", "banco", "valor_liberado", "valor_parcela", "prazo"),
-    "E4": ("nome", "banco", "valor_liberado", "valor_parcela", "prazo", "pedido"),
-    "E5": ("nome", "campo"),
-    "E6": ("nome", "banco", "valor_liberado", "valor_parcela", "prazo", "destino"),
-    "E7": ("nome",),
-    "E8": ("nome", "banco", "link"),
-    "E10": (),
-}
 # Resultado de ferramenta ao modelo: SÓ o que está aqui (`True` = folha permitida; dict = objeto/lista de objetos). Valor em reais, prazo,
 # coeficiente, comissão e motivo cru do banco não estão em nenhuma lista: não passam, mesmo que a ferramenta os devolva.
 # Onde há catálogo fechado a regra é o `frozenset` do domínio (valor fora dele some); `True` = folha de forma segura (minúscula, sem

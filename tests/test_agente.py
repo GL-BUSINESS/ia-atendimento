@@ -48,6 +48,7 @@ from ia_atendimento.roteiro_f3 import ForaDoRoteiro, RoteiroF3, exemplos_da_f3, 
 from ia_atendimento.turno import (
     ACOES_POR_FASE,
     FERRAMENTAS_DO_MODELO_POR_FASE,
+    PLACEHOLDERS_DA_FASE,
     PLACEHOLDERS_DO_TEXTO,
     TX_DO_MODELO_POR_FASE,
     TX_FAQ,
@@ -59,6 +60,7 @@ from ia_atendimento.turno import (
     FerramentaPedida,
     Intencao,
     Objecao,
+    TextoForaDaFase,
     Turno,
     TxForaDaFase,
     custo_brl,
@@ -250,6 +252,55 @@ def test_ferramenta_tx_e_campo_fora_da_fase_tambem_sao_erro_do_modelo():
     validar_turno_na_fase("E5", _turno(acao="pedir_dado", campo_alvo="pix"))
     with pytest.raises(ValueError, match="fase desconhecida"):
         validar_turno_na_fase("E11", _turno())
+
+
+@pytest.mark.parametrize(
+    ("fase", "texto"),
+    [
+        ("E2", "Com {{valor_liberado}} em {{prazo}} fica bom."),  # a abertura é sem valores (Q1)
+        ("E2", "Posso te mandar o {{link}}?"),
+        ("E3", "Aqui está o {{link}}."),  # o link só na E8
+        ("E3", "Sua conta {{destino}} está certa?"),
+        ("E5", "O {{valor_parcela}} fica assim."),
+        ("E7", "Calma, {{nome}}, são {{prazo}}."),
+        ("E10", "Obrigado, {{nome}}."),  # E10: o texto é do código
+    ],
+)
+def test_placeholder_que_a_fase_nao_libera_e_erro_do_modelo(fase, texto):
+    """M-6: a B1.6 resolveria `{{valor_liberado}}` com o valor real; o texto livre só pode usar o que a FASE libera."""
+    turno = _turno(acao=sorted(ACOES_POR_FASE[fase])[0], texto=texto)
+    with pytest.raises(TextoForaDaFase) as erro:
+        validar_turno_na_fase(fase, turno)
+    assert isinstance(erro.value, ErroDoModelo) and erro.value.acao_invalida and erro.value.codigo == "texto_fora_da_fase"
+
+
+@pytest.mark.parametrize(
+    ("fase", "texto"),
+    [
+        ("E2", "Oi {{nome}}, entendi."),
+        ("E3", "Sobre o {{banco}}: {{valor_liberado}} em {{prazo}}, parcela de {{valor_parcela}}."),
+        ("E4", "Pedido de {{pedido}} no {{banco}}."),
+        ("E5", "Preciso de {{campo}}, {{nome}}."),
+        ("E6", "Envio ao {{banco}} com {{destino}}."),
+        ("E8", "Segue o {{link}} do {{banco}}."),
+        ("E2", "Texto sem placeholder nenhum."),
+    ],
+)
+def test_placeholder_que_a_fase_libera_passa(fase, texto):
+    acao = sorted(ACOES_POR_FASE[fase])[0]
+    validar_turno_na_fase(fase, _turno(acao=acao, texto=texto))
+
+
+def test_a_tabela_de_placeholders_da_fase_e_a_do_prompt_e_so_do_conjunto_fechado():
+    from ia_atendimento.contexto import PLACEHOLDERS_DA_FASE as DO_PROMPT
+
+    assert DO_PROMPT is PLACEHOLDERS_DA_FASE  # uma só tabela: o que o modelo lê é o que o validador aplica
+    assert set(PLACEHOLDERS_DA_FASE) == set(f3.FASES)
+    for fase, nomes in PLACEHOLDERS_DA_FASE.items():
+        assert set(nomes) <= PLACEHOLDERS_DO_TEXTO, fase
+        if fase in ("E2",):
+            assert "valor_liberado" not in nomes and "link" not in nomes  # Q1: abertura sem valores, link só na E8
+    assert "link" in PLACEHOLDERS_DA_FASE["E8"] and not any("link" in n for f, n in PLACEHOLDERS_DA_FASE.items() if f != "E8")
 
 
 # --- custo -----------------------------------------------------------------------------------------------------------------------------
