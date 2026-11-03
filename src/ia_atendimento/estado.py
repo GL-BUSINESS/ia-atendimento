@@ -9,7 +9,9 @@
 - **Imutáveis por privilégio:** `faixa_esforco`, `comissao_esperada_brl`, identidade e versões de artefato são gravadas em `abrir` e ficam
   fora do GRANT UPDATE de `ia_app`; `Mudancas` tem exatamente as colunas do GRANT (um teste confere com o catálogo).
 - **Sem PII:** a entrada não tem CPF, telefone (`chat_number` vai ao cofre na B1.5), nome nem texto de cliente; `hide_input_in_errors`.
-- Fora daqui (outras etapas): `pausar`/`sair_da_pausa`/`abrir_agendado` (B5.7b), tetos/`max_abertos`/pré-voo (B1.5), jobs e reapers (B1.3).
+- Fora daqui: tetos/`max_abertos`/pré-voo (B1.5), jobs e reapers (B1.3), a pausa combinada e o `reservado` de vida longa
+  (`estado_pausa.py`, B5.7b) e os jobs `retomar`/`reaper_agenda` (`agenda_jobs.py`). `aplicar(pausa=, onde_igual=)` é o que
+  `estado_pausa` usa; `repassar` e `encerrar` tiram a chave `pausa` do `estado_conversa` no mesmo UPDATE.
 """
 
 from __future__ import annotations
@@ -54,7 +56,7 @@ from ia_atendimento.estado_erros import (  # noqa: F401
     ModoInvalido,
     TransicaoInvalida,
 )
-from ia_atendimento.modelos_conversa import EstadoConversa
+from ia_atendimento.modelos_conversa import EstadoConversa, Pausa
 from ia_atendimento.tipos import LIMITE_JSON_OCTETOS, Codigo40, Codigo60, DataHora, Perfil, octetos_como_jsonb  # noqa: F401  (reexportados)
 
 LEASE_RESERVADO_S: Final = 120  # `reservado` nasce com 2 min (K §8.1)
@@ -382,33 +384,54 @@ def _valor_sql(nome: str, valor: Any) -> Any:
     return valor
 
 
-def _expressoes(mudancas: Mudancas, fase: str | None, lease_so_cresce: bool = False) -> dict[str, sql.Composable]:
-    """`coluna → expressão` do SET. Com `fase`, o `estado_conversa` sai de `jsonb_set(...)`: a fase vai no mesmo UPDATE, atômica."""
+def _expressoes(
+    mudancas: Mudancas, fase: str | None, lease_so_cresce: bool = False, pausa: Pausa | Literal["remover"] | None = None
+) -> dict[str, sql.Composable]:
+    """`coluna → expressão` do SET. Com `fase`/`pausa`, o `estado_conversa` sai de `jsonb_set(...)`/`- 'pausa'`: mesmo UPDATE, atômico."""
     exprs: dict[str, sql.Composable] = {}
     for nome in sorted(mudancas.model_fields_set):
         exprs[nome] = sql.SQL("%(p_estado_conversa)s::jsonb" if nome == "estado_conversa" else f"%(p_{nome})s")
     if lease_so_cresce and "lease_ate" in exprs:
         exprs["lease_ate"] = sql.SQL("greatest(lease_ate, %(p_lease_ate)s)")  # nunca encurta (quem espera o cliente tem lease de dias)
-    if fase is not None:
+    if fase is not None or pausa is not None:
         base = exprs.get("estado_conversa", sql.SQL("estado_conversa"))
-        exprs["estado_conversa"] = sql.SQL("jsonb_set({}, '{{fase}}', to_jsonb(%(p_fase)s::text))").format(base)
+        if fase is not None:
+            base = sql.SQL("jsonb_set({}, '{{fase}}', to_jsonb(%(p_fase)s::text))").format(base)
+        if pausa == "remover":
+            base = sql.SQL("({}) - 'pausa'").format(base)
+        elif pausa is not None:
+            base = sql.SQL("jsonb_set({}, '{{pausa}}', %(p_pausa)s::jsonb)").format(base)
+        exprs["estado_conversa"] = base
     return exprs
 
 
 def _montar_update(
-    mudancas: Mudancas, fase: str | None, de: Collection[str] | None, sem_assumido_em: bool, lease_so_cresce: bool
+    mudancas: Mudancas,
+    fase: str | None,
+    de: Collection[str] | None,
+    sem_assumido_em: bool,
+    lease_so_cresce: bool,
+    pausa: Pausa | Literal["remover"] | None = None,
+    onde_igual: dict[str, str] | None = None,
 ) -> tuple[sql.Composed, dict[str, Any]]:
     params: dict[str, Any] = {f"p_{n}": _valor_sql(n, getattr(mudancas, n)) for n in mudancas.model_fields_set}
-    sets = [sql.SQL("{} = {}").format(sql.Identifier(nome), expr) for nome, expr in _expressoes(mudancas, fase, lease_so_cresce).items()]
+    sets = [
+        sql.SQL("{} = {}").format(sql.Identifier(nome), expr) for nome, expr in _expressoes(mudancas, fase, lease_so_cresce, pausa).items()
+    ]
     sets.append(sql.SQL("versao = versao + 1, atualizado_em = %(agora)s"))
     onde = [sql.SQL("atendimento_id = %(atd)s AND versao = %(versao)s")]
     if fase is not None:
         params["p_fase"] = fase
+    if isinstance(pausa, Pausa):
+        params["p_pausa"] = Jsonb(pausa.model_dump(mode="json", exclude_defaults=True))
     if de is not None:
         params["de"] = sorted(de)
         onde.append(sql.SQL("estado = ANY(%(de)s)"))
     if sem_assumido_em:
         onde.append(sql.SQL("assumido_em IS NULL"))
+    for coluna, valor in sorted((onde_igual or {}).items()):  # nomes de coluna do nosso código (fase, gatilho), nunca de entrada externa
+        onde.append(sql.SQL("{} = {}").format(sql.Identifier(coluna), sql.Placeholder(f"w_{coluna}")))
+        params[f"w_{coluna}"] = valor
     consulta = sql.SQL("UPDATE ia.atendimento SET {} WHERE {} RETURNING versao").format(
         sql.SQL(", ").join(sets), sql.SQL(" AND ").join(onde)
     )
@@ -436,17 +459,21 @@ def aplicar(
     fase: str | None = None,
     sem_assumido_em: bool = False,
     lease_so_cresce: bool = False,
+    pausa: Pausa | Literal["remover"] | None = None,
+    onde_igual: dict[str, str] | None = None,
 ) -> int:
     """`UPDATE … WHERE atendimento_id = $1 AND versao = $2 AND estado ∈ de` com `versao + 1`; devolve a nova `versao`.
 
     `de` tem por padrão os estados NÃO terminais: `encerrado` é absorvente (o trigger da 0003 também o garante no banco).
 
-    `fase` (E0..E10) é escrita no mesmo UPDATE dentro do `estado_conversa`. Zero linhas ⇒ `ConflitoVersao` / `AtendimentoInexistente` /
-    `TransicaoInvalida`. CHECK violado ⇒ `TransicaoInvalida` (com `restricao`); NOT NULL/tipo ⇒ `DadoRecusado`; sem valores da linha.
+    `fase` (E0..E10) é escrita no mesmo UPDATE dentro do `estado_conversa`. `pausa` põe (`Pausa`) ou tira (`"remover"`) a chave `pausa` do
+    `estado_conversa`, também no mesmo UPDATE. `onde_igual` acrescenta `coluna = valor` ao WHERE (ex.: `{"fase": "E3"}`).
+    Zero linhas ⇒ `ConflitoVersao` / `AtendimentoInexistente` / `TransicaoInvalida`. CHECK violado ⇒ `TransicaoInvalida` (com `restricao`);
+    NOT NULL/tipo ⇒ `DadoRecusado`; sem valores da linha.
     """
     if agora.tzinfo is None:
         raise ValueError("`agora` exige datetime com fuso")
-    consulta, params = _montar_update(mudancas, fase, de, sem_assumido_em, lease_so_cresce)
+    consulta, params = _montar_update(mudancas, fase, de, sem_assumido_em, lease_so_cresce, pausa, onde_igual)
     params.update({"agora": agora, "atd": atendimento_id, "versao": versao})
     linha = executar_traduzindo(conn, consulta, params, check_e_transicao=True)
     if linha is None:
@@ -566,7 +593,7 @@ def repassar(
     }  # fmt: skip
     if consultor_ref is not None:
         campos["repasse_consultor_ref"] = consultor_ref
-    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=_REPASSAVEIS, fase="E10")
+    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=_REPASSAVEIS, fase="E10", pausa="remover")
 
 
 def _exigir_timestamps(desfecho: str, motivo: str, opt_out_em: datetime | None, humano_assumiu_em: datetime | None) -> None:
@@ -610,7 +637,8 @@ def encerrar(
         campos["repasse_consultor_ref"] = consultor_ref
     # `repassado` só sai de `repassando` (repasse em duas fases); a devolução da S2 é a única exceção (nunca passou pela fase 1)
     de = {"repassando"} if desfecho == "repassado" and motivo != MOTIVO_DEVOLVIDO_S2 else ESTADOS_NAO_TERMINAIS
-    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=de, sem_assumido_em=desfecho == "abortado")
+    sem_assumido = desfecho == "abortado"
+    return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=de, sem_assumido_em=sem_assumido, pausa="remover")
 
 
 def abortar(conn: psycopg.Connection, atendimento_id: UUID | str, versao: int, *, motivo: str, relogio: Relogio) -> int:

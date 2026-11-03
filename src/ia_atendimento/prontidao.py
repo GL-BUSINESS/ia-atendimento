@@ -23,7 +23,9 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from ia_atendimento import migracoes
 
-HEARTBEAT_MAX_S = 30.0  # = stalled_worker_timeout do Procrastinate: depois disso o worker é considerado morto
+# o `/readyz` e o healthcheck do worker dão o worker por morto com batimento > 30 s. Ordem das margens (cada uma menor que a seguinte):
+# 30 s (aqui) < 40 s (a vigia do próprio worker o para, `worker_vivo`) < 60 s (`jobs_presos` falha o job; poda de worker)
+HEARTBEAT_MAX_S = 30.0
 TODO_MAX_S = 600.0  # K §3.3.5: job `todo` vencido há mais de 10 min = fila parada
 TIPOS_DE_ARTEFATO = ("roteiro", "regras", "catalogo", "motor")
 CANAL_PROBE = "ia_readyz"

@@ -1,7 +1,8 @@
 # ia-atendimento
 
 Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este repositório tem a **fundação (A6)** e o
-**ciclo de vida do atendimento (B1.1)** e, em `feat/b1-5-api-entrada`, a **API de entrada (B1.5)**: ainda sem agente, sem ferramentas, sem n8n e sem nada em produção. O que existe e está provado:
+**ciclo de vida do atendimento (B1.1)** e, em `feat/b1-5-api-entrada`, a **API de entrada (B1.5)** e, em `feat/b5-7b-pausado`, a **pausa combinada e os jobs
+da agenda (B5.7b)**: ainda sem agente, sem ferramentas, sem n8n e sem nada em produção. O que existe e está provado:
 
 | Peça | Onde | Prova |
 |---|---|---|
@@ -25,6 +26,11 @@ Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este re
 | Mensagem recebida (uma função para webhook e RPA) e casamento webhook × RPA — B1.5 | `src/ia_atendimento/mensagens.py` | `tests/test_contrato_api.py`, `tests/test_mensagens.py` |
 | Agendamento («Vou fazer depois»), faixa de esforço, `pessoas_teste` (arquivo `{pessoas, chats}`), enfileirador e segredos em arquivo 0600 — B1.5 | `agendamento.py`, `esforco.py`, `pessoas_teste/arquivo.py`, `enfileirador.py`, `segredos.py` | `tests/test_api*.py`, `tests/test_enfileirador.py`, `tests/test_segredos.py`, `tests/test_ambiente_api.py` |
 | `pessoas_teste`: 84 pessoas sintéticas (uma por `persona_id` da F3, um CPF cada), oferta FACTA ativa com `valid_until` relativo servida em `duble\|teste` (T1/T3), «[TESTE]», formas medidas, `fixtures/duble/` de 360, 3RN e C6 e o kit `chats-teste.sh` — B2.4 | `src/ia_atendimento/pessoas_teste/`, `fixtures/duble/`, `kits/chats-teste.sh`, `scripts/gerar_pessoas_teste.py` | `tests/test_pessoas_teste*.py`, `tests/test_fixtures_duble.py`, `tests/test_corpus_clones.py`, `tests/test_kit_chats_teste.py`, `tests/test_exige_irmao.py` |
+| Estado `pausado` (`pausar`/`sair_da_pausa`: só de E2–E6 e E8, nunca E7, com teto de pausados e de horas) e `reservado` de vida longa (`abrir_agendado`/`iniciar_agendado`) — B5.7b | `src/ia_atendimento/estado_pausa.py` | `tests/test_estado_pausa.py`, `tests/test_agenda_jobs.py` |
+| Estados da linha `agendamento` (`confirmar`/`disparar`/`cancelar`, CAS por `versao`) e o passo `agendamento` — B5.7b | `src/ia_atendimento/agenda_estado.py` | `tests/test_agenda_estado.py` |
+| Jobs `retomar` (alarme sem lock + CAS `confirmado → disparado`) e `reaper_agenda` por minuto; `POST /agendamentos` enfileira o alarme — B5.7b | `agenda_jobs.py`, `fila.py`, `api/agendamentos.py` | `tests/test_agenda_jobs.py` (EM4: restart com 3 `confirmado`) |
+| Jobs presos: periódica `jobs_presos` (UPDATE atômico) e vigia do batimento do worker; rearme de agendamento e teto de atraso — B5.7b | `worker_vivo.py`, `agenda_estado.py`, `agenda_jobs.py` | `tests/test_jobs_presos.py` (SIGKILL real), `tests/test_execucao_superada.py`, `tests/test_agenda_rearme.py` |
+| Ponto de entrada do worker (`python -m ia_atendimento.worker`, script `ia-worker`, `--saude`); volta perdida fecha a linha (`fechar_volta_perdida`) — B5.7b | `worker.py`, `agenda_estado.py`, `docs/OPERACAO.md` §9 | `tests/test_worker_real.py` (processo real), `tests/test_agenda_volta_perdida.py` |
 
 ## Como rodar
 
@@ -78,7 +84,7 @@ gateway** (`x-gl-origem|rota|timestamp|assinatura`; o token `ti` vale ali só co
 | `GET /atendimentos/por-chave/{chave}` | `n8n_braco`, `vigia`, `ti` |
 | `POST /eventos/chatguru` | assinatura do gateway; ou `ti` (replay manual) |
 | `POST /eventos/mensagem` | `ti` |
-| `POST /agendamentos`, `POST /sessoes/{id}/candidatos` | `n8n_braco` |
+| `POST /agendamentos` (grava o passo `agendamento` e enfileira o alarme do `retomar` em `dispara_em`; `retoma_fase` só `E8` com `agenda_b_digita=false`), `POST /sessoes/{id}/candidatos` | `n8n_braco` |
 | `GET /config`, `GET /config/{nome}` | `n8n_braco`, `ti`, `c360_api`, `vigia` |
 | `PUT /config/{nome}` | `ti`; `c360_api` só `ia_ativa` e `modo` |
 | `POST /atendimentos/{id}/anotacoes` | `ti` |
@@ -128,7 +134,7 @@ Para aplicar na S4 (feito pelo dono, nunca por este código): `migrations/README
 ```
 migrations/      0001 (estudo I), 0002 (Procrastinate), 0003 (estado), 0004 (anexo do RPA e outbox), 0001.sha256, README.md (ordem de aplicação na S4)
 scripts/         check.sh, aplicar_migracoes_local.sh, gerar_0002.py, varredura.py
-src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py, estado*.py, fila.py, jobs.py, mensagens.py, agendamento.py, api/ …
+src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py, estado*.py, fila.py, jobs.py, mensagens.py, agendamento.py, agenda_estado.py, agenda_jobs.py, estado_pausa.py, worker_vivo.py, worker.py, api/ …
 tests/           test_*.py; casos/ = os 350 casos do estudo I como dados (nome, papel, SQL, expectativa)
 docs/OPERACAO.md operação (aplicação na S4 = texto para o dono, não executar sem o «sim»)
 .github/workflows/ci.yml  ruff + pytest com serviço postgres:18, sem segredos
