@@ -223,28 +223,29 @@ def test_nome_do_cliente_nao_entra_no_lead_nem_por_enum(db_conn, relogio, versoe
     assert _lead(db_conn, relogio, versoes, chaveiro, {"banco": "FACTA", "origem": "inapp"}, nomes=("Facta Silva",)) == {"origem": "inapp"}
 
 
-def test_a_allowlist_de_resultado_de_ferramenta_continua_so_em_minusculas():
-    """Achado MEDIUM: alargar `_FOLHA_TEXTO` para maiúsculas relaxava a allowlist de PII de TODO resultado. Maiúscula só onde a regra da chave pede."""
+def test_a_allowlist_de_resultado_de_ferramenta_e_de_dominio_fechado_nao_de_forma():
+    """Achado MEDIUM da r1 (maiúsculas) e R2-04: nenhuma folha de TEXTO passa por forma; só o que está no catálogo da chave."""
     saida = json.loads(
         ctx.projetar_resultado(
             {
                 "T3": {"status": "ativa", "versao": 2},
-                "T10": {"status": "MARIA", "macro": "Pago_Por_Fulano"},
-                "T2": {"status": "FACTA", "etapa": "proposta"},
+                "T10": {"proxima_acao": "MARIA", "macro": "Pago_Por_Fulano", "frase_ref": "ST-99"},
+                "T2": {"fase": "FACTA", "etapa": "em_esteira"},
             },
             ctx.Apelidos(),
         )
     )
     assert saida["T3"] == {"status": "ativa", "versao": 2}
-    assert "T10" not in saida  # as duas folhas têm maiúscula: nada sobra
-    assert saida["T2"] == {"etapa": "proposta"}
+    assert "T10" not in saida  # as três folhas estão fora do catálogo: nada sobra
+    assert saida["T2"] == {"etapa": "em_esteira"}
 
 
-def test_nome_conhecido_nao_passa_como_folha_de_resultado_de_ferramenta():
-    projetado = ctx.projetar_resultado({"T3": {"status": "alvardel", "placeholders": ["nome", "alvardel"]}}, ctx.Apelidos(), NOMES)
-    assert json.loads(projetado) == {"T3": {"placeholders": ["nome"]}}  # o sobrenome do cliente sai, o placeholder fica
-    sem_nomes = ctx.projetar_resultado({"T3": {"status": "alvardel"}}, ctx.Apelidos())
-    assert json.loads(sem_nomes) == {"T3": {"status": "alvardel"}}  # prova que é o `nomes` que barra, não a regra de forma
+def test_nome_do_cliente_igual_a_um_valor_do_dominio_nao_vai_ao_modelo():
+    """Um cliente chamado «Ativa» ou «Pago»: a máscara trocaria a palavra no prompt, então o valor do catálogo some (fail-closed)."""
+    sem = json.loads(ctx.projetar_resultado({"T3": {"status": "ativa"}, "T10": {"macro": "pago"}}, ctx.Apelidos()))
+    assert sem == {"T3": {"status": "ativa"}, "T10": {"macro": "pago"}}
+    com = ctx.projetar_resultado({"T3": {"status": "ativa", "versao": 2}, "T10": {"macro": "pago"}}, ctx.Apelidos(), ("Ativa Pago",))
+    assert json.loads(com) == {"T3": {"versao": 2}}
 
 
 def test_auditar_prompt_com_nomes_barra_o_nome_na_parte_variavel_mas_nao_no_texto_fixo():
@@ -659,7 +660,7 @@ def test_nome_colado_a_underscore_ou_digito_nao_chega_ao_modelo(texto):
 
 def test_nome_colado_nao_passa_como_folha_de_resultado_nem_como_valor_do_lead():
     for texto in ("maria1", "maria_alvardel", "alvardel2024"):
-        assert ctx._folha_segura(texto, NOMES) == (False, None)
+        assert not ctx._no_dominio(texto, ctx.STATUS_DA_OFERTA, NOMES)
     assert ctx._valor_do_lead("origem", "inapp", ("Inapp1",)) == "inapp"  # nome só vale se for a MESMA palavra
     assert ctx._valor_do_lead("origem", "inapp", ("Inapp",)) is None
 
@@ -704,20 +705,93 @@ def test_banco_da_oferta_corrente_fora_do_catalogo_vira_outro(db_conn, relogio, 
     assert estado["oferta"]["banco"] == "OUTRO" and "RS_5000" not in json.dumps(estado)
 
 
+FOLHAS_DE_TEXTO_DO_RESULTADO = [
+    ("T3", "status"),
+    ("T2", "fase"),
+    ("T2", "etapa"),
+    ("T10", "macro"),
+    ("T10", "proxima_acao"),
+    ("T10", "frase_ref"),
+]
+DISFARCES_DE_NUMERO = [
+    "5000_00", "r5000", "rs5000", "valor_5000_00", "parcela_312_45", "1234_5678_9012", "reprovada_margem_1234_56", "1500_", "5.000,00", "5000.00",
+    "12:30", "1500-00", "maria1", "maria_alvardel",
+    # R2-04 (sonda p1_folhas): passavam pela «forma» e chegavam à 2ª requisição
+    "valor-5000", "parcela-312", "prazo-84", "reais5000", "parcela312", "margem1234", "ref-1234567", "agencia-1234", "conta-56789-0", "ate-5000",
+    "valor:5000", "5k", "5mil", "1e5", "0x1388",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(("ferramenta", "chave"), FOLHAS_DE_TEXTO_DO_RESULTADO)
+@pytest.mark.parametrize("disfarce", DISFARCES_DE_NUMERO)
+def test_folha_de_texto_do_resultado_com_cara_de_numero_ou_fora_do_catalogo_some(ferramenta, chave, disfarce):
+    """R2-04: `status`/`etapa` seguiam por forma e `valor-5000`, `parcela312`, `5k` passavam; agora só o catálogo da chave."""
+    assert ctx.projetar_resultado({ferramenta: {chave: disfarce}}, ctx.Apelidos(), NOMES) == ""
+
+
 @pytest.mark.parametrize(
-    "folha",
+    ("ferramenta", "chave", "dominio"),
     [
-        "5000_00", "r5000", "rs5000", "valor_5000_00", "parcela_312_45", "1234_5678_9012", "reprovada_margem_1234_56", "1500_", "5.000,00", "5000.00",
-        "12:30", "1500-00", "maria1", "maria_alvardel",
+        ("T3", "status", ctx.STATUS_DA_OFERTA), ("T2", "fase", ctx.FASES_DO_T2), ("T2", "etapa", ctx.FASES_DO_T2),
+        ("T10", "macro", ctx.MACROS_DA_PROPOSTA), ("T10", "proxima_acao", ctx.PROXIMAS_ACOES_DO_T10), ("T10", "frase_ref", ctx.FRASES_DO_T10),
     ],
 )  # fmt: skip
-def test_folha_de_resultado_com_cara_de_numero_ou_nome_e_rejeitada(folha):
-    assert ctx._folha_segura(folha, NOMES) == (False, None)
+def test_todo_valor_do_catalogo_da_chave_passa(ferramenta, chave, dominio):
+    assert len(dominio) >= 4
+    for valor in sorted(dominio):
+        assert json.loads(ctx.projetar_resultado({ferramenta: {chave: valor}}, ctx.Apelidos())) == {ferramenta: {chave: valor}}
 
 
-@pytest.mark.parametrize("folha", ["ativa", "em_analise", "oferta_ativa", "t3", "aguardando_pagamento", "v2", "proposta_viva"])
-def test_folha_de_resultado_de_forma_segura_continua_passando(folha):
-    assert ctx._folha_segura(folha, NOMES) == (True, folha)
+def test_o_catalogo_do_t2_e_o_do_contrato_e_o_do_t10_e_o_do_dicionario_st():
+    assert {
+        "sem_oferta",
+        "oferta_ativa",
+        "confirmando",
+        "digitando",
+        "indeterminado",
+        "em_esteira",
+        "paga",
+        "cancelada",
+        "encerrada",
+    } == ctx.FASES_DO_T2
+    assert {f"ST-0{n}" for n in range(6)} == ctx.FRASES_DO_T10 and {
+        "aguardar",
+        "abrir_link",
+        "pedir_documento",
+        "repasse",
+    } == ctx.PROXIMAS_ACOES_DO_T10
+
+
+def test_escalar_so_aceita_booleano_ou_contador_e_nunca_texto():
+    assert ctx._escalar_seguro(True) == (True, True) and ctx._escalar_seguro(7) == (True, 7) and ctx._escalar_seguro(None) == (True, None)
+    for ruim in ("ativa", "5000", "valor-5000", 123456, -1, 3.5, ["a"], {"a": 1}):
+        assert ctx._escalar_seguro(ruim) == (False, None)
+
+
+def test_a_allowlist_de_chaves_de_cada_ferramenta_e_exata_e_chave_de_valor_nunca_entra():
+    """A3 da revisão 2: o mutante «chave `valor_liberado` na allowlist do T3» sobrevivia porque a folha já barrava o VALOR; aqui a CHAVE tem teste próprio."""
+    assert {t: set(chaves) for t, chaves in ctx.PROJECAO_DAS_FERRAMENTAS.items()} == {
+        "T2": {"fase", "etapa", "contrato_vivo", "proposta_viva", "degradado"},
+        "T3": {"oferta_ref", "status", "versao", "vencida", "mudou", "placeholders"},
+        "T5": {"opcoes", "sem_opcao", "acima_do_maximo"},
+        "T10": {"macro", "proxima_acao", "frase_ref"},
+    }
+    proibidas = (
+        "valor_liberado",
+        "valor_parcela",
+        "prazo",
+        "coef_valor",
+        "comissao",
+        "cpf",
+        "nome",
+        "telefone",
+        "link",
+        "protocolo",
+        "motivo",
+    )
+    cru = dict.fromkeys(proibidas, "ativa")  # até um valor do catálogo numa chave proibida tem de sumir
+    for ferramenta in ctx.PROJECAO_DAS_FERRAMENTAS:
+        assert ctx.projetar_resultado({ferramenta: cru}, ctx.Apelidos()) == ""
 
 
 def test_placeholders_do_resultado_so_do_conjunto_fechado_dos_tx():

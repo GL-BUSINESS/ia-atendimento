@@ -43,7 +43,7 @@ PERFIL = {
     "faixa_parcela": "200_300", "chat_number": "tem-chave-proibida", "nome": "ZZNOMEZZ", "cpf": "ZZCPFZZ",
 }  # fmt: skip
 RESULTADOS = {
-    "T2": {"status": "ativo", "etapa": "proposta", "contrato_vivo": False, "proposta_viva": True, "cpf": CPF, "nome": NOME, "telefone": FONE},
+    "T2": {"fase": "em_esteira", "etapa": "em_esteira", "contrato_vivo": False, "proposta_viva": True, "cpf": CPF, "nome": NOME, "telefone": FONE},
     "T3": {
         "oferta_ref": OFERTA_ID, "status": "ativa", "versao": 2, "valor_liberado": "R$ 5.000,00", "valor_parcela": "R$ 312,45", "prazo": 36,
         "coef_valor": "0.0613", "comissao": "R$ 410,00", "motivo_do_banco": "reprovado por margem de 1.234,56",
@@ -53,7 +53,7 @@ RESULTADOS = {
         "opcoes": [{"opcao_ref": OPCAO_ID, "dentro_da_alcada": True, "valor_liberado": "R$ 4.000,00", "placeholders": ["valor_liberado"]}],
         "sem_opcao": False, "acima_do_maximo": False,
     },
-    "T10": {"macro": "pendente", "status": "em_analise", "link": "https://exemplo.test/assina/abc", "protocolo": "123456789012"},
+    "T10": {"macro": "pendente", "proxima_acao": "abrir_link", "frase_ref": "ST-01", "status": "em_analise", "link": "https://exemplo.test/assina/abc", "protocolo": "123456789012"},
 }  # fmt: skip
 PROIBIDOS = [
     CPF, CPF_PURO, "12-34", FONE, "91234-5678", "912345678", FONE_CHAT, EMAIL, "exemplo.test", "fulano", NOME, "Maria", "Alvardel", "alvardel",

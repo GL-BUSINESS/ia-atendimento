@@ -144,9 +144,11 @@ async def test_apelido_do_contexto_e_reusado_no_retorno_da_ferramenta():
 
 
 async def test_nome_do_cliente_no_retorno_da_ferramenta_e_barrado():
-    segunda_rede, _ = await _turno_com_ferramenta(_ferramenta({"status": "alvardel", "etapa": "proposta"}), nome="T2")
-    (tool,) = [m for m in segunda_rede.corpos[1]["messages"] if m["role"] == "tool"]
-    assert json.loads(tool["content"]) == {"etapa": "proposta"}  # o sobrenome do cliente sai; o resto fica
+    """O cliente se chama «Ativa»: a máscara trocaria a palavra no prompt, então o valor do catálogo some do retorno (o resto fica)."""
+    deps = Deps(atendimento_id=uuid.UUID(int=1), pessoa_id=uuid.UUID(int=2), nomes=("Ativa Silva",))
+    rede, _ = await _turno_com_ferramenta(_ferramenta({"status": "ativa", "versao": 2}), nome="T3", deps=deps)
+    (tool,) = [m for m in rede.corpos[1]["messages"] if m["role"] == "tool"]
+    assert json.loads(tool["content"]) == {"versao": 2}
 
 
 async def test_model_retry_da_ferramenta_vai_ao_modelo_com_texto_fixo():

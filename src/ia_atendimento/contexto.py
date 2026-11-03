@@ -90,26 +90,36 @@ PERFIL_PARA_O_MODELO: Final = tuple(sorted({*LEAD_ENUMS, *LIMITES_INTEIROS_DO_LE
 FASES_COM_VALORES: Final = frozenset({"E3", "E4", "E5", "E6", "E7", "E8"})  # Q1: antes da E3 nem a oferta aparece no estado
 # Resultado de ferramenta ao modelo: SÓ o que está aqui (`True` = folha permitida; dict = objeto/lista de objetos). Valor em reais, prazo,
 # coeficiente, comissão e motivo cru do banco não estão em nenhuma lista: não passam, mesmo que a ferramenta os devolva.
-# Onde há catálogo fechado a regra é o `frozenset` do domínio (valor fora dele some); `True` = folha de forma segura (minúscula, sem
-# cara de número).
+# TODA folha de texto é de domínio FECHADO (um `frozenset`: valor fora dele some); `True` é só escalar (booleano ou inteiro pequeno) ou, nas
+# chaves `*_ref`, o id que vira apelido. Nenhuma folha de texto passa por «forma» (regex): `valor-5000` e `parcela312` passavam (R2-04).
 # Macros da proposta: estudo F (T10) e dicionário ST-00…05 de TEXTOS-PARA-APROVACAO.
 MACROS_DA_PROPOSTA: Final = frozenset({"pendente", "em_analise", "aguardando_pagamento", "pago", "cancelado", "estornado"})
+# `fase` do T2 (estudo F, contrato do T2): onde está a oportunidade; `etapa` é o mesmo domínio sob o nome que o gateway ainda pode usar.
+FASES_DO_T2: Final = frozenset(
+    {"sem_oferta", "oferta_ativa", "confirmando", "digitando", "indeterminado", "em_esteira", "paga", "cancelada", "encerrada"}
+)
+STATUS_DA_OFERTA: Final = frozenset({"ativa", "vencida", "indisponivel", "sem_oferta"})  # HIPÓTESE: o gateway (B5) fixa; muda junto com ele
+PROXIMAS_ACOES_DO_T10: Final = frozenset({"aguardar", "abrir_link", "pedir_documento", "repasse"})  # estudo F, contrato do T10
+FRASES_DO_T10: Final = frozenset(f"ST-{n:02d}" for n in range(6))  # ST-00…05 de TEXTOS-PARA-APROVACAO
 PROJECAO_DAS_FERRAMENTAS: Final[Mapping[str, Mapping[str, Any]]] = {
-    "T2": {"status": True, "etapa": True, "contrato_vivo": True, "proposta_viva": True},
-    "T3": {"oferta_ref": True, "status": True, "versao": True, "vencida": True, "mudou": True, "placeholders": PLACEHOLDERS_DO_TEXTO},
+    "T2": {"fase": FASES_DO_T2, "etapa": FASES_DO_T2, "contrato_vivo": True, "proposta_viva": True, "degradado": True},
+    "T3": {
+        "oferta_ref": True,
+        "status": STATUS_DA_OFERTA,
+        "versao": True,
+        "vencida": True,
+        "mudou": True,
+        "placeholders": PLACEHOLDERS_DO_TEXTO,
+    },
     "T5": {
         "opcoes": {"opcao_ref": True, "dentro_da_alcada": True, "placeholders": PLACEHOLDERS_DO_TEXTO},
         "sem_opcao": True,
         "acima_do_maximo": True,
     },
-    "T10": {"macro": MACROS_DA_PROPOSTA, "status": True},
+    "T10": {"macro": MACROS_DA_PROPOSTA, "proxima_acao": PROXIMAS_ACOES_DO_T10, "frase_ref": FRASES_DO_T10},
 }
 MAX_ITENS_DE_LISTA: Final = 5
 MAX_INTEIRO_DE_RESULTADO: Final = 99  # contador; acima disso pode ser valor, prazo ou id (ver o teste de projeção)
-# SÓ minúsculas: maiúscula tem de ser pedida pela regra da chave (ver `LEAD_ENUMS`), nunca alargada para todos os resultados de ferramenta
-_FOLHA_TEXTO: Final = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,39}$")
-# «5000.00», «5000_00», «r5000», «1,5»: dinheiro, taxa ou número disfarçados de código. `_` conta como separador numérico (M-5).
-_PARECE_NUMERO: Final = re.compile(r"^[0-9][0-9.,:_-]*$|[0-9][.,_][0-9]{2}(?![0-9])|^[a-z]{0,3}_?[0-9]{3,}")
 _ALIAS_DE_REF: Final = {"oferta_ref": "oferta", "opcao_ref": "opcao"}
 
 _PROIBIDO_NO_PROMPT: Final = re.compile(r"(?i)r\$|us\$")
@@ -437,35 +447,32 @@ def _valor_do_lead(chave: str, valor: Any, nomes: Collection[str]) -> Any:
     return valor if valor in LEAD_ENUMS.get(chave, frozenset()) else None
 
 
-def _folha_segura(valor: Any, nomes: Collection[str] = ()) -> tuple[bool, Any]:
-    """Folha de RESULTADO de ferramenta que pode ir ao modelo: booleano, contador pequeno ou código curto em minúsculas que a máscara
-    (com os nomes da conversa) não troca e que não parece dinheiro."""
+def _escalar_seguro(valor: Any) -> tuple[bool, Any]:
+    """Escalar de RESULTADO de ferramenta que pode ir ao modelo: `None`, booleano ou contador pequeno. Texto nunca (só por domínio
+    fechado)."""
     if valor is None or isinstance(valor, bool):
         return True, valor
     if isinstance(valor, int) and 0 <= valor <= MAX_INTEIRO_DE_RESULTADO:
         return True, valor
-    if isinstance(valor, str) and _FOLHA_TEXTO.fullmatch(valor) and not _PARECE_NUMERO.search(valor) and _sem_nome(valor, nomes):
-        return True, valor
     return False, None
 
 
-def _no_dominio(valor: Any, dominio: frozenset[str]) -> bool:
-    return isinstance(valor, str) and valor in dominio
+def _no_dominio(valor: Any, dominio: frozenset[str], nomes: Collection[str] = ()) -> bool:
+    """Texto do catálogo fechado e que a máscara (com os nomes da conversa) não trocaria: um cliente chamado «Pago» não leva o macro
+    «pago»."""
+    return isinstance(valor, str) and valor in dominio and _sem_nome(valor, nomes)
 
 
 def _projetar(valor: Any, regra: Any, chave: str, apelidos: Apelidos, nomes: Collection[str]) -> tuple[bool, Any]:
     if isinstance(regra, frozenset):  # domínio fechado: texto ou lista de textos, e só o que está no catálogo
         if isinstance(valor, (list, tuple)):
-            itens = [v for v in valor if _no_dominio(v, regra)][:MAX_ITENS_DE_LISTA]
+            itens = [v for v in valor if _no_dominio(v, regra, nomes)][:MAX_ITENS_DE_LISTA]
             return bool(itens), itens
-        return _no_dominio(valor, regra), valor
+        return _no_dominio(valor, regra, nomes), valor
     if regra is True:
-        if isinstance(valor, (list, tuple)):
-            itens = [item for ok, item in (_folha_segura(v, nomes) for v in valor[:MAX_ITENS_DE_LISTA]) if ok]
-            return bool(itens), itens
         if chave in _ALIAS_DE_REF and isinstance(valor, (str, int)) and not isinstance(valor, bool):
             return True, apelidos.de(_ALIAS_DE_REF[chave], str(valor))  # id real (até UUID) nunca vai ao modelo: vai o apelido
-        return _folha_segura(valor, nomes)
+        return _escalar_seguro(valor)
     if isinstance(regra, Mapping):
         if isinstance(valor, Mapping):
             return True, _projetar_objeto(valor, regra, apelidos, nomes)
@@ -573,11 +580,15 @@ def ler_do_prompt(usuario: str) -> tuple[str | None, tuple[str, ...]]:
 __all__ = [
     "CABECALHO_PENDENTES",
     "FASES_COM_VALORES",
+    "FASES_DO_T2",
+    "FRASES_DO_T10",
     "LEAD_ENUMS",
     "MACROS_DA_PROPOSTA",
     "PERFIL_PARA_O_MODELO",
     "PLACEHOLDERS_DA_FASE",
     "PROJECAO_DAS_FERRAMENTAS",
+    "PROXIMAS_ACOES_DO_T10",
+    "STATUS_DA_OFERTA",
     "TETO_TOKENS",
     "Bloco",
     "Contexto",
