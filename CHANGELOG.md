@@ -23,6 +23,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
     um com seu limite; `banco` `^[A-Z0-9_]{1,32}$`; `origem`, `ultimo_sentido`, `tipo_ultima_fala` e `etapa_inapp` em enums fechados) e a folha de resultado de ferramenta voltou a só minúsculas; ambas rejeitam
     os nomes da conversa, e `auditar_prompt` também.
   - Testes: `tests/test_agente.py`, `tests/test_contexto.py`, `tests/test_observabilidade.py` (cobertura do código novo ≈ 98%).
+  - Revisão 1 (`docs/REVISAO-B1.4-0311.md`; 0 crítico, 1 alto, 12 médios, 11 baixos; correções em `docs/DECISOES-B1.4-0211.md` §5): retorno de ferramenta só volta ao modelo projetado e
+    auditado (`ferramentas.py`, A-1); `protecao.py` (número «nu» → `[NUMERO]`, data → `[DATA]`, link → `[LINK]`, `r$` solto → `[VALOR]`); mensagem da E5 oculta por padrão; nome colado a `_`/dígito mascarado
+    (`mascara.py`); `banco` só do catálogo e folhas por domínio fechado; placeholder fora da fase ⇒ `TextoForaDaFase`; `executar_turno` só aceita o `Contexto` montado; tempo-limite de 8 s (teto 10) e
+    `max_retries=0`; fábrica de `LogRecord` que nunca levanta; `ContextoNaoCabe`/`ContextoComDadoPessoal` são `ErroDoModelo`; estimador com não latino a 2 tokens/caractere; scrubber cobre chave,
+    nome de evento, link e JSON; texto livre sem promessa; `ArgsDaFerramenta`. `MODELO_TENTATIVAS_HTTP` saiu. Testes novos: `test_ferramentas.py`, `test_timeout.py`, `test_vazamento_corpo.py`.
 - **B8.1a, corpus da F3** (`tests/corpus/`, pacote `src/ia_atendimento/corpus/`, `tests/test_corpus*.py`): 60 personas P01-P60 (40 da F3 curta,
   C5) + 24 P-M, 60 diálogos-gabarito (40 da F3 curta + as 20 P-M críticas; 739 turnos; o texto da IA não é fixado), semente determinística
   (ordem, hold-out de 20%, 3 execuções por persona, escolha da variação do cliente) e carregador/validador Pydantic estrito (`extra='forbid'`,

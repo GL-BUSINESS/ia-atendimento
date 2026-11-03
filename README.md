@@ -20,8 +20,8 @@ sem chave de provedor (o modelo real só roda atrás de `Provedor`; nos testes, 
 | Fila Procrastinate (rajada de 3 s, trava por chat), jobs e bloqueio das 20:15 | `src/ia_atendimento/fila.py`, `jobs.py` | `tests/test_fila.py`, `tests/test_jobs.py` |
 | Prontidão (`readyz`, LISTEN/NOTIFY) | `src/ia_atendimento/prontidao.py` | `tests/test_prontidao.py` |
 
-| Contexto do turno: 8 blocos de H §3.1, ≤ 4 mil tokens (estimativa), corte resumo → trocas → exemplos, sem PII nem valor — B1.4 | `src/ia_atendimento/contexto.py`, `modulos_fase.py`, `tokens.py` | `tests/test_contexto.py` |
-| Agente do turno: `Turno`, ações por fase, UM provedor (Fireworks só-EUA), custo por turno — B1.4 | `src/ia_atendimento/turno.py`, `agente.py`, `roteiro_f3.py` | `tests/test_agente.py` |
+| Contexto do turno: 8 blocos de H §3.1, ≤ 4 mil tokens (estimativa), corte resumo → trocas → exemplos, sem PII nem valor — B1.4 | `src/ia_atendimento/contexto.py`, `protecao.py`, `modulos_fase.py`, `tokens.py`, `ferramentas.py` | `tests/test_contexto.py`, `test_ferramentas.py`, `test_vazamento_corpo.py` |
+| Agente do turno: `Turno`, ações por fase, UM provedor (Fireworks só-EUA), custo por turno — B1.4 | `src/ia_atendimento/turno.py`, `agente.py`, `roteiro_f3.py` | `tests/test_agente.py`, `test_timeout.py` |
 | Observabilidade OTel → Phoenix com scrubber de spans e logs — B1.4 | `src/ia_atendimento/observabilidade.py` | `tests/test_observabilidade.py` |
 
 | Extrator determinístico de horário do agendamento (B5.7a, puro) | `src/ia_atendimento/agenda_extrator.py`, `tests/corpus/` | `tests/test_agenda_extrator.py` (EM1) |
