@@ -35,6 +35,7 @@ from ia_atendimento.calendario import BLOQUEIO_DATAPREV_EM, DATAPREV_ATE, HORA_B
 from ia_atendimento.chave import ConfigCorrida
 from ia_atendimento.relogio import Relogio
 from ia_atendimento.worker_vivo import (
+    GRACA_DE_ENCERRAMENTO_S,
     HEARTBEAT_PRESO_S,
     INTERVALO_VIGIA_S,
     TOLERANCIA_VIGIA_S,
@@ -397,6 +398,7 @@ async def rodar_worker(app: procrastinate.App, servicos: jobs.Servicos, **opcoes
     contexto = {**opcoes.pop("additional_context", {}), "servicos": servicos}
     opcoes.setdefault("concurrency", CONCORRENCIA_PADRAO)
     opcoes.setdefault("stalled_worker_timeout", HEARTBEAT_PRESO_S)
+    opcoes.setdefault("shutdown_graceful_timeout", GRACA_DE_ENCERRAMENTO_S)
     worker = _novo_worker(app, additional_context=contexto, **opcoes)
     vigia = asyncio.create_task(vigiar_batimento(app, worker, intervalo_s=intervalo, tolerancia_s=tolerancia), name="vigia_do_batimento")
     try:

@@ -434,9 +434,10 @@ async def test_n4_rodar_worker_reconcilia_na_subida_e_usa_concorrencia_4(conninf
     assert visto["stalled_worker_timeout"] == fila.HEARTBEAT_PRESO_S, (
         "a poda de worker só depois da margem da fila (R1-01, revisão automática)"
     )
+    assert visto["shutdown_graceful_timeout"] == fila.GRACA_DE_ENCERRAMENTO_S == 30.0, "prazo FINITO para drenar no SIGTERM (R2-06)"
     assert config_vigente(conn_app, "bloqueio_entrada").valor is True
-    await fila.rodar_worker(app, servicos, concurrency=2)
-    assert visto["concurrency"] == 2  # o chamador manda
+    await fila.rodar_worker(app, servicos, concurrency=2, shutdown_graceful_timeout=5.0)
+    assert (visto["concurrency"], visto["shutdown_graceful_timeout"]) == (2, 5.0)  # o chamador manda
 
 
 def test_n4_readyz_aplica_statement_timeout_e_preserva_options(conninfo_app):

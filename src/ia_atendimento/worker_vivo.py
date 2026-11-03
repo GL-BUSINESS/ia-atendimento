@@ -25,6 +25,9 @@ log = logging.getLogger(__name__)
 HEARTBEAT_PRESO_S: Final = HEARTBEAT_MAX_S * 2  # margem comum: batimento velho OU job de worker podado rodando há mais que isto = preso
 TOLERANCIA_VIGIA_S: Final = HEARTBEAT_PRESO_S * 2 / 3  # o worker se aborta ANTES (40 s) de a fila o dar por morto (60 s)
 INTERVALO_VIGIA_S: Final = 10.0
+# Prazo para os jobs em voo terminarem depois do SIGTERM do deploy; passado, o worker os aborta. Menor que o `stop_grace_period` do
+# contêiner (40 s): sem prazo finito o worker esperava sem limite até o SIGKILL, e o `doing` que sobrava só saía pela `jobs_presos`.
+GRACA_DE_ENCERRAMENTO_S: Final = 30.0
 
 _SQL_PRESOS: Final = """
 UPDATE procrastinate.procrastinate_jobs j
