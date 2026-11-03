@@ -13,7 +13,7 @@ from datetime import timedelta
 import psycopg
 import pytest
 
-from ia_atendimento import estado
+from ia_atendimento import estado, estado_pausa
 from ia_atendimento.estado import (
     LEASE_AGUARDANDO_S,
     LEASE_RESERVADO_S,
@@ -743,11 +743,11 @@ def test_pausar_e_sair_da_pausa(db_conn, relogio, versoes):
     atd, v = _aberto(db_conn, relogio, versoes)
     v = gravar_estado_conversa(db_conn, atd, v, EstadoConversa(fase="E3"), relogio=relogio)
     retoma = relogio() + timedelta(hours=3)
-    v = estado.pausar(db_conn, atd, v, retoma_em=retoma, retoma_fase="E3", relogio=relogio)
+    v = estado_pausa.pausar(db_conn, atd, v, retoma_em=retoma, retoma_fase="E3", relogio=relogio)
     a = ler(db_conn, atd)
     assert (a.estado, a.fase, a.retoma_em, a.lease_ate) == ("pausado", "E3", retoma, retoma + timedelta(minutes=30))
     assert a.estado_conversa["pausa"] == {"retoma_fase": "E3"}
-    estado.sair_da_pausa(db_conn, atd, v, relogio=relogio)
+    estado_pausa.sair_da_pausa(db_conn, atd, v, relogio=relogio)
     a = ler(db_conn, atd)
     assert (a.estado, a.fase, a.retoma_em) == ("aberto", "E3", None) and "pausa" not in a.estado_conversa
 
@@ -756,7 +756,7 @@ def test_pausar_e_sair_da_pausa(db_conn, relogio, versoes):
 def test_abrir_agendado_reserva_de_vida_longa(db_conn, relogio, versoes):
     """B5.7b: `reservado` de agendamento, sem tocar o chat, com `lease_ate >= retoma_em` (a cobertura completa está em `test_estado_pausa.py`)."""
     retoma = relogio() + timedelta(hours=5)
-    r = estado.abrir_agendado(
+    r = estado_pausa.abrir_agendado(
         db_conn, origem="n8n_braco", chave_logica=f"agendar:{CHAT}:0123456789abcdef", disparado_por="dialogo_agendar",
         pessoa_id=uuid.UUID(PESSOA), chat_id=CHAT, phone_id="89abcdef0123456789abcdef", clt_job_id=uuid.uuid4(), versoes=versoes,
         modo="duble", retoma_em=retoma, ultimo_cliente_em=relogio(), agora=relogio(),

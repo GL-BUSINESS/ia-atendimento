@@ -13,7 +13,7 @@ from typing import Any
 import psycopg
 
 from ia_atendimento import agenda_estado as ae
-from ia_atendimento import estado
+from ia_atendimento import estado, estado_pausa
 from ia_atendimento.estado import Versoes
 from ia_atendimento.estado_conversa import EstadoConversa, gravar_estado_conversa
 from ia_atendimento.jobs import Volta
@@ -81,7 +81,7 @@ def novo_agendado(
     """Caso (b): `reservado` de vida longa por `abrir_agendado`. Devolve (atendimento, versao, chat)."""
     n = next(_SEQ)
     chat = f"{n:024x}"
-    resultado = estado.abrir_agendado(
+    resultado = estado_pausa.abrir_agendado(
         conn,
         origem="n8n_braco",
         chave_logica=f"agendar:{chat}:{n:016x}",
@@ -128,7 +128,7 @@ def inserir_agendamento(
 def pausado_confirmado(conn: psycopg.Connection, relogio: Any, versoes: Versoes, *, dispara_em: datetime, fase: str = "E3") -> Caso:
     """Caso (a) completo: `aberto` → `pausar` → agendamento `pausa_ia` → `confirmar` (cliente)."""
     atendimento_id, versao, chat = novo_aberto(conn, relogio, versoes, fase=fase)
-    estado.pausar(conn, atendimento_id, versao, retoma_em=dispara_em, retoma_fase=fase, relogio=relogio)
+    estado_pausa.pausar(conn, atendimento_id, versao, retoma_em=dispara_em, retoma_fase=fase, relogio=relogio)
     agendamento_id = inserir_agendamento(
         conn, atendimento_id, entrada_do_pedido="pausa_ia", dispara_em=dispara_em, pedido_em=relogio(), retoma_fase=fase
     )

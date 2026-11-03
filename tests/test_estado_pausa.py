@@ -11,7 +11,7 @@ from datetime import timedelta
 
 import pytest
 
-from ia_atendimento import estado
+from ia_atendimento import estado, estado_pausa
 from ia_atendimento.estado import (
     LEASE_AGUARDANDO_S,
     LEASE_TURNO_S,
@@ -44,10 +44,10 @@ def test_pausa_so_de_e2_a_e6_e_e8(db_conn, relogio, versoes, fase, pausa):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes, fase=fase)
     if not pausa:
         with pytest.raises((EntradaInvalida, TransicaoInvalida)):
-            estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase=fase, relogio=relogio)
+            estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase=fase, relogio=relogio)
         assert ler(db_conn, atd).estado == "aberto" and ler(db_conn, atd).versao == v
         return
-    estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase=fase, relogio=relogio)
+    estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase=fase, relogio=relogio)
     a = ler(db_conn, atd)
     assert (a.estado, a.fase, a.estado_conversa["pausa"]["retoma_fase"]) == ("pausado", fase, fase)
 
@@ -56,42 +56,44 @@ def test_pausar_nunca_de_e7_nem_com_retoma_fase_e7(db_conn, relogio, versoes):
     """E7 é T7/T8 em voo. Barrado por `retoma_fase` (E7 ou fora da lista) e pela FASE ATUAL (E7 com `retoma_fase` de outra fase)."""
     em_e7, v7, _ = novo_aberto(db_conn, relogio, versoes, fase="E7")
     with pytest.raises(TransicaoInvalida):
-        estado.pausar(db_conn, em_e7, v7, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)  # a fase atual não é a de volta
+        estado_pausa.pausar(
+            db_conn, em_e7, v7, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio
+        )  # a fase atual não é a de volta
     em_e3, v3, _ = novo_aberto(db_conn, relogio, versoes, fase="E3")
     for fase in ("E7", "E0", "E1", "E9", "E10", "E", "E33", "e3", "", "E3 "):
         with pytest.raises(EntradaInvalida):
-            estado.pausar(db_conn, em_e3, v3, retoma_em=_retoma(relogio), retoma_fase=fase, relogio=relogio)
+            estado_pausa.pausar(db_conn, em_e3, v3, retoma_em=_retoma(relogio), retoma_fase=fase, relogio=relogio)
     assert ler(db_conn, em_e3).versao == v3 and ler(db_conn, em_e7).estado == "aberto"
     with pytest.raises(TransicaoInvalida):  # a fase atual (E3) não é a de volta pedida (E5): não se pula de fase pausando
-        estado.pausar(db_conn, em_e3, v3, retoma_em=_retoma(relogio), retoma_fase="E5", relogio=relogio)
+        estado_pausa.pausar(db_conn, em_e3, v3, retoma_em=_retoma(relogio), retoma_fase="E5", relogio=relogio)
 
 
 def test_pausar_grava_lease_ate_retoma_em_mais_folga(db_conn, relogio, versoes):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes)
     retoma = _retoma(relogio, 20)
-    estado.pausar(db_conn, atd, v, retoma_em=retoma, retoma_fase="E3", relogio=relogio)
+    estado_pausa.pausar(db_conn, atd, v, retoma_em=retoma, retoma_fase="E3", relogio=relogio)
     a = ler(db_conn, atd)
     assert (a.retoma_em, a.lease_ate) == (retoma, retoma + timedelta(minutes=30))  # padrão = agenda_folga_min
     assert a.lease_ate >= a.retoma_em
     outro, vo, _ = novo_aberto(db_conn, relogio, versoes)
-    estado.pausar(db_conn, outro, vo, retoma_em=retoma, retoma_fase="E3", folga_min=0, relogio=relogio)
+    estado_pausa.pausar(db_conn, outro, vo, retoma_em=retoma, retoma_fase="E3", folga_min=0, relogio=relogio)
     assert ler(db_conn, outro).lease_ate == retoma  # folga zero: o CHECK `lease_ate >= retoma_em` aceita a igualdade
 
 
 def test_pausar_recusa_folga_negativa_e_retoma_em_que_nao_esta_no_futuro(db_conn, relogio, versoes):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes)
     with pytest.raises(EntradaInvalida, match="folga"):
-        estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", folga_min=-1, relogio=relogio)
+        estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", folga_min=-1, relogio=relogio)
     for retoma in (relogio(), relogio() - timedelta(minutes=1)):
         with pytest.raises(EntradaInvalida, match="retoma_em"):
-            estado.pausar(db_conn, atd, v, retoma_em=retoma, retoma_fase="E3", relogio=relogio)
+            estado_pausa.pausar(db_conn, atd, v, retoma_em=retoma, retoma_fase="E3", relogio=relogio)
     assert ler(db_conn, atd).estado == "aberto"
 
 
 def test_pausar_grava_a_pausa_no_json_com_a_referencia_do_agendamento(db_conn, relogio, versoes):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes, fase="E5")
     ref = str(uuid.UUID("01912345-6789-7abc-8def-0123456789ab"))
-    estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E5", agendamento_ref=ref, relogio=relogio)
+    estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E5", agendamento_ref=ref, relogio=relogio)
     a = ler(db_conn, atd)
     assert a.estado_conversa == {"fase": "E5", "pausa": {"agendamento_ref": ref, "retoma_fase": "E5"}}
 
@@ -100,7 +102,7 @@ def test_pausar_preserva_o_resto_do_estado_da_conversa(db_conn, relogio, versoes
     atd, v, _ = novo_aberto(db_conn, relogio, versoes)
     conversa = EstadoConversa(fase="E4", campos_coletados=("renda",), objecoes=("parcela_alta",), flags={"quer_pensar": True})
     v = gravar_estado_conversa(db_conn, atd, v, conversa, relogio=relogio)
-    estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E4", relogio=relogio)
+    estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E4", relogio=relogio)
     guardado = ler(db_conn, atd).estado_conversa
     assert {k: guardado[k] for k in ("campos_coletados", "objecoes", "flags")} == {
         "campos_coletados": ["renda"], "objecoes": ["parcela_alta"], "flags": {"quer_pensar": True},
@@ -111,7 +113,7 @@ def test_pausar_preserva_o_resto_do_estado_da_conversa(db_conn, relogio, versoes
 def test_pausar_referencia_invalida_nao_ecoa_o_valor(db_conn, relogio, versoes):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes)
     with pytest.raises(EntradaInvalida) as erro:
-        estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", agendamento_ref="12345678909", relogio=relogio)
+        estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", agendamento_ref="12345678909", relogio=relogio)
     assert "12345678909" not in str(erro.value) and "12345678909" not in repr(erro.value.__cause__)
     assert ler(db_conn, atd).estado == "aberto"
 
@@ -119,10 +121,10 @@ def test_pausar_referencia_invalida_nao_ecoa_o_valor(db_conn, relogio, versoes):
 def test_pausar_de_aguardando_cliente_e_so_dele_ou_de_aberto(db_conn, relogio, versoes):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes)
     v = estado.aguardar_cliente(db_conn, atd, v, relogio=relogio)
-    v = estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+    v = estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
     assert ler(db_conn, atd).estado == "pausado"
     with pytest.raises(TransicaoInvalida):  # já pausado: não se pausa de novo (nem se estica a pausa por aqui)
-        estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio, 4), retoma_fase="E3", relogio=relogio)
+        estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio, 4), retoma_fase="E3", relogio=relogio)
     for destino, preparo in (
         ("repassando", lambda a, ver: estado.repassar(db_conn, a, ver, modo="fila", motivo="m", relogio=relogio)),
         ("encerrado", lambda a, ver: estado.encerrar(db_conn, a, ver, desfecho="sem_venda", motivo="m", relogio=relogio)),
@@ -130,7 +132,7 @@ def test_pausar_de_aguardando_cliente_e_so_dele_ou_de_aberto(db_conn, relogio, v
         outro, vo, _ = novo_aberto(db_conn, relogio, versoes)
         vo = preparo(outro, vo)
         with pytest.raises(TransicaoInvalida):
-            estado.pausar(db_conn, outro, vo, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+            estado_pausa.pausar(db_conn, outro, vo, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
         assert ler(db_conn, outro).estado == destino
 
 
@@ -147,14 +149,14 @@ def test_pausar_de_reservado_e_recusado(db_conn, relogio, versoes):
         relogio=relogio,
     )
     with pytest.raises(TransicaoInvalida):
-        estado.pausar(db_conn, r.atendimento_id, r.versao, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+        estado_pausa.pausar(db_conn, r.atendimento_id, r.versao, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
 
 
 def test_pausar_com_versao_velha_e_conflito_e_nao_muda_nada(db_conn, relogio, versoes):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes)
     estado.renovar_lease(db_conn, atd, v, relogio=relogio)  # alguém mexeu: a versão andou
     with pytest.raises(ConflitoVersao):
-        estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+        estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
     assert ler(db_conn, atd).estado == "aberto"
 
 
@@ -163,9 +165,9 @@ def test_pausar_com_versao_velha_e_conflito_e_nao_muda_nada(db_conn, relogio, ve
 
 def test_sair_da_pausa_volta_a_aberto_na_fase_gravada_sem_pausa_nem_retoma_em(db_conn, relogio, versoes):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes, fase="E6")
-    v = estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E6", relogio=relogio)
+    v = estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E6", relogio=relogio)
     relogio.avancar(hours=3)  # chegou a hora
-    estado.sair_da_pausa(db_conn, atd, v, relogio=relogio)
+    estado_pausa.sair_da_pausa(db_conn, atd, v, relogio=relogio)
     a = ler(db_conn, atd)
     assert (a.estado, a.fase, a.retoma_em) == ("aberto", "E6", None)
     assert a.lease_ate == relogio() + timedelta(seconds=LEASE_TURNO_S)  # a volta é um turno: se falhar, o reaper devolve em 5 min
@@ -174,29 +176,29 @@ def test_sair_da_pausa_volta_a_aberto_na_fase_gravada_sem_pausa_nem_retoma_em(db
 
 def test_sair_da_pausa_para_aguardando_cliente(db_conn, relogio, versoes):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes)
-    v = estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
-    v = estado.sair_da_pausa(db_conn, atd, v, relogio=relogio, para="aguardando_cliente")
+    v = estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+    v = estado_pausa.sair_da_pausa(db_conn, atd, v, relogio=relogio, para="aguardando_cliente")
     a = ler(db_conn, atd)
     assert (a.estado, a.retoma_em, a.lease_ate) == ("aguardando_cliente", None, relogio() + timedelta(seconds=LEASE_AGUARDANDO_S))
     outro, vo, _ = novo_aberto(db_conn, relogio, versoes)
-    vo = estado.pausar(db_conn, outro, vo, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+    vo = estado_pausa.pausar(db_conn, outro, vo, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
     espera = relogio() + timedelta(hours=6)
-    estado.sair_da_pausa(db_conn, outro, vo, relogio=relogio, para="aguardando_cliente", lease_ate=espera)
+    estado_pausa.sair_da_pausa(db_conn, outro, vo, relogio=relogio, para="aguardando_cliente", lease_ate=espera)
     assert ler(db_conn, outro).lease_ate == espera
 
 
 def test_sair_da_pausa_recusa_lease_incoerente_e_estado_errado(db_conn, relogio, versoes):
     atd, v, _ = novo_aberto(db_conn, relogio, versoes)
     with pytest.raises(TransicaoInvalida):  # aberto não está pausado
-        estado.sair_da_pausa(db_conn, atd, v, relogio=relogio)
-    v = estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+        estado_pausa.sair_da_pausa(db_conn, atd, v, relogio=relogio)
+    v = estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
     with pytest.raises(EntradaInvalida):  # lease de espera só para aguardando_cliente
-        estado.sair_da_pausa(db_conn, atd, v, relogio=relogio, lease_ate=relogio() + timedelta(hours=1))
+        estado_pausa.sair_da_pausa(db_conn, atd, v, relogio=relogio, lease_ate=relogio() + timedelta(hours=1))
     with pytest.raises(EntradaInvalida):  # e no futuro
-        estado.sair_da_pausa(db_conn, atd, v, relogio=relogio, para="aguardando_cliente", lease_ate=relogio() - timedelta(seconds=1))
+        estado_pausa.sair_da_pausa(db_conn, atd, v, relogio=relogio, para="aguardando_cliente", lease_ate=relogio() - timedelta(seconds=1))
     assert ler(db_conn, atd).estado == "pausado" and ler(db_conn, atd).versao == v
     with pytest.raises(ConflitoVersao):
-        estado.sair_da_pausa(db_conn, atd, v - 1, relogio=relogio)
+        estado_pausa.sair_da_pausa(db_conn, atd, v - 1, relogio=relogio)
 
 
 def test_a_chave_pausa_so_existe_em_pausado_repassar_e_encerrar_a_tiram(db_conn, relogio, versoes):
@@ -204,10 +206,10 @@ def test_a_chave_pausa_so_existe_em_pausado_repassar_e_encerrar_a_tiram(db_conn,
     for sair, estado_final in (
         (lambda a, v: estado.repassar(db_conn, a, v, modo="fila", motivo="pediu_humano", relogio=relogio), "repassando"),
         (lambda a, v: estado.encerrar(db_conn, a, v, desfecho="sem_resposta", motivo="pausa_vencida", relogio=relogio), "encerrado"),
-        (lambda a, v: estado.sair_da_pausa(db_conn, a, v, relogio=relogio), "aberto"),
+        (lambda a, v: estado_pausa.sair_da_pausa(db_conn, a, v, relogio=relogio), "aberto"),
     ):
         atd, v, _ = novo_aberto(db_conn, relogio, versoes)
-        v = estado.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
+        v = estado_pausa.pausar(db_conn, atd, v, retoma_em=_retoma(relogio), retoma_fase="E3", relogio=relogio)
         assert "pausa" in ler(db_conn, atd).estado_conversa
         sair(atd, v)
         a = ler(db_conn, atd)
@@ -249,13 +251,13 @@ def test_abrir_agendado_recusa_retoma_em_no_passado_chave_repetida_e_chat_ocupad
         "retoma_em": agora + timedelta(hours=2), "ultimo_cliente_em": agora, "agora": agora,
     }  # fmt: skip
     with pytest.raises(ChatOcupado):
-        estado.abrir_agendado(db_conn, chave_logica=f"agendar:{chat}:{'1' * 16}", **base)
+        estado_pausa.abrir_agendado(db_conn, chave_logica=f"agendar:{chat}:{'1' * 16}", **base)
     mesma_chave = f"agendar:{'f' * 24}:{'1' * 16}"
-    estado.abrir_agendado(db_conn, chave_logica=mesma_chave, **{**base, "chat_id": "f" * 24})
+    estado_pausa.abrir_agendado(db_conn, chave_logica=mesma_chave, **{**base, "chat_id": "f" * 24})
     with pytest.raises(DadoRecusado):  # a mesma chave lógica em outro chat (a idempotência é do chamador)
-        estado.abrir_agendado(db_conn, chave_logica=mesma_chave, **{**base, "chat_id": "e" * 24})
+        estado_pausa.abrir_agendado(db_conn, chave_logica=mesma_chave, **{**base, "chat_id": "e" * 24})
     with pytest.raises(ValueError):  # `agora` sem fuso
-        estado.abrir_agendado(db_conn, chave_logica="agendar:x", **{**base, "agora": agora.replace(tzinfo=None)})
+        estado_pausa.abrir_agendado(db_conn, chave_logica="agendar:x", **{**base, "agora": agora.replace(tzinfo=None)})
 
 
 def test_iniciar_agendado_entra_na_fase_de_volta_e_zera_retoma_em(db_conn, relogio, versoes):
@@ -265,12 +267,16 @@ def test_iniciar_agendado_entra_na_fase_de_volta_e_zera_retoma_em(db_conn, relog
         estado.iniciar(db_conn, atd, v, chatbot_antes="desligado", chatbot_estado="desligado_pela_ia", relogio=relogio)
     for fase in ("E7", "E1", "E9", "E10"):
         with pytest.raises(EntradaInvalida):
-            estado.iniciar_agendado(
+            estado_pausa.iniciar_agendado(
                 db_conn, atd, v, retoma_fase=fase, chatbot_antes="ligado", chatbot_estado="desligado_pela_ia", relogio=relogio
             )
     with pytest.raises(EntradaInvalida):
-        estado.iniciar_agendado(db_conn, atd, v, retoma_fase="E8", chatbot_antes=None, chatbot_estado="desligado_pela_ia", relogio=relogio)
-    estado.iniciar_agendado(db_conn, atd, v, retoma_fase="E8", chatbot_antes="ligado", chatbot_estado="desligado_pela_ia", relogio=relogio)
+        estado_pausa.iniciar_agendado(
+            db_conn, atd, v, retoma_fase="E8", chatbot_antes=None, chatbot_estado="desligado_pela_ia", relogio=relogio
+        )
+    estado_pausa.iniciar_agendado(
+        db_conn, atd, v, retoma_fase="E8", chatbot_antes="ligado", chatbot_estado="desligado_pela_ia", relogio=relogio
+    )
     a = ler(db_conn, atd)
     assert (a.estado, a.fase, a.retoma_em, a.assumido_em) == ("aberto", "E8", None, agora)
     assert a.lease_ate == agora + timedelta(seconds=LEASE_TURNO_S) and a.chatbot_antes == "ligado"
@@ -289,7 +295,7 @@ def test_iniciar_agendado_so_vale_para_o_gatilho_agendamento(db_conn, relogio, v
         relogio=relogio,
     )
     with pytest.raises(TransicaoInvalida):  # reservado de VENDA não vai para E8 por aqui
-        estado.iniciar_agendado(
+        estado_pausa.iniciar_agendado(
             db_conn,
             r.atendimento_id,
             r.versao,

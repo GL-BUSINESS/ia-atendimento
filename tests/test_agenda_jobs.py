@@ -18,7 +18,7 @@ import pytest
 from croniter import croniter
 
 from ia_atendimento import agenda_estado as ae
-from ia_atendimento import agenda_jobs, estado, fila, jobs
+from ia_atendimento import agenda_jobs, estado, estado_pausa, fila, jobs
 from ia_atendimento.calendario import HORA_BLOQUEIO_ENTRADA, cron_utc
 from ia_atendimento.chave import config_vigente
 from ia_atendimento.enfileirador import EnfileiradorProcrastinate
@@ -93,10 +93,10 @@ def test_pausar_nunca_em_E7(conn_app, relogio, versoes):
     atd, v, _ = novo_aberto(conn_app, relogio.agora, versoes, fase="E7")
     retoma = relogio.agora() + timedelta(hours=2)
     with pytest.raises(EntradaInvalida):
-        estado.pausar(conn_app, atd, v, retoma_em=retoma, retoma_fase="E7", relogio=relogio.agora)
+        estado_pausa.pausar(conn_app, atd, v, retoma_em=retoma, retoma_fase="E7", relogio=relogio.agora)
     for outra in ("E2", "E3", "E4", "E5", "E6", "E8"):
         with pytest.raises(TransicaoInvalida):  # em E7 não se pausa «voltando» para outra fase
-            estado.pausar(conn_app, atd, v, retoma_em=retoma, retoma_fase=outra, relogio=relogio.agora)
+            estado_pausa.pausar(conn_app, atd, v, retoma_em=retoma, retoma_fase=outra, relogio=relogio.agora)
     assert _estado(conn_app, atd) == ("aberto", v)
     with pytest.raises(psycopg.errors.CheckViolation) as erro:  # nem por SQL direto, com o JSON forjado
         conn_app.execute(
@@ -365,7 +365,7 @@ async def test_retomar_com_o_atendimento_fora_da_espera_cancela_por_sistema_e_na
     dispara = relogio.agora() + timedelta(hours=2)
     caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)
     _, versao = _estado(conn_app, caso.atendimento_id)
-    estado.sair_da_pausa(conn_app, caso.atendimento_id, versao, relogio=relogio.agora)
+    estado_pausa.sair_da_pausa(conn_app, caso.atendimento_id, versao, relogio=relogio.agora)
     voltas = Voltas()
     relogio.definir(dispara + timedelta(minutes=1))
     assert (
@@ -474,7 +474,7 @@ def test_reaper_agenda_seleciona_so_o_confirmado_vencido_sem_job_vivo(conn_app, 
     inserir_agendamento(conn_app, sem_confirmar, entrada_do_pedido="dialogo_agendar", dispara_em=dispara, pedido_em=relogio.agora())
     ainda_cedo = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara + timedelta(hours=1))
     aberto = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)
-    estado.sair_da_pausa(conn_app, aberto.atendimento_id, _estado(conn_app, aberto.atendimento_id)[1], relogio=relogio.agora)
+    estado_pausa.sair_da_pausa(conn_app, aberto.atendimento_id, _estado(conn_app, aberto.atendimento_id)[1], relogio=relogio.agora)
 
     vencidos = {v.agendamento_id: v for v in agenda_jobs.selecionar_vencidos(conn_app, dispara + timedelta(minutes=1))}
     assert set(vencidos) == {sem_job.agendamento_id, rodando_morto.agendamento_id, ja_acabou.agendamento_id}

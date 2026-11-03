@@ -8,8 +8,8 @@
   agendamento é `cg:{chat_id}:{sufixo16}`, a forma que o `agendamento_forma_check` da 0001 aceita; o `texto_hash` é HMAC do texto mascarado.
 - **A hora vem do extrator determinístico** (B5.7a), nunca do modelo. Em v1 só vale UMA hora explícita dentro da janela: zero ou mais de um
   candidato válido ⇒ `agendado:false, motivo:"sem_hora"` e nada é gravado (ambíguo é da proposta/confirmação, B5.7c).
-- O atendimento nasce `reservado` por `estado.abrir_agendado` (`gatilho='agendamento'`, `retoma_em = dispara_em`, `lease_ate = retoma_em +
-  agenda_folga_min`, o CHECK exige `lease_ate >= retoma_em`) e **não toca o chat**. A reserva grava o passo
+- O atendimento nasce `reservado` por `estado_pausa.abrir_agendado` (`gatilho='agendamento'`, `retoma_em = dispara_em`,
+  `lease_ate = retoma_em + agenda_folga_min`, o CHECK exige `lease_ate >= retoma_em`) e **não toca o chat**. A reserva grava o passo
   `agendamento` (`proposto`); o job `retomar` é enfileirado pela API NA MESMA transação (`api/agendamentos.py`). Quem confirma e quem
   dispara é a B5.7b/c (`agenda_estado`, `agenda_jobs`).
 """
@@ -37,11 +37,11 @@ from ia_atendimento.estado import (
     EstadoErro,
     Hex24,
     Versoes,
-    abrir_agendado,
     executar_traduzindo,
     idempotency_key,
     resolver_modo,
 )
+from ia_atendimento.estado_pausa import abrir_agendado
 from ia_atendimento.mascara import mascarar
 from ia_atendimento.tipos import DataHora
 
@@ -206,8 +206,8 @@ def reservar(
     folga_min: int,
     agora: datetime,
 ) -> Agendado:
-    """Cria o atendimento `reservado` de agendamento (`estado.abrir_agendado`), a linha `pendente` e o passo `agendamento` NA TRANSAÇÃO do
-    chamador (savepoint próprio). Chat ocupado ⇒ `ChatOcupado`."""
+    """Cria o atendimento `reservado` de agendamento (`estado_pausa.abrir_agendado`), a linha `pendente` e o passo `agendamento` NA
+    TRANSAÇÃO do chamador (savepoint próprio). Chat ocupado ⇒ `ChatOcupado`."""
     modo = resolver_modo(chat_id=entrada.chat_id, modo_global=modo_global, chats_teste=chats_teste)
     with conn.transaction():
         atendimento = abrir_agendado(
