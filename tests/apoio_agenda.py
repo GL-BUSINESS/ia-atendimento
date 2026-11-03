@@ -150,3 +150,20 @@ def estado_do_atendimento(conn: psycopg.Connection, atendimento_id: uuid.UUID) -
         "SELECT estado, versao, lease_ate - retoma_em FROM ia.atendimento WHERE atendimento_id = %s", (atendimento_id,)
     ).fetchone()
     return estado_, versao, lease
+
+
+def inserir_job(
+    conn: psycopg.Connection, tarefa: str, queueing_lock: str, status: str, worker_id: int | None = None, lock: str | None = None
+) -> int:
+    return conn.execute(
+        "INSERT INTO procrastinate.procrastinate_jobs (queue_name, task_name, lock, queueing_lock, status, worker_id)"
+        " VALUES ('default', %s, %s, %s, %s::procrastinate.procrastinate_job_status, %s) RETURNING id",
+        (tarefa, lock, queueing_lock, status, worker_id),
+    ).fetchone()[0]
+
+
+def novo_worker(conn: psycopg.Connection, segundos_atras: int) -> int:
+    return conn.execute(
+        "INSERT INTO procrastinate.procrastinate_workers (last_heartbeat) VALUES (now() - make_interval(secs => %s)) RETURNING id",
+        (segundos_atras,),
+    ).fetchone()[0]

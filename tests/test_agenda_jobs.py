@@ -31,8 +31,10 @@ from tests.apoio_agenda import (
     Voltas,
     agendado_confirmado,
     inserir_agendamento,
+    inserir_job,
     novo_aberto,
     novo_agendado,
+    novo_worker,
     pausado_confirmado,
 )
 from tests.apoio_api import CHAT, EspiaDeFila, corpo_de_agendamento
@@ -437,37 +439,18 @@ async def test_quatro_retomar_ao_mesmo_tempo_so_um_reivindica(banco, conn_app, r
 # --- reaper_agenda: quem está sem job vivo -----------------------------------------------------------------------------------------------------
 
 
-def _inserir_job(
-    conn: psycopg.Connection, tarefa: str, queueing_lock: str, status: str, worker_id: int | None = None, lock: str | None = None
-) -> int:
-    return conn.execute(
-        "INSERT INTO procrastinate.procrastinate_jobs (queue_name, task_name, lock, queueing_lock, status, worker_id)"
-        " VALUES ('default', %s, %s, %s, %s::procrastinate.procrastinate_job_status, %s) RETURNING id",
-        (tarefa, lock, queueing_lock, status, worker_id),
-    ).fetchone()[0]
-
-
-def _worker(conn: psycopg.Connection, segundos_atras: int) -> int:
-    return conn.execute(
-        "INSERT INTO procrastinate.procrastinate_workers (last_heartbeat) VALUES (now() - make_interval(secs => %s)) RETURNING id",
-        (segundos_atras,),
-    ).fetchone()[0]
-
-
 def test_reaper_agenda_seleciona_so_o_confirmado_vencido_sem_job_vivo(conn_app, conn_super, relogio, versoes):
     dispara = relogio.agora() + timedelta(hours=1)
     caso = lambda: pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)  # noqa: E731
     sem_job, com_alarme, com_exec, rodando_vivo, rodando_morto, ja_acabou = (caso() for _ in range(6))
-    viva, morta = _worker(conn_super, 5), _worker(conn_super, 600)
-    _inserir_job(conn_super, "ia:alarme_retomar", f"retomar:{com_alarme.agendamento_id}", "todo")
-    _inserir_job(conn_super, "ia:retomar", f"retomar_exec:{com_exec.agendamento_id}", "todo", lock=f"chat:{com_exec.chat_id}")
-    _inserir_job(
-        conn_super, "ia:retomar", f"retomar_exec:{rodando_vivo.agendamento_id}", "doing", viva, lock=f"chat:{rodando_vivo.chat_id}"
-    )
-    travado = _inserir_job(
+    viva, morta = novo_worker(conn_super, 5), novo_worker(conn_super, 600)
+    inserir_job(conn_super, "ia:alarme_retomar", f"retomar:{com_alarme.agendamento_id}", "todo")
+    inserir_job(conn_super, "ia:retomar", f"retomar_exec:{com_exec.agendamento_id}", "todo", lock=f"chat:{com_exec.chat_id}")
+    inserir_job(conn_super, "ia:retomar", f"retomar_exec:{rodando_vivo.agendamento_id}", "doing", viva, lock=f"chat:{rodando_vivo.chat_id}")
+    travado = inserir_job(
         conn_super, "ia:retomar", f"retomar_exec:{rodando_morto.agendamento_id}", "doing", morta, lock=f"chat:{rodando_morto.chat_id}"
     )
-    _inserir_job(
+    inserir_job(
         conn_super, "ia:alarme_retomar", f"retomar:{ja_acabou.agendamento_id}", "succeeded"
     )  # o alarme rodou e o job de verdade se perdeu
     sem_confirmar, _v, _c = novo_agendado(conn_app, relogio.agora(), versoes, retoma_em=dispara)
@@ -585,11 +568,11 @@ async def test_em4_restart_com_tres_confirmados_sem_perda_nem_duplicidade(connin
 
     # a hora chega com o worker fora do ar
     relogio.definir(dispara + timedelta(minutes=1))
-    morto = _worker(conn_super, 600)
+    morto = novo_worker(conn_super, 600)
     conn_super.execute(
         "UPDATE procrastinate.procrastinate_jobs SET status = 'succeeded' WHERE queueing_lock = %s", (f"retomar:{casos[0].agendamento_id}",)
     )
-    travado = _inserir_job(
+    travado = inserir_job(
         conn_super, "ia:retomar", f"retomar_exec:{casos[0].agendamento_id}", "doing", morto, lock=f"chat:{casos[0].chat_id}"
     )
     conn_super.execute("DELETE FROM procrastinate.procrastinate_jobs WHERE queueing_lock = %s", (f"retomar:{casos[1].agendamento_id}",))

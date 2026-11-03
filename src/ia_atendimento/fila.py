@@ -33,6 +33,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from ia_atendimento import agenda_jobs, jobs
 from ia_atendimento.calendario import BLOQUEIO_DATAPREV_EM, DATAPREV_ATE, HORA_BLOQUEIO_ENTRADA, cron_utc
 from ia_atendimento.chave import ConfigCorrida
+from ia_atendimento.prontidao import HEARTBEAT_MAX_S
 from ia_atendimento.relogio import Relogio
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ RETRY_FILA = procrastinate.RetryStrategy(max_attempts=5, wait=30, retry_exceptio
 RETRY_BLOQUEIO = procrastinate.RetryStrategy(max_attempts=5, wait=30, retry_exceptions={psycopg.Error, OSError, ConfigCorrida})
 # 03:30 em São Paulo: fim da madrugada, longe do horário de atendimento
 HORA_PODA_LOCAL = time(3, 30)
+HEARTBEAT_PRESO_S = HEARTBEAT_MAX_S * 2  # worker sem batimento há 60 s é dado como morto (o do Procrastinate poda com 30 s e não conta)
 
 
 def conninfo_da_fila(database_url: str) -> str:
@@ -146,7 +148,11 @@ def _tarefas_da_agenda(bp: procrastinate.Blueprint) -> dict[str, Any]:
 
         await agenda_jobs.executar_reaper_agenda(_servicos(contexto), enfileirar)
 
-    return {"reaper_agenda": reaper_agenda}
+    @bp.task(name="jobs_presos", pass_context=True, queueing_lock="jobs_presos")
+    async def jobs_presos(contexto: procrastinate.JobContext, timestamp: int) -> None:
+        await liberar_jobs_presos(contexto.app)
+
+    return {"reaper_agenda": reaper_agenda, "jobs_presos": jobs_presos}
 
 
 def _tarefas_de_manutencao(bp: procrastinate.Blueprint) -> dict[str, Any]:
@@ -196,6 +202,7 @@ def _registrar_periodicas(bp: procrastinate.Blueprint, tarefas: dict[str, Any]) 
     agenda = {
         "reaper_lease": "* * * * *",
         "reaper_agenda": "* * * * *",  # B5.7b: reenfileira a volta combinada que ficou sem job vivo
+        "jobs_presos": "* * * * *",  # R1-01: `doing` de worker morto segura o lock do chat para sempre
         "expirar_parados": "*/30 * * * *",
         "auditoria_pii": "7 * * * *",
         "podar": cron_utc(HORA_PODA_LOCAL, referencia),
@@ -356,6 +363,24 @@ async def agendar_bloqueio_dataprev(app: procrastinate.App, relogio: Relogio) ->
     if existentes:
         return None
     return await _enfileirar(app, "bloqueio_dataprev", {"queueing_lock": trava, "schedule_at": BLOQUEIO_DATAPREV_EM})
+
+
+async def liberar_jobs_presos(app: procrastinate.App) -> list[int]:
+    """Dá como `failed` todo job `doing` cujo worker morreu (sem batimento há `HEARTBEAT_PRESO_S`, ou já podado: `worker_id` NULL).
+
+    Um worker que leva `SIGKILL` (deploy) deixa o job `doing` para sempre, e o `lock=chat:` dele segura TODO job posterior do chat: o
+    turno do cliente nunca sai e o `reaper_lease` não enxerga o chat (`NOT EXISTS job doing no chat`). Vale para qualquer tarefa
+    (`retomar`, `turno`, `lembrete`, `iniciar`...). `failed`, não `todo`: a tarefa pode já ter feito o efeito (a volta já reivindicou o
+    agendamento), e quem repete é o negócio (`reaper_agenda`, `reaper_lease`), nunca a fila. Devolve os ids; só ids no log.
+    """
+    presos = await app.job_manager.get_stalled_jobs(seconds_since_heartbeat=HEARTBEAT_PRESO_S)
+    liberados = []
+    for job in presos:
+        await app.job_manager.finish_job_by_id_async(job.id, JobStatus.FAILED, delete_job=False)
+        liberados.append(job.id)
+    if liberados:
+        log.warning("jobs presos de worker morto dados como falhos: %s", liberados)
+    return liberados
 
 
 async def rodar_worker(app: procrastinate.App, servicos: jobs.Servicos, **opcoes: Any) -> None:
