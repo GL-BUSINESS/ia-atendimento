@@ -166,13 +166,13 @@ fora de `pessoas_teste` (`422 chat_de_cliente`); (2) só a origem `ti` grava a l
 está testado, mas o `Canal` que entrega a mensagem é da B1.6/B6.8 e **ainda não o chama**; até lá nada garante que uma mensagem a chat de teste saia marcada.
 
 ```bash
-K=kits/chats-teste.sh        # a cópia de ~/retomada-2809/fila-2910/ia/config/chats-teste.sh vem daqui
+K=kits/chats-teste.sh        # a cópia de ~/retomada-2809/fila-2910/ia/config/chats-teste.sh vem daqui (scripts/instalar_kit_chats_teste.sh; o teste a mantém igual)
 bash $K gerar   --par <chat 24 hex>=P13 --par <outro chat>=P01 --ensaio      # só o plano; troque por --confirmo para escrever ./pessoas_teste.json (0600)
 # `gerar` PRESERVA os pares do ./pessoas_teste.json que já existe e acrescenta os --par (a API valida a lista INTEIRA contra o arquivo do boot);
 # `--recomecar` ignora o arquivo anterior: então passe TODOS os pares vigentes, senão `aplicar` (merge) e `limpar` tomam 422 pelos chats antigos
 # entregue o arquivo à VPS no caminho de PESSOAS_TESTE_ARQUIVO e REINICIE o orquestrador (o arquivo é lido no boot)
 bash $K aplicar --par <chat 24 hex>=P13 --motivo ensaio_b --por <login da TI> --confirmo   # ACRESCENTA à lista vigente (--substituir troca tudo); guarda a lista anterior
-bash $K limpar  --motivo fim_do_ensaio --por <login da TI> --confirmo                       # restaura a lista que o último `aplicar` guardou (--vazio zera)
+bash $K limpar  --motivo fim_do_ensaio --por <login da TI> --confirmo                       # restaura a lista que o último `aplicar` DESTA API guardou, se a vigente ainda é a que ele gravou (--forcar ignora; --vazio zera)
 ```
 
 O kit mostra a lista vigente antes e depois, exige `--motivo` (código `[a-z0-9_]{1,40}`, sem padrão: o registro da versão guarda o motivo REAL) e só fala com a WireGuard (`10.90.0.5`) ou loopback. As listas anteriores ficam em

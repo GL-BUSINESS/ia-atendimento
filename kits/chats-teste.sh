@@ -6,7 +6,8 @@
 #                                                                                               (--recomecar ignora o arquivo anterior: então passe TODOS os pares)
 #   bash chats-teste.sh aplicar --par CHAT=PERSONA [--par …] --motivo CODIGO --por LOGIN        ACRESCENTA estes chats à lista vigente (merge); guarda a lista anterior
 #   bash chats-teste.sh aplicar … --substituir                                                  a lista passa a ser SÓ estes chats (a anterior também fica guardada)
-#   bash chats-teste.sh limpar  --motivo CODIGO --por LOGIN                                     desfaz o último `aplicar`: restaura a lista que ele guardou
+#   bash chats-teste.sh limpar  --motivo CODIGO --por LOGIN [--forcar]                          desfaz o último `aplicar` DESTA API: restaura a lista que ele guardou, mas só se a
+#                                                                                               lista vigente for a que o `aplicar` gravou (alguém mexeu no meio: recusa; --forcar restaura mesmo assim)
 #   bash chats-teste.sh limpar  --vazio --motivo CODIGO --por LOGIN                             lista vazia (derruba todos os chats de teste)
 #   (cada um exige --ensaio, que só imprime o plano e NÃO abre conexão, ou --confirmo, que executa)
 #
@@ -41,7 +42,7 @@ ajuda() { sed -n '2,/^set /p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
 [ $# -ge 1 ] || { ajuda; exit 2; }
 CMD="$1"; shift
-ENSAIO=0; CONFIRMO=0; POR=""; MOTIVO="${IA_MOTIVO:-}"; SUBSTITUIR=0; VAZIO=0; RECOMECAR=0; PARES=()
+ENSAIO=0; CONFIRMO=0; POR=""; MOTIVO="${IA_MOTIVO:-}"; SUBSTITUIR=0; VAZIO=0; RECOMECAR=0; FORCAR=0; PARES=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --ensaio) ENSAIO=1 ;;
@@ -49,6 +50,7 @@ while [ $# -gt 0 ]; do
     --substituir) SUBSTITUIR=1 ;;
     --vazio) VAZIO=1 ;;
     --recomecar) RECOMECAR=1 ;;
+    --forcar) FORCAR=1 ;;
     --par) [ $# -ge 2 ] || falha "--par exige CHAT=PERSONA"; PARES+=("$2"); shift ;;
     --por) [ $# -ge 2 ] || falha "--por exige o login do operador"; POR="$2"; shift ;;
     --motivo) [ $# -ge 2 ] || falha "--motivo exige um código"; MOTIVO="$2"; shift ;;
@@ -66,6 +68,7 @@ fi
 [ "$SUBSTITUIR" = 1 ] && [ "$CMD" != aplicar ] && falha "--substituir só vale em aplicar"
 [ "$VAZIO" = 1 ] && [ "$CMD" != limpar ] && falha "--vazio só vale em limpar"
 [ "$RECOMECAR" = 1 ] && [ "$CMD" != gerar ] && falha "--recomecar só vale em gerar"
+[ "$FORCAR" = 1 ] && [ "$CMD" != limpar ] && falha "--forcar só vale em limpar"
 
 # --- validações que valem nos dois modos (sem rede) -----------------------------------------------------------------------------------------
 CHATS=()
@@ -96,8 +99,9 @@ repo_com_b24() { # primeiro candidato com o pacote pessoas_teste
   done
   return 1
 }
-anterior_mais_recente() { # lista de `anterior-<versao>.json` ainda não restaurados, o de maior versão
-  { ls -1 "$CHATS_TESTE_ESTADO"/anterior-*.json 2>/dev/null || true; } | sed -E 's/.*anterior-([0-9]+)\.json/\1 &/' | sort -n | tail -1 | cut -d' ' -f2-
+URLH="$(printf '%s' "$IA_API_URL" | sha256sum | cut -c1-8)"   # a lista guardada é DESTA API: a de outro ambiente (ensaio local) nunca é restaurada aqui
+anterior_mais_recente() { # `anterior-<urlhash>-<versao>.json` ainda não restaurados desta API, o de maior versão
+  { ls -1 "$CHATS_TESTE_ESTADO"/anterior-"$URLH"-*.json 2>/dev/null || true; } | sed -E 's/.*anterior-[0-9a-f]{8}-([0-9]+)\.json/\1 &/' | sort -n | tail -1 | cut -d' ' -f2-
 }
 
 # --- plano ---------------------------------------------------------------------------------------------------------------------------------
@@ -157,16 +161,20 @@ ok "versão vigente = $VERSAO, $(printf '%s' "$ATUAL" | wc -w) chat(s): ${ATUAL:
 if [ "$CMD" = aplicar ]; then
   if [ "$SUBSTITUIR" = 1 ]; then NOVOS="${CHATS[*]}"; else NOVOS=$(json 'import sys; v=sys.argv[1].split(); n=sys.argv[2].split(); print(" ".join(v+[c for c in n if c not in v]))' "$ATUAL" "${CHATS[*]}"); fi
   ALVO_ROTULO="lista nova"
-  ANT_ARQ="$CHATS_TESTE_ESTADO/anterior-$VERSAO.json"
+  ANT_ARQ="$CHATS_TESTE_ESTADO/anterior-$URLH-$VERSAO.json"
   [ -e "$ANT_ARQ" ] && falha "já existe $ANT_ARQ (um aplicar da versão $VERSAO que ninguém restaurou): rode 'limpar' antes, ou apague o arquivo se já não vale"
-  json 'import json,sys; json.dump({"versao_antes": int(sys.argv[2]), "valor": sys.argv[3].split(), "por": sys.argv[4], "motivo": sys.argv[5]}, open(sys.argv[1], "w"))' \
-    "$ANT_ARQ.tmp" "$VERSAO" "$ATUAL" "$POR" "$MOTIVO"
+  json 'import json,sys; a = sys.argv; json.dump({"url": a[6], "versao_antes": int(a[2]), "valor": a[3].split(), "valor_depois": a[7].split(), "por": a[4], "motivo": a[5]}, open(a[1], "w"))' \
+    "$ANT_ARQ.tmp" "$VERSAO" "$ATUAL" "$POR" "$MOTIVO" "$IA_API_URL" "$NOVOS"
 else
   if [ "$VAZIO" = 1 ]; then NOVOS=""
   else
     ANT_ARQ="$(anterior_mais_recente)"
     [ -n "$ANT_ARQ" ] || falha "não há lista anterior guardada em $CHATS_TESTE_ESTADO: use --vazio para zerar a lista"
     NOVOS=$(json 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["valor"]))' "$ANT_ARQ")
+    DEPOIS=$(json 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["valor_depois"]))' "$ANT_ARQ")
+    if [ "$ATUAL" != "$DEPOIS" ] && [ "$FORCAR" = 0 ]; then
+      falha "a lista vigente (${ATUAL:-(nenhum)}) NÃO é a que o aplicar gravou (${DEPOIS:-(nenhum)}): alguém mexeu em chats_teste no meio. Restaurar apagaria essa mudança; confira e use --forcar se for isso mesmo"
+    fi
   fi
   ALVO_ROTULO="lista restaurada"
 fi

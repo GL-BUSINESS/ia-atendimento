@@ -6,6 +6,7 @@ externa: tudo em 127.0.0.1. O que o ensaio NÃO prova (autorização real, Login
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -99,6 +100,11 @@ def ambiente(tmp_path: Path, api: ApiFalsa) -> dict[str, str]:
     }  # fmt: skip
 
 
+def anterior(tmp_path: Path, api: ApiFalsa, versao: int, sufixo: str = "") -> Path:
+    """O arquivo da lista guardada: `anterior-<8 primeiros do sha256 da URL>-<versão>.json` (a lista é DESTA API, R2-12)."""
+    return tmp_path / "estado" / f"anterior-{hashlib.sha256(api.url.encode()).hexdigest()[:8]}-{versao}.json{sufixo}"
+
+
 def kit(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["bash", str(KIT), *args], capture_output=True, text=True, env=env, check=False)
 
@@ -123,11 +129,10 @@ def test_aplicar_acrescenta_a_lista_vigente_e_guarda_a_anterior(ambiente, api, t
     assert put["valor"] == [A, B, C], "MERGE: a lista vigente [A] + os dois chats novos, sem tirar o que a TI já tinha"
     assert put == {"valor": [A, B, C], "por": POR, "motivo": "ensaio_b", "versao_esperada": 3}
     assert (api.versao, api.valor) == (4, [A, B, C])
-    guardada = json.loads((tmp_path / "estado" / "anterior-3.json").read_text())
+    guardada = json.loads(anterior(tmp_path, api, 3).read_text())
     assert guardada["valor"] == [A] and guardada["versao_antes"] == 3 and guardada["motivo"] == "ensaio_b"
-    assert (tmp_path / "estado").stat().st_mode & 0o777 == 0o700 and (
-        tmp_path / "estado" / "anterior-3.json"
-    ).stat().st_mode & 0o777 == 0o600
+    assert guardada["url"] == api.url and guardada["valor_depois"] == [A, B, C], "guarda a URL e a lista que o aplicar gravou (R2-12)"
+    assert (tmp_path / "estado").stat().st_mode & 0o777 == 0o700 and (anterior(tmp_path, api, 3)).stat().st_mode & 0o777 == 0o600
     assert f"{A}" in r.stdout and "versão vigente = 3" in r.stdout
 
 
@@ -136,7 +141,9 @@ def test_aplicar_nao_repete_chat_ja_na_lista_e_substituir_troca_tudo_e_limpar_de
     assert api.valor == [A, B], "A já estava na lista: não duplica"
     r = _aplicar(ambiente, f"{C}=P03", extra=["--substituir"])
     assert r.returncode == 0 and api.valor == [C], "--substituir: a lista passa a ser SÓ o novo chat"
-    assert sorted(p.name for p in (tmp_path / "estado").glob("anterior-*.json")) == ["anterior-3.json", "anterior-4.json"]
+    assert sorted(p.name for p in (tmp_path / "estado").glob("anterior-*.json")) == sorted(
+        [anterior(tmp_path, api, 3).name, anterior(tmp_path, api, 4).name]
+    )
     assert kit(ambiente, "limpar", "--motivo", "m1", "--por", POR, "--confirmo").returncode == 0 and api.valor == [A, B], (
         "desfaz o ÚLTIMO aplicar"
     )
@@ -145,7 +152,7 @@ def test_aplicar_nao_repete_chat_ja_na_lista_e_substituir_troca_tudo_e_limpar_de
 
 def test_aplicar_recusa_quando_ja_existe_lista_guardada_da_mesma_versao(ambiente, api, tmp_path):
     (tmp_path / "estado").mkdir(mode=0o700)
-    (tmp_path / "estado" / "anterior-3.json").write_text(json.dumps({"versao_antes": 3, "valor": [], "por": POR, "motivo": "velho"}))
+    anterior(tmp_path, api, 3).write_text(json.dumps({"versao_antes": 3, "valor": [], "por": POR, "motivo": "velho"}))
     r = _aplicar(ambiente, f"{B}=P01")
     assert r.returncode == 1 and "já existe" in r.stderr and api.puts() == [], (
         "não sobrescreve a lista que alguém ainda pode precisar restaurar"
@@ -158,7 +165,7 @@ def test_limpar_restaura_a_lista_que_o_aplicar_guardou(ambiente, api, tmp_path):
     assert r.returncode == 0, r.stderr
     assert api.valor == [A], "limpar RESTAURA a lista anterior ([A]), não zera"
     assert api.puts()[-1] == {"valor": [A], "por": POR, "motivo": "fim_do_ensaio", "versao_esperada": 4}
-    assert (tmp_path / "estado" / "anterior-3.json.restaurado").is_file() and not (tmp_path / "estado" / "anterior-3.json").exists()
+    assert anterior(tmp_path, api, 3, ".restaurado").is_file() and not anterior(tmp_path, api, 3).exists()
     sem = kit(ambiente, "limpar", "--motivo", "fim", "--por", POR, "--confirmo")
     assert sem.returncode == 1 and "não há lista anterior" in sem.stderr and "--vazio" in sem.stderr
     vazio = kit(ambiente, "limpar", "--vazio", "--motivo", "fim", "--por", POR, "--confirmo")
@@ -302,3 +309,66 @@ def test_ensaio_do_gerar_diz_se_preserva_ou_recomeca(ambiente):
     saida.write_text(json.dumps({"pessoas": [], "chats": {}}))
     assert "PRESERVA os pares" in kit(ambiente, "gerar", "--par", f"{B}=P02", "--ensaio").stdout
     assert "arquivo novo ou --recomecar" in kit(ambiente, "gerar", "--par", f"{B}=P02", "--recomecar", "--ensaio").stdout
+
+
+def test_limpar_nao_restaura_por_cima_de_mudanca_de_terceiro_sem_forcar(ambiente, api, tmp_path):
+    """R2-12a: se alguém acrescentou um chat no meio, a lista vigente deixa de ser a que o `aplicar` gravou e o `limpar` recusa (restaurar apagaria o chat dele)."""
+    assert _aplicar(ambiente, f"{B}=P01").returncode == 0 and api.valor == [A, B]
+    api.versao, api.valor = api.versao + 1, [A, B, C]  # terceiro acrescentou C
+    r = kit(ambiente, "limpar", "--motivo", "fim", "--por", POR, "--confirmo")
+    assert r.returncode == 1 and "alguém mexeu" in r.stderr and "--forcar" in r.stderr and api.valor == [A, B, C]
+    assert anterior(tmp_path, api, 3).exists(), "a lista guardada continua à espera"
+    forcado = kit(ambiente, "limpar", "--forcar", "--motivo", "fim", "--por", POR, "--confirmo")
+    assert forcado.returncode == 0 and api.valor == [A]
+    assert kit(ambiente, "aplicar", "--forcar", "--par", f"{B}=P01", "--motivo", "m1", "--por", POR, "--confirmo").returncode == 1, (
+        "--forcar só vale em limpar"
+    )
+
+
+def test_limpar_so_restaura_lista_guardada_para_a_mesma_api(ambiente, api, tmp_path):
+    """R2-12b: a lista guardada leva a URL (no nome e no conteúdo); a de outro ambiente, mesmo de versão MAIOR, nunca é restaurada aqui."""
+    assert _aplicar(ambiente, f"{B}=P01").returncode == 0
+    (tmp_path / "estado" / "anterior-deadbeef-99.json").write_text(
+        json.dumps(
+            {"url": "http://127.0.0.1:1", "versao_antes": 99, "valor": [C], "valor_depois": [C], "por": POR, "motivo": "outro_ambiente"}
+        )
+    )
+    r = kit(ambiente, "limpar", "--motivo", "fim", "--por", POR, "--confirmo")
+    assert r.returncode == 0 and api.valor == [A], "restaurou a desta API (versão 3), não a de outro ambiente (versão 99)"
+    assert (tmp_path / "estado" / "anterior-deadbeef-99.json").exists()
+    sem = kit(ambiente, "limpar", "--motivo", "fim", "--por", POR, "--confirmo")
+    assert sem.returncode == 1 and "não há lista anterior" in sem.stderr, (
+        "sobrou só a de outro ambiente: para esta API não há nada a restaurar"
+    )
+
+
+# --- a cópia de ~/retomada-2809 (R2-12c) -------------------------------------------------------------------------------------------------------
+
+
+INSTALAR = RAIZ / "scripts" / "instalar_kit_chats_teste.sh"
+RETOMADA = Path(os.environ.get("KIT_RETOMADA", "~/retomada-2809/fila-2910/ia/config/chats-teste.sh")).expanduser()
+
+
+def _instalar(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["bash", str(INSTALAR), *args], capture_output=True, text=True, check=False)
+
+
+def test_instalar_gera_a_copia_igual_a_fonte_mais_uma_linha_e_o_verificar_pega_divergencia(tmp_path):
+    destino = tmp_path / "copia" / "chats-teste.sh"
+    assert _instalar(str(destino)).returncode == 0
+    fonte, copia = KIT.read_text().splitlines(), destino.read_text().splitlines()
+    assert copia[0] == fonte[0] and copia[2:] == fonte[1:] and "CÓPIA de kits/chats-teste.sh" in copia[1]
+    assert destino.stat().st_mode & 0o777 == 0o755
+    assert _instalar("--verificar", str(destino)).returncode == 0
+    destino.write_text(destino.read_text() + "\n# editei a cópia à mão\n")
+    r = _instalar("--verificar", str(destino))
+    assert r.returncode == 1 and "difere" in r.stderr
+    assert _instalar("--verificar", str(tmp_path / "nao-existe.sh")).returncode == 1
+
+
+def test_a_copia_do_kit_nesta_maquina_e_igual_a_fonte():
+    """Se `~/retomada-2809/fila-2910/ia/config/chats-teste.sh` existe aqui, tem de ser a fonte + o cabeçalho (rode `scripts/instalar_kit_chats_teste.sh`)."""
+    if not RETOMADA.is_file():
+        pytest.skip(f"{RETOMADA} não existe nesta máquina (defina KIT_RETOMADA para conferir outra cópia)")
+    r = _instalar("--verificar", str(RETOMADA))
+    assert r.returncode == 0, r.stderr
