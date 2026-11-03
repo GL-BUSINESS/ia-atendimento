@@ -36,10 +36,16 @@ _TLDS: Final = (
     "com|net|org|br|io|app|me|link|ly|xyz|info|biz|site|online|top|club|shop|store|tech|dev|cc|co|tk|ml|ga|cf|gq|ru|cn|pw|click|live|win|vip|fun|ws|gl"
     "|page|cloud|digital"
 )
-# Início de token: a lookbehind dupla impede de COMEÇAR no meio de uma palavra ou logo depois de «palavra.» (`a.a.a.a…`): sem ela o regex
-# partia de cada segmento e varria até o fim, O(n²) (4.000 caracteres = 1 s, R2-01). `x..y.com/a` (ponto duplo) ainda começa em `y`.
-_ANTES: Final = r"(?<![\w\-])(?<![\w\-]\.)"
-_LINK: Final = re.compile(rf"(?i){_ANTES}(?:[a-z][a-z0-9+.\-]*://|www\.)\S+|{_ANTES}\.?(?:[a-z0-9-]+\.)+(?:{_TLDS})\b\S*")
+# Início de token: a lookbehind dupla impede de COMEÇAR no meio de uma cadeia de host («palavra.» + outra) e assim o regex não parte de cada
+# segmento e varre até o fim, O(n²) (4.000 caracteres = 1 s, R2-01). Os caracteres são os de HOST (ASCII): com `\w` (que inclui `_` e letras
+# acentuadas) `joão.evil.xyz/x`, `a_b.evil.com/x` e `ç.www.evil.com` não casavam e o link passava. `x..y.com/a` ainda começa em `y`.
+_ANTES_DO_HOST: Final = r"(?<![a-z0-9\-])(?<![a-z0-9\-]\.)"
+_ANTES_DO_ESQUEMA: Final = (
+    r"(?<![a-z0-9+\-])(?<![a-z0-9+\-]\.)"  # `+` conta: o esquema (`a+b+c:`) varre até o fim se puder recomeçar em cada `+`
+)
+_LINK: Final = re.compile(
+    rf"(?i){_ANTES_DO_ESQUEMA}(?:[a-z][a-z0-9+.\-]*://|www\.)\S+|{_ANTES_DO_HOST}\.?(?:[a-z0-9-]+\.)+(?:{_TLDS})\b\S*"
+)
 _PONTO_IDEOGRAFICO: Final = {"\u3002": ".", "\uff61": "."}  # «。» e «｡»: NFKC não os leva a «.»
 _DATA_COMPLETA: Final = re.compile(r"(?<!\d)(?:0?[1-9]|[12]\d|3[01])([/.\-])(?:0?[1-9]|1[0-2])\1(?:19|20)\d{2}(?!\d)")
 _DINHEIRO: Final = re.compile(

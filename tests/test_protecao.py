@@ -107,3 +107,27 @@ def test_montar_contexto_com_10_pendentes_hostis_de_4000_caracteres_leva_menos_d
     c = ctx.montar_contexto(db_conn, atd, pendentes=mensagens_pendentes(db_conn, atd), chaveiro=chaveiro, nomes=NOMES, agora=AGORA)
     assert time.perf_counter() - inicio < 1.0
     assert len(c.insumos.pendentes) == 10
+
+
+@pytest.mark.parametrize(
+    "texto",
+    ["joão.evil.xyz/x", "a_b.evil.com/x", "ç.www.evil.com", "é.evil.com", "x+evil.com/x", "ã.http://evil.test/a", "Ação.evil.com/x"],
+)
+def test_link_depois_de_underscore_ou_letra_acentuada_nao_escapa(texto):
+    """Revisão automática: o lookbehind usava `\\w` (que inclui `_` e letras acentuadas) e o host depois deles não casava."""
+    assert ha_link(texto), texto
+    protegido = proteger_texto(texto, ())
+    assert "[LINK]" in protegido and "evil" not in protegido, protegido
+
+
+def test_os_tres_exemplos_da_revisao_automatica_viram_marcador_na_frase():
+    for texto in ("veja joão.evil.xyz/x", "mande a_b.evil.com/x", "ç.www.evil.com"):
+        assert "evil" not in proteger_texto(texto, ()) and ha_link(texto)
+
+
+@pytest.mark.parametrize("trecho", ["a.", "a+", "ã.a.", "_a.", "a_", "a-", "ç.", "a._", "a+b.", "é.é."])
+def test_cadeias_com_underscore_acento_e_mais_continuam_lineares(trecho):
+    """O lookbehind em caracteres de host continua impedindo o recomeço no meio da cadeia (`a.a.a…`)."""
+    texto = (trecho * 4000)[:4000]
+    assert _melhor_de_tres_ms(lambda: ha_link(texto)) <= LIMITE_MS
+    assert _melhor_de_tres_ms(lambda: proteger_texto(texto, NOMES)) <= LIMITE_MS
