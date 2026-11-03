@@ -20,11 +20,11 @@ from ia_atendimento.agente import ModeloDaFaixa, ProvedorFalso, criar_agente
 from ia_atendimento.cifra import Chaveiro
 from ia_atendimento.config import Settings
 from ia_atendimento.conversa import gravar_troca
-from ia_atendimento.estado import Versoes, abrir, iniciar
+from ia_atendimento.estado import Versoes, abrir, iniciar, ler
 from ia_atendimento.estado_conversa import EstadoConversa, gravar_estado_conversa, registrar_mensagem_do_cliente
 from ia_atendimento.evento_mensagem import ChavesDeMensagem, EventoMensagem
 from ia_atendimento.linha_tempo import Gravada, Pendente, gravar_mensagem_recebida, mensagens_pendentes
-from tests.apoio_b12 import AGORA, CHAT, PHONE
+from tests.apoio_b12 import AGORA
 from tests.estado_apoio import RelogioFalso, entrada
 
 CHAVE_DA_API = "fw_chave-da-api-descartavel-0001"  # tem «descartavel»: a varredura a isenta
@@ -139,7 +139,12 @@ def abrir_em(
     **estado: Any,
 ) -> tuple[uuid.UUID, int]:
     """Atendimento `aberto` na `fase` (pelas transições de verdade: `abrir` → `iniciar` → `gravar_estado_conversa`)."""
-    corpo = {"perfil": perfil} if perfil is not None else {}
+    # chave lógica e chat PRÓPRIOS: `abrir` é idempotente por chave e o chat só admite um atendimento não encerrado
+    corpo = {
+        "chave_logica": f"venda:{uuid.uuid4().hex}",
+        "chat_id": uuid.uuid4().hex[:24],
+        **({"perfil": perfil} if perfil is not None else {}),
+    }
     resultado = abrir(
         conn, origem="n8n_braco", entrada=entrada(**corpo), versoes=versoes, modo_global="duble", chats_teste=frozenset(),
         faixa_esforco="media", comissao_esperada_brl=None, relogio=relogio,
@@ -150,6 +155,18 @@ def abrir_em(
     versao = gravar_estado_conversa(conn, resultado.atendimento_id, versao, EstadoConversa(fase=fase, **estado), relogio=relogio)  # type: ignore[arg-type]
     registrar_mensagem_do_cliente(conn, resultado.atendimento_id, relogio(), relogio=relogio)
     return resultado.atendimento_id, versao
+
+
+def _evento(conn: psycopg.Connection, atendimento_id: uuid.UUID, em: datetime, **campos: Any) -> EventoMensagem:
+    """Evento do chat DO atendimento (cada atendimento dos testes tem o seu)."""
+    atendimento = ler(conn, atendimento_id)
+    return EventoMensagem(
+        chat_id=atendimento.chat_id,
+        phone_id=atendimento.phone_id,
+        datetime_post=em.astimezone(UTC).isoformat(),
+        origem_evento="webhook",
+        **campos,
+    )  # type: ignore[arg-type]
 
 
 def receber(
@@ -163,15 +180,7 @@ def receber(
     id_externo: str | None = None,
 ) -> Pendente:
     """A mensagem do cliente como a B1.5 a gravaria: passo `mensagem_recebida` + o texto mascarado e cifrado na conversa."""
-    evento = EventoMensagem(
-        chat_id=CHAT,
-        phone_id=PHONE,
-        tipo="texto",
-        texto=texto,
-        datetime_post=em.astimezone(UTC).isoformat(),
-        origem_evento="webhook",
-        **({"mensagem_id": id_externo} if id_externo else {}),
-    )  # type: ignore[arg-type]
+    evento = _evento(conn, atendimento_id, em, tipo="texto", texto=texto, **({"mensagem_id": id_externo} if id_externo else {}))
     gravada = gravar_mensagem_recebida(conn, atendimento_id, evento=evento, chaves=CHAVES)
     assert isinstance(gravada, Gravada)
     gravar_troca(
@@ -188,14 +197,7 @@ def resposta_da_ia(
 
 def receber_midia(conn: psycopg.Connection, atendimento_id: uuid.UUID, tipo: str = "audio", *, em: datetime = AGORA) -> Pendente:
     """Áudio, imagem...: vira passo `mensagem_recebida` sem linha na conversa (o texto não existe)."""
-    evento = EventoMensagem(
-        chat_id=CHAT,
-        phone_id=PHONE,
-        tipo=tipo,
-        url_arquivo="https://exemplo.test/arquivo",
-        datetime_post=em.astimezone(UTC).isoformat(),
-        origem_evento="webhook",
-    )  # type: ignore[arg-type]
+    evento = _evento(conn, atendimento_id, em, tipo=tipo, url_arquivo="https://exemplo.test/arquivo")
     gravada = gravar_mensagem_recebida(conn, atendimento_id, evento=evento, chaves=CHAVES)
     assert isinstance(gravada, Gravada)
     return next(p for p in mensagens_pendentes(conn, atendimento_id) if p.ordem == gravada.ordem)
@@ -205,9 +207,7 @@ def receber_sem_linha_na_conversa(
     conn: psycopg.Connection, atendimento_id: uuid.UUID, texto: str = "texto que sumiu", *, em: datetime = AGORA
 ) -> Pendente:
     """Passo `mensagem_recebida` de texto SEM a linha cifrada na conversa (poda ou falha): o contexto tem de dizer «indisponível»."""
-    evento = EventoMensagem(
-        chat_id=CHAT, phone_id=PHONE, tipo="texto", texto=texto, datetime_post=em.astimezone(UTC).isoformat(), origem_evento="webhook"
-    )  # type: ignore[arg-type]
+    evento = _evento(conn, atendimento_id, em, tipo="texto", texto=texto)
     gravada = gravar_mensagem_recebida(conn, atendimento_id, evento=evento, chaves=CHAVES)
     assert isinstance(gravada, Gravada)
     return next(p for p in mensagens_pendentes(conn, atendimento_id) if p.ordem == gravada.ordem)

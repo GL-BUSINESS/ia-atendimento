@@ -33,7 +33,7 @@ class EstimadorPorCaracteres:
             raise ValueError("caracteres_por_token deve ser positivo e a margem, >= 1 (estimar para menos furaria o teto)")
 
     def contar(self, texto: str) -> int:
-        return math.ceil(len(texto) / self.caracteres_por_token * self.margem) if texto else 0
+        return math.ceil(round(len(texto) / self.caracteres_por_token * self.margem, 6)) if texto else 0  # round: 300/3·1,1 não vira 111
 
 
 @dataclass(frozen=True)
