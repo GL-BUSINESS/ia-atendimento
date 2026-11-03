@@ -25,9 +25,10 @@ da agenda (B5.7b)**: ainda sem agente, sem ferramentas, sem n8n e sem nada em pr
 | API de entrada: 13 rotas do contrato 08, auth por token e HMAC do gateway, erros sem eco — B1.5 | `src/ia_atendimento/api/` | `tests/test_api*.py`, `tests/test_contrato_api.py`, `tests/test_corrida.py` |
 | Mensagem recebida (uma função para webhook e RPA) e casamento webhook × RPA — B1.5 | `src/ia_atendimento/mensagens.py` | `tests/test_contrato_api.py`, `tests/test_mensagens.py` |
 | Agendamento («Vou fazer depois»), faixa de esforço, `pessoas_teste`, enfileirador e segredos em arquivo 0600 — B1.5 | `agendamento.py`, `esforco.py`, `pessoas_teste.py`, `enfileirador.py`, `segredos.py` | `tests/test_api*.py`, `tests/test_enfileirador.py`, `tests/test_segredos.py`, `tests/test_ambiente_api.py` |
-| Estado `pausado` (`pausar`/`sair_da_pausa`: só de E2–E6 e E8, nunca E7) e `reservado` de vida longa (`abrir_agendado`/`iniciar_agendado`) — B5.7b | `src/ia_atendimento/estado.py` | `tests/test_estado_pausa.py`, `tests/test_agenda_jobs.py` |
+| Estado `pausado` (`pausar`/`sair_da_pausa`: só de E2–E6 e E8, nunca E7, com teto de pausados e de horas) e `reservado` de vida longa (`abrir_agendado`/`iniciar_agendado`) — B5.7b | `src/ia_atendimento/estado_pausa.py` | `tests/test_estado_pausa.py`, `tests/test_agenda_jobs.py` |
 | Estados da linha `agendamento` (`confirmar`/`disparar`/`cancelar`, CAS por `versao`) e o passo `agendamento` — B5.7b | `src/ia_atendimento/agenda_estado.py` | `tests/test_agenda_estado.py` |
 | Jobs `retomar` (alarme sem lock + CAS `confirmado → disparado`) e `reaper_agenda` por minuto; `POST /agendamentos` enfileira o alarme — B5.7b | `agenda_jobs.py`, `fila.py`, `api/agendamentos.py` | `tests/test_agenda_jobs.py` (EM4: restart com 3 `confirmado`) |
+| Jobs presos: periódica `jobs_presos` (UPDATE atômico) e vigia do batimento do worker; rearme de agendamento e teto de atraso — B5.7b | `worker_vivo.py`, `agenda_estado.py`, `agenda_jobs.py` | `tests/test_jobs_presos.py` (SIGKILL real), `tests/test_execucao_superada.py`, `tests/test_agenda_rearme.py` |
 
 ## Como rodar
 
@@ -131,7 +132,7 @@ Para aplicar na S4 (feito pelo dono, nunca por este código): `migrations/README
 ```
 migrations/      0001 (estudo I), 0002 (Procrastinate), 0003 (estado), 0004 (anexo do RPA e outbox), 0001.sha256, README.md (ordem de aplicação na S4)
 scripts/         check.sh, aplicar_migracoes_local.sh, gerar_0002.py, varredura.py
-src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py, estado*.py, fila.py, jobs.py, mensagens.py, agendamento.py, agenda_estado.py, agenda_jobs.py, api/ …
+src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py, estado*.py, fila.py, jobs.py, mensagens.py, agendamento.py, agenda_estado.py, agenda_jobs.py, estado_pausa.py, worker_vivo.py, api/ …
 tests/           test_*.py; casos/ = os 350 casos do estudo I como dados (nome, papel, SQL, expectativa)
 docs/OPERACAO.md operação (aplicação na S4 = texto para o dono, não executar sem o «sim»)
 .github/workflows/ci.yml  ruff + pytest com serviço postgres:18, sem segredos

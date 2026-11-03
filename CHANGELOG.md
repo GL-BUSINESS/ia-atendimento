@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 ## [Unreleased]
 
 - **B5.7b, agendamento: estado `pausado` e jobs `retomar`/`reaper_agenda`** (`feat/b5-7b-pausado`, empilhada sobre `feat/b1-5-api-entrada`; `docs/DECISOES-B5.7b-0211.md`; a versão do `pyproject` não muda):
-  - **`estado.py`:** `pausar` (`aberto|aguardando_cliente → pausado`, **só de E2–E6 e E8, nunca E7**: `retoma_fase` é a fase atual e o UPDATE só casa com ela; `lease_ate = retoma_em + folga_min`,
+  - **`estado_pausa.py` (saiu de `estado.py`, R1-07):** `pausar` (`aberto|aguardando_cliente → pausado`, **só de E2–E6 e E8, nunca E7**: `retoma_fase` é a fase atual e o UPDATE só casa com ela; `lease_ate = retoma_em + folga_min`,
     padrão 30; a chave `pausa` entra no `estado_conversa` no mesmo UPDATE) e `sair_da_pausa` (→ `aberto` com lease de turno, ou `aguardando_cliente`; tira `pausa` e `retoma_em`).
     `repassar` e `encerrar` também tiram a `pausa`: a chave existe se e somente se o estado é `pausado`. `abrir_agendado` (caso b: `reservado` de vida longa, `gatilho='agendamento'`, não toca o chat;
     o INSERT saiu de `agendamento.reservar`) e `iniciar_agendado` (na hora, já em `retoma_fase`, só para `gatilho='agendamento'`). `aplicar` ganha `pausa=` e `onde_igual=`. Os dois `xfail` estritos da B1.1
@@ -13,13 +13,21 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
   - **`agenda_estado.py` (novo):** `pendente → confirmado → disparado | cancelado` por CAS em `versao` (`confirmar`, `disparar`, `cancelar`, `registrar_desfecho`, `ler_agendamento`) e o passo `agendamento` da linha do tempo.
   - **`agenda_jobs.py` + `fila.py` (novos jobs):** `alarme_retomar` (agendado em `dispara_em`, **sem lock**, `queueing_lock=retomar:{agendamento_id}`) enfileira o `retomar` de verdade (`lock=chat:`,
     `queueing_lock=retomar_exec:{agendamento_id}`), que reivindica o agendamento (CAS `confirmado → disparado`, uma transação) e entrega a volta a `Servicos.retomar_atendimento` (B5.7c; falha alto antes do
-    CAS se não injetado). `reaper_agenda` por minuto reenfileira o `confirmado` vencido sem job vivo e dá como falho o `doing` de worker morto (que segurava o lock do chat). **Não usa `send_date` do ChatGuru.**
+    CAS se não injetado). `reaper_agenda` por minuto reenfileira o `confirmado` vencido sem job vivo (`todo` ou `doing`; quem dá o `doing` por morto é só a `jobs_presos`). **Não usa `send_date` do ChatGuru.**
   - **`POST /agendamentos`:** grava o passo `agendamento` (`proposto`) e enfileira o alarme **na mesma transação** (`Enfileirador.agendar_retomada`); `retoma_fase` ≠ E8 com `agenda_b_digita=false` ⇒ 422 `validacao`.
   - **Provas:** `tests/test_agenda_jobs.py` (EM4: restart com 3 `confirmado`, um deles com o worker morto no meio do `retomar`, outro com o alarme sumido, na fila real, sem perda nem duplicidade;
     `test_um_agendamento_ativo_por_atendimento`, `test_post_triplicado_e_noop`, `test_reaper_pula_pausado`, `test_desligada_noturna_nao_encerra_pausado`, `test_pausar_nunca_em_E7`),
-    `tests/test_estado_pausa.py`, `tests/test_agenda_estado.py`. Testes: 2.252 → 2.319 passed (+67; dos 3 `xfail` estritos sobra o do gasto, B1.6).
-  - **Pendências declaradas:** B5.7c (confirmar/expirar/reagendar, pré-checagens e mensagem da volta, `agenda_max_pausados`); **job `doing` de worker morto segura o `lock=chat:` de qualquer tarefa e a B1.3 não recupera
-    «stalled jobs»** (só a agenda se cura aqui; recomendo periódica geral na B1.6/B1.7); `expirar_parados`/`encerrar_por_chave` (B1.6) não podem tocar `pausado` fora da parada leve manual.
+    `tests/test_estado_pausa.py`, `tests/test_agenda_estado.py`. Testes: 2.252 → 2.374 passed (+122, incluindo a revisão 1; dos 3 `xfail` estritos sobra o do gasto, B1.6).
+  - **Revisão 1 (`docs/REVISAO-B5.7b-0311.md`; 0 crítico, 1 ALTO, 5 MÉDIO, 9 BAIXO) e revisão automática; um commit `fix:` por item, cada um com teste que reprova sem a correção (`docs/DECISOES-B5.7b-0211.md` D14–D20):**
+    - **R1-01 (ALTO) e os 2 MÉDIO da revisão automática, jobs presos:** worker com `SIGKILL` deixava o job `doing` com o `lock=chat:` para sempre (o lead ficava `pausado` sem o `reaper_lease` enxergar o chat). `worker_vivo.py`: periódica `jobs_presos`
+      (um só `UPDATE … WHERE status='doing' AND <worker morto>`, atômico; batimento velho **ou** `worker_id` NULL com o job rodando há mais de 60 s, nunca «NULL = morto na hora»), `stalled_worker_timeout = 60 s` em `rodar_worker`, e `vigiar_batimento`
+      (o worker que perde a própria linha, o batimento ou o banco por 40 s para e aborta os jobs em voo; `WorkerPerdeuOBatimento`). Prova com `SIGKILL` real (`tests/worker_matavel.py`). Toda escrita de estado é CAS e o `retomar` é CAS: execução superada não grava
+      nem duplica (`test_execucao_superada.py`). **Gate da B1.6: ledger de envio idempotente do `turno`/`lembrete` (hoje espiões).**
+    - **R1-02:** `disparado → confirmado` por `agenda_estado.rearmar` (mesmo agendamento, `seq` intacto, atendimento movido junto, no máximo 2 rearmes); a volta devolve `jobs.Adiar`. **R1-03:** passou do lease (`dispara_em + folga`) o `retomar` não entrega: `expirado`, o lead é do `reaper_lease`.
+      **R1-04:** o rearme do `cedo` é relativo (`max(dispara_em, agora + 5 s)`): 277 jobs em 3 s com relógio 2 s atrasado viram 1. **R1-05:** `pausar` impõe `agenda_max_pausados` (sob trava) e `agenda_teto_horas`. **R1-06:** a prova da noite usa o reaper de lease com handler que muda estado;
+      `jobs.ESTADOS_EXPIRAVEIS` para o `expirar_parados` da B1.6. BAIXOS: R1-07 (`estado_pausa.py`), R1-08 (ordem de locks), R1-10 (`pausa` = 91 bytes), R1-11 (mutantes viraram testes), R1-12 (`Desfecho | Adiar | None`), R1-14.
+  - **Pendências declaradas:** B5.7c (confirmar/reagendar pelo cliente, pré-checagens e mensagem da volta; passar à `pausar` os valores VIGENTES da config; R1-13, R1-15); **`expirar_parados` e `encerrar_por_chave` (B1.6) têm de respeitar `pausado` fora da parada leve manual** (`jobs.ESTADOS_EXPIRAVEIS`; `encerrar_por_chave` só
+    nasce de `PUT ia_ativa=false`); o worker precisa de supervisor que o reinicie (`WorkerPerdeuOBatimento` sai com erro).
 
 - **B1.5, API de entrada (T7) + migração 0004** (`feat/b1-5-api-entrada`; `docs/DECISOES-B1.5-3010.md`; a versão do `pyproject` não muda, entra na v0.3.0):
   - **Migração `0004_anexo_rpa_e_espelho`** (D5 e D6 do contrato 08 §11, aditiva): `ia.fn_anexar_rpa(bigint, text)` `SECURITY DEFINER` (dono `ia_owner`, `search_path = pg_catalog, ia`,

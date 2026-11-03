@@ -117,6 +117,8 @@ Tag semver e `gh release create` só depois da revisão (rodízio: quem implemen
 
 Pré-requisitos (ordem do contrato 08 §10): migrações 0003 e 0004 (seção 3) **antes** da imagem; os três arquivos de segredo abaixo montados `:ro`; o worker do
 Procrastinate de pé (o `/readyz` dá 503 sem batimento de worker). Nada disto roda na S4 nem é feito por este repositório; a imagem e o Coolify são do dono.
+O worker sobe por `fila.rodar_worker` e **precisa de supervisor que o reinicie** (política `restart` do contêiner): ele sai com erro (`WorkerPerdeuOBatimento`) se perder a própria
+linha ou o batimento por 40 s, abortando os jobs em voo, e a periódica `jobs_presos` libera o `lock=chat:` de quem levou `SIGKILL` (margem de 60 s; B5.7b, `docs/DECISOES-B5.7b-0211.md` D14).
 
 ```bash
 # arquivos de segredo (modo 0600, dono do usuário do contêiner; nunca em variável de ambiente do Coolify, nunca no git)
