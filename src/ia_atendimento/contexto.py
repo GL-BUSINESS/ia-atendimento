@@ -11,18 +11,19 @@
 | 7 | resultado das ferramentas do turno, por allowlist | mensagem | `projetar_resultado` |
 | 8 | mensagens pendentes do cliente (a rajada junta) | mensagem | `conversa_cifrada` (por `passo_ordem`) |
 
-**O modelo nunca recebe** CPF, telefone, e-mail, nome, valor, prazo da oferta nem texto sem máscara (H §3.3, P3): o texto de cliente
-passa pela
-máscara outra vez aqui (defesa em profundidade; a máscara é idempotente), valores em reais e prazos que o próprio cliente digitou viram
-`[VALOR]`/`[PRAZO]`, o resultado de ferramenta só deixa passar o que a allowlist nomeia e antes da fase E3 (Q1: abertura sem valores) nem a
-oferta aparece. Ids reais (oferta, opções, agendamento) viram apelidos (`oferta-1`, `opcao-2`); `Contexto.referencias` diz o que cada um é.
-Por fim `auditar_prompt` confere o prompt inteiro contra a máscara: se algo ainda mudaria, o turno não sai (`ContextoComDadoPessoal`).
+**O modelo nunca recebe** CPF, telefone, e-mail, nome, valor, prazo da oferta nem texto sem máscara (H §3.3, P3). O texto de cliente passa
+pela máscara outra vez aqui (`protecao.proteger_texto`: dinheiro, prazo, data de nascimento e todo número «nu» de 2+ dígitos fora de hora,
+dia e duração viram `[VALOR]`, `[PRAZO]`, `[DATA]`, `[NUMERO]`); o `perfil` e o resultado de ferramenta só passam por allowlist de
+chave e de valor (enum, catálogo ou forma segura); antes da fase E3 (Q1: abertura sem valores) nem a oferta aparece. Ids reais (oferta,
+opções) viram apelidos (`oferta-1`, `opcao-2`); `Contexto.referencias` diz o que cada um é.
+
+**Na E5 a mensagem do cliente É o valor do campo** (modo guiado, B5.3): por padrão vira `[dado:<campo>]` e só chega ao modelo com
+`desvio_liberado=True`, que o chamador passa quando a regra de desvio manda. Por fim `auditar_prompt` confere o prompt inteiro contra a
+máscara: se algo ainda mudaria, o turno não sai (`ContextoComDadoPessoal`, um `ErroDoModelo`).
 
 **Teto de 4.000 tokens de entrada.** A contagem é uma ESTIMATIVA (HIPÓTESE, `tokens.py`; medir com o tokenizer do DeepSeek em B8.2) e
-inclui o formato
-`Turno`. Acima do teto cortam-se, NESTA ordem: resumo → trocas antigas (de duas em duas, fica a última) → exemplos da fase (um a um).
-Se ainda
-não couber, `ContextoNaoCabe`: o turno conta como falha do modelo. Nada além dessas três coisas é opcional.
+inclui o formato `Turno`. Acima do teto cortam-se, NESTA ordem: resumo → trocas antigas (de duas em duas, fica a última) → exemplos da
+fase (um a um). Se ainda não couber, `ContextoNaoCabe`: o turno conta como falha do modelo. Nada além dessas três coisas é opcional.
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from ia_atendimento.linha_tempo import Pendente
 from ia_atendimento.mascara import mascarar
 from ia_atendimento.modelos_conversa import EstadoConversa
 from ia_atendimento.modulos_fase import FASES_SEM_TURNO_DO_MODELO, SISTEMA, esquemas_das_ferramentas, modulo_da_fase
+from ia_atendimento.protecao import proteger_texto
 from ia_atendimento.tokens import ESTIMADOR_PADRAO, EstimadorDeTokens
 from ia_atendimento.turno import PLACEHOLDERS_DA_FASE, PLACEHOLDERS_DO_TEXTO, Turno, formato_do_turno
 
@@ -109,11 +111,6 @@ _FOLHA_TEXTO: Final = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,39}$")
 _PARECE_NUMERO: Final = re.compile(r"^[0-9][0-9.,:_-]*$|[0-9][.,_][0-9]{2}(?![0-9])|^[a-z]{0,3}_?[0-9]{3,}")
 _ALIAS_DE_REF: Final = {"oferta_ref": "oferta", "opcao_ref": "opcao"}
 
-_DINHEIRO: Final = re.compile(
-    r"(?i)(?<![\w])(?:r\$|rs)\s*\d[\d.,]*(?:\s*(?:mil|milh(?:ão|ões|ao|oes)|k|reais))?(?![\w])"
-    r"|(?<![\w])\d[\d.,]*\s*(?:mil|milh(?:ão|ões|ao|oes)|k|reais?|contos?|pilas?|mangos?)(?![\w])"
-)
-_PRAZO: Final = re.compile(r"(?i)(?<![\w])\d{1,3}\s*(?:x|vezes|parcelas?|meses|mês|mes)(?![\w])")
 _PROIBIDO_NO_PROMPT: Final = re.compile(r"(?i)r\$|us\$")
 _LINHA_DE_PENDENTE: Final = re.compile(r"^\d+\. «(.*)»$")
 _FASE_NO_ESTADO: Final = re.compile(r'"fase":"(E(?:10|[0-9]))"')
@@ -144,14 +141,6 @@ class ContextoComDadoPessoal(ContextoErro):
 
 
 # --- proteção do texto -------------------------------------------------------------------------------------------------------------------
-
-
-def proteger_texto(texto: str, nomes: Collection[str]) -> str:
-    """Texto de cliente (ou da IA) pronto para o prompt: máscara de PII outra vez, valor em reais e prazo digitados viram
-    `[VALOR]`/`[PRAZO]`,
-    linha única e sem os delimitadores «» (a mensagem do cliente não forja cabeçalho nem fecha aspas)."""
-    protegido = _PRAZO.sub("[PRAZO]", _DINHEIRO.sub("[VALOR]", mascarar(texto, nomes)))
-    return re.sub(r"\s+", " ", protegido.replace("«", "").replace("»", "")).strip()
 
 
 def _cortar(texto: str, limite: int) -> str:
@@ -318,14 +307,28 @@ def _textos_pendentes(
     return achados
 
 
+def _campo_a_ocultar(estado: EstadoConversa, desvio_liberado: bool) -> str | None:
+    """Na E5 (modo guiado) a mensagem é o valor do campo: oculta, salvo `desvio_liberado` (a regra de desvio do B5.3 é de quem chama)."""
+    if estado.fase != "E5" or desvio_liberado:
+        return None
+    return estado.campos_faltantes[0] if estado.campos_faltantes else "campo"
+
+
 def _linhas_pendentes(
-    pendentes: Sequence[Pendente], achados: Mapping[int, tuple[int, str | None]], nomes: Collection[str]
+    pendentes: Sequence[Pendente],
+    achados: Mapping[int, tuple[int, str | None]],
+    nomes: Collection[str],
+    ocultar_como: str | None = None,
 ) -> tuple[str, ...]:
+    """Uma linha por pendente. `ocultar_como` (campo da E5) troca o TEXTO por `[dado:<campo>]`: o modelo nem vê o que o cliente digitou."""
     limite = max(CARACTERES_MINIMOS_POR_PENDENTE, CARACTERES_DAS_PENDENTES // max(len(pendentes), 1))
     linhas = []
     for pendente in pendentes:
         if pendente.msg_tipo != "texto":
             linhas.append(f"[mídia sem texto: {pendente.msg_tipo}]")
+            continue
+        if ocultar_como is not None:
+            linhas.append(f"[dado:{ocultar_como}]")
             continue
         texto = achados.get(pendente.ordem, (0, None))[1]
         linhas.append(_cortar(proteger_texto(texto, nomes), limite) if texto else "[mensagem indisponível]")
@@ -491,6 +494,7 @@ def montar_contexto(
     exemplos: Sequence[ExemploDaFase] = (),
     estimador: EstimadorDeTokens = ESTIMADOR_PADRAO,
     teto: int = TETO_TOKENS,
+    desvio_liberado: bool = False,
 ) -> Contexto:
     """Lê o atendimento, a conversa cifrada e o `perfil`; monta os 8 blocos, corta até caber em `teto` e audita o prompt.
 
@@ -518,7 +522,7 @@ def montar_contexto(
         resumo=proteger_texto(conversa.resumo, nomes) if conversa.resumo else None,
         trocas=_linhas_das_trocas(historico, nomes),
         resultados=projetar_resultado(resultados or {}, apelidos, nomes),
-        pendentes=_linhas_pendentes(pendentes, achados, nomes),
+        pendentes=_linhas_pendentes(pendentes, achados, nomes, _campo_a_ocultar(estado, desvio_liberado)),
     )
     contexto = cortar_ate_caber(construir(insumos, apelidos.mapa, estimador), teto)
     auditar_prompt(contexto, nomes)
