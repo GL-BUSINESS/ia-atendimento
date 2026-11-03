@@ -133,8 +133,8 @@ def _tarefas_da_agenda(bp: procrastinate.Blueprint) -> dict[str, Any]:
 
     @bp.task(name="retomar", pass_context=True)  # sem retry: a reivindicação (CAS `confirmado → disparado`) não é reentrante
     async def retomar(contexto: procrastinate.JobContext, agendamento_id: str, atendimento_id: str, chat_id: str) -> None:
-        async def reagendar(em: datetime) -> None:
-            await agendar_retomada(contexto.app, uuid.UUID(agendamento_id), uuid.UUID(atendimento_id), chat_id, em)
+        async def reagendar(atraso_s: float) -> None:
+            await agendar_retomada(contexto.app, uuid.UUID(agendamento_id), uuid.UUID(atendimento_id), chat_id, atraso_s)
 
         await agenda_jobs.executar_retomar(_servicos(contexto), uuid.UUID(agendamento_id), reagendar, job_id=contexto.job.id)
 
@@ -249,10 +249,12 @@ def _pedido_alarme_encerrar_por_chave(
 
 
 def _pedido_alarme_retomar(
-    agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, em: datetime, conexao: Any
+    agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, quando: datetime | float, conexao: Any
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    """O alarme NÃO leva `lock` (ver a docstring do módulo); o `queueing_lock` garante um alarme `todo` por agendamento."""
-    opcoes = {"queueing_lock": f"{agenda_jobs.PREFIXO_ALARME}{agendamento_id}", "schedule_at": em, "connection": conexao}
+    """O alarme NÃO leva `lock` (ver a docstring do módulo); o `queueing_lock` garante um alarme `todo` por agendamento.
+    `quando` é um instante (`schedule_at`, na criação) ou um atraso em segundos (`schedule_in`, no rearme: relativo ao `now()` do banco)."""
+    hora = {"schedule_at": quando} if isinstance(quando, datetime) else {"schedule_in": {"seconds": quando}}
+    opcoes = {"queueing_lock": f"{agenda_jobs.PREFIXO_ALARME}{agendamento_id}", **hora, "connection": conexao}
     argumentos = {"agendamento_id": str(agendamento_id), "atendimento_id": str(atendimento_id), "chat_id": chat_id}
     return "alarme_retomar", opcoes, argumentos
 
@@ -277,10 +279,16 @@ async def enfileirar_encerrar_por_chave(app: procrastinate.App, atendimento_id: 
 
 
 async def agendar_retomada(
-    app: procrastinate.App, agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, em: datetime, *, conexao: Any = None
+    app: procrastinate.App,
+    agendamento_id: uuid.UUID,
+    atendimento_id: uuid.UUID,
+    chat_id: str,
+    quando: datetime | float,
+    *,
+    conexao: Any = None,
 ) -> int | None:
-    """Alarme da volta combinada para `em` (UTC = `dispara_em`). `None` = já havia um alarme `todo` deste agendamento."""
-    tarefa, opcoes, argumentos = _pedido_alarme_retomar(agendamento_id, atendimento_id, chat_id, em, conexao)
+    """Alarme da volta combinada para `quando` (instante UTC = `dispara_em`, ou atraso em segundos). `None` = já havia um alarme `todo`."""
+    tarefa, opcoes, argumentos = _pedido_alarme_retomar(agendamento_id, atendimento_id, chat_id, quando, conexao)
     return await _enfileirar(app, tarefa, opcoes, **argumentos)
 
 

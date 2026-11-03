@@ -24,7 +24,7 @@ import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final, Literal
 
 import psycopg
@@ -36,6 +36,9 @@ from ia_atendimento.prontidao import HEARTBEAT_MAX_S
 
 PREFIXO_ALARME: Final = "retomar:"
 PREFIXO_EXEC: Final = "retomar_exec:"
+FOLGA_REARME: Final = timedelta(
+    seconds=5
+)  # o alarme `cedo` nunca volta antes de agora + 5 s (relógio da app atrasado não vira laço quente)
 Codigo = Literal["disparado", "inexistente", "nao_confirmado", "fora_do_estado", "cedo", "perdeu"]
 
 
@@ -72,9 +75,7 @@ def _reivindicar(servicos: Servicos, agendamento_id: uuid.UUID, agora: datetime,
         if not _esperando_a_volta(linha.entrada, estado, gatilho):
             ae.cancelar(conn, agendamento_id, linha.versao, por="sistema", agora=agora)
             ae.passo_de_agendamento(conn, atendimento_id, agendamento_id, "cancelado")
-            return Reivindicacao(
-                "fora_do_estado"
-            )  # alguém tirou o atendimento da espera sem cancelar o agendamento: não se fala com o cliente
+            return Reivindicacao("fora_do_estado")  # alguém tirou o atendimento da espera: não se fala com o cliente
         if linha.dispara_em > agora:
             return Reivindicacao("cedo", dispara_em=linha.dispara_em)
         try:
@@ -93,11 +94,19 @@ def _registrar_desfecho(servicos: Servicos, volta: Volta, desfecho: ae.Desfecho)
             ae.passo_de_agendamento(conn, volta.atendimento_id, volta.agendamento_id, "resolvido")
 
 
+def atraso_do_rearme(dispara_em: datetime, agora: datetime) -> float:
+    """Segundos até o alarme `cedo` voltar: `max(dispara_em, agora + 5 s) - agora`, no relógio da APLICAÇÃO (R1-04).
+
+    O alarme dispara pelo `now()` do banco e a conferência é pelo relógio da aplicação. Se este atrasa, `dispara_em` já é passado para o
+    banco, e rearmar PARA `dispara_em` faria o job voltar na hora, em laço (277 jobs em 3 s com 2 s de atraso). O relativo converge."""
+    return (max(dispara_em, agora + FOLGA_REARME) - agora).total_seconds()
+
+
 async def executar_retomar(
-    servicos: Servicos, agendamento_id: uuid.UUID, reagendar: Callable[[datetime], Awaitable[None]], *, job_id: int | None = None
+    servicos: Servicos, agendamento_id: uuid.UUID, reagendar: Callable[[float], Awaitable[None]], *, job_id: int | None = None
 ) -> Codigo:
     """O job `retomar`: reivindica o agendamento e, se ganhou, entrega a volta ao serviço. `cedo` (o alarme chegou antes do `dispara_em`
-    pelo relógio da aplicação) rearma o alarme para a hora certa, como o lembrete adiado."""
+    pelo relógio da aplicação) rearma o alarme com atraso RELATIVO (`atraso_do_rearme`), como o lembrete adiado."""
     if not configurado(
         servicos.retomar_atendimento
     ):  # sem a volta para entregar, reivindicar seria perder o agendamento: falha ANTES do CAS
@@ -105,7 +114,7 @@ async def executar_retomar(
     agora = servicos.relogio.agora()
     r = await asyncio.to_thread(_reivindicar, servicos, agendamento_id, agora, job_id)
     if r.codigo == "cedo" and r.dispara_em is not None:
-        await reagendar(r.dispara_em)
+        await reagendar(atraso_do_rearme(r.dispara_em, agora))
     if r.volta is not None:
         desfecho = await servicos.retomar_atendimento(r.volta)
         if desfecho not in (None, "retomou"):

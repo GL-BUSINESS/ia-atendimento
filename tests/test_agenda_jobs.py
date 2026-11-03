@@ -8,6 +8,7 @@ o lock do chat, o reaper e a ausência de efeito no chat.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -334,18 +335,47 @@ async def test_retomar_do_caso_b_entrega_a_volta_sem_tocar_no_reservado(banco, c
     ).fetchone() == (None, "intocado"), "o chat não foi tocado: quem assume é o `iniciar_agendado` da volta"
 
 
-async def test_retomar_cedo_rearma_o_alarme_e_nao_reivindica(banco, conn_app, relogio, versoes):
+@pytest.mark.parametrize(("antes_s", "atraso_s"), [(1, 5.0), (4, 5.0), (60, 60.0), (3600, 3600.0)])
+async def test_retomar_cedo_rearma_o_alarme_com_atraso_relativo_e_nao_reivindica(banco, conn_app, relogio, versoes, antes_s, atraso_s):
+    """`max(dispara_em, agora + 5 s) - agora`: nunca para uma hora que o banco já considera vencida (R1-04)."""
     dispara = relogio.agora() + timedelta(hours=2)
     caso = pausado_confirmado(conn_app, relogio.agora, versoes, dispara_em=dispara)
-    rearmados: list[datetime] = []
+    rearmados: list[float] = []
 
-    async def reagendar(em: datetime) -> None:
-        rearmados.append(em)
+    async def reagendar(atraso: float) -> None:
+        rearmados.append(atraso)
 
     voltas = Voltas()
-    relogio.definir(dispara - timedelta(seconds=1))  # o alarme saiu um instante antes do relógio da aplicação
+    relogio.definir(dispara - timedelta(seconds=antes_s))  # o alarme saiu antes do relógio da aplicação
     assert await agenda_jobs.executar_retomar(_servicos(banco, relogio, voltas), caso.agendamento_id, reagendar) == "cedo"
-    assert rearmados == [dispara] and voltas.recebidas == [] and _ag(conn_app, caso.agendamento_id)[0] == "confirmado"
+    assert rearmados == [atraso_s] and voltas.recebidas == [] and _ag(conn_app, caso.agendamento_id)[0] == "confirmado"
+
+
+async def test_relogio_da_app_atrasado_nao_vira_laco_quente(conninfo_app, conn_app, conn_super, banco, versoes):
+    """Sonda P3 da revisão: com o relógio da aplicação 2 s atrás do banco, o `cedo` rearmava o alarme PARA `dispara_em` (já vencido no banco) e o
+    job voltava na hora: 277 jobs em 3 s. Agora: um alarme, um `retomar` e UM alarme novo, 5 s à frente; e depois que a hora chega, uma volta só."""
+    real = datetime.now(UTC)
+    dispara = real - timedelta(seconds=1)  # já vencido para o relógio do BANCO
+    caso = pausado_confirmado(conn_app, RelogioFalso(real - timedelta(hours=3)).agora, versoes, dispara_em=dispara)
+    atrasado = RelogioFalso(dispara - timedelta(seconds=2))  # relógio da app 2 s atrás do dispara_em
+    voltas = Voltas()
+    servicos = _servicos(banco, atrasado, voltas)
+    app = criar(conninfo_app)
+    async with app.open_async():
+        await fila.agendar_retomada(app, caso.agendamento_id, caso.atendimento_id, caso.chat_id, dispara)
+        await asyncio.wait_for(rodar(app, servicos), 5)
+    assert conn_super.execute("SELECT count(*) FROM procrastinate.procrastinate_jobs").fetchone()[0] <= 3
+    (novo,) = conn_super.execute(
+        "SELECT scheduled_at - now() FROM procrastinate.procrastinate_jobs WHERE task_name = 'ia:alarme_retomar' AND status = 'todo'"
+    ).fetchall()
+    assert timedelta(seconds=3) < novo[0] <= timedelta(seconds=5), "o alarme novo volta no futuro, não na hora"
+    assert voltas.recebidas == [] and _ag(conn_app, caso.agendamento_id)[0] == "confirmado"
+    # a hora chega (para o relógio da app também) e o alarme novo vence: uma volta, só uma
+    atrasado.definir(dispara + timedelta(seconds=3))
+    conn_super.execute("UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second' WHERE status = 'todo'")
+    async with app.open_async():
+        await asyncio.wait_for(rodar(app, servicos), 5)
+    assert voltas.ids == [caso.agendamento_id] and _ag(conn_app, caso.agendamento_id)[:3] == ("disparado", 3, "retomou")
 
 
 async def test_retomar_de_pendente_ou_inexistente_nao_faz_nada(banco, conn_app, relogio, versoes):
