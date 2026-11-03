@@ -1,13 +1,15 @@
 """Catálogo sintético das pessoas de teste (B2.4): uma por `persona_id` da F3 (60 H + 24 P-M), com o que T1/T3 precisam ler.
 
 O arquivo `pessoas.json` é GERADO de `tests/corpus/` por `scripts/gerar_pessoas_teste.py` (e conferido por `--verificar` no `check.sh`):
-persona_id, CPF `000.000.0nn-dd`, nome e telefone são os do corpus; `pessoa_id` é fixo e legível (`00000000-0000-7000-8000-<n>`, o prefixo
+persona_id, CPF `000.000.nnn-dd` (um por persona), nome e telefone são os do corpus; `pessoa_id` é fixo e legível
+(`00000000-0000-7000-8000-<n>`, o prefixo
 `00000000-` é o que a varredura do corpus reconhece como sintético); as ofertas saem do perfil da persona e da grade de coeficientes do
 dublê da FACTA (tabela 115716). Nada aqui é de cliente: um CPF desta faixa nunca pertence a uma pessoa.
 
-Várias personas dividem o mesmo CPF quando dividem a persona do dublê (P01, P34, P57 e P-M01 usam o `aprovado-24`): o CPF é a chave do
-dublê da FACTA (stubs por CPF), o `pessoa_id` é a chave do 360. Quem lê T1/T3 em `duble|teste` pergunta por `pessoa_id`, então não há
-ambiguidade; a oferta (valor, prazo) é por persona.
+Um CPF por persona (R1-09): o estado do dublê da FACTA (scenario do WireMock) e os stubs são por CPF, então duas personas no mesmo
+CPF veriam a proposta uma da outra. As personas que dividiam uma persona do dublê (P01, P34, P57 e P-M01 no `aprovado-24`) têm cada uma
+o seu CLONE no `bancos-duble` (`000.000.1nn`); `pessoa_id` é a chave do 360 e T1/T3 perguntam por ele. O prazo da oferta de T3 é o do
+cenário `aprovado-N` do dublê da persona.
 
 `hash_canonico` é o hash que o `bancos-duble` guarda no seu instantâneo (`personas/pessoas_teste.sha256`): o teste de consistência entre
 os repositórios compara os dois.
@@ -32,7 +34,7 @@ ARQUIVO: Final = Path(__file__).with_name("pessoas.json")
 ARQUIVO_HASH: Final = Path(__file__).with_name("pessoas.sha256")
 FAIXA_DO_PESSOA_ID: Final = "00000000-0000-7000-8000-"
 _PERSONA_ID: Final = re.compile(r"^(P(0[1-9]|[1-5][0-9]|60)|P-M(0[1-9]|1[0-9]|2[0-4]))$")
-_CPF_FORMATADO: Final = re.compile(r"^000\.000\.0[0-9]{2}-[0-9]{2}$")
+_CPF_FORMATADO: Final = re.compile(r"^000\.000\.[01][0-9]{2}-[0-9]{2}$")
 _CHAT_HEX24: Final = re.compile(r"^[0-9a-f]{24}$")
 
 

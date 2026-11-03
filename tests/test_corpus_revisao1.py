@@ -148,6 +148,8 @@ def test_duble_snapshot_e_o_da_main_do_bancos_duble_e_as_oito_personas_usam_pers
 def test_cpf_alinhado_reprova_persona_fora_do_f3_do_duble_que_nao_e_caminho_feliz(bruto):
     p = _persona(bruto, "P14")
     assert p["cenario_facta"]["persona_duble"].startswith("aprovado")
+    for d in bruto["duble"]["personas"]:  # o dublê não lista a P14 em nenhum `f3` (hoje ela tem clone próprio; antes ia pelo `aprovado-NN`)
+        d["f3"] = [x for x in d["f3"] if x != "P14"]
     p["cenario_facta"].update(persona_duble="recusa-sem-margem", cenario="recusa")
     p["cpf"] = "000.000.014-06"
     achadas = _reprova(bruto, "cpf_alinhado_duble")

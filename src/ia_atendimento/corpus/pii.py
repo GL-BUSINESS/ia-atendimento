@@ -17,6 +17,8 @@ _MARCADOR_PARA_TIPO = {
     mascara.NUMERO: "numero",
 }
 CELULARES_SINTETICOS = frozenset({"912345678", "987654321", "999999999", "900000000"})  # os mesmos de scripts/varredura.py
+# `000.000.0nn` (as personas do corpus e do dublê) e `000.000.1nn` (os clones de persona do dublê, B2.4): 6 zeros e o 7º dígito 0 ou 1
+FAIXA_CPF = re.compile(r"^000000[01]")
 PLACEHOLDER = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
 MAX_DIGITOS_SIGNIFICATIVOS_DE_NUMERO = 6  # «0000123-4»: conta sintética = zeros à esquerda e poucos dígitos
 
@@ -27,7 +29,7 @@ def digitos(trecho: str) -> str:
 
 def cpf_sintetico(onze: str) -> bool:
     """`000.000.0nn-dd` com os dois dígitos verificadores certos (a faixa que não existe em pessoa de verdade)."""
-    return len(onze) == 11 and onze.startswith("0000000") and mascara._cpf_valido(onze)
+    return len(onze) == 11 and FAIXA_CPF.match(onze) is not None and mascara._cpf_valido(onze)
 
 
 def achados_pii(texto: str) -> list[tuple[str, str]]:
@@ -49,7 +51,7 @@ def pii_nao_sintetica(tipo: str, valor: str) -> bool:
     """True se o dado NÃO é do conjunto sintético permitido (então é, ou parece, dado de gente de verdade)."""
     d = digitos(valor)
     if tipo == "cpf":
-        return not d.startswith("0000000")
+        return FAIXA_CPF.match(d) is None
     if tipo == "telefone":
         sem_pais = d[2:] if d.startswith("55") and len(d) > 11 else d
         return sem_pais[-9:] not in CELULARES_SINTETICOS

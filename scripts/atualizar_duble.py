@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regrava `tests/corpus/duble_personas.json` a partir do `personas/personas.yaml` do bancos-duble (só ids, n, CPF sintético, cenário, P-ids).
+"""Regrava `tests/corpus/duble_personas.json` a partir do `personas/personas.yaml` do bancos-duble (só ids, n, CPF sintético, cenário, P-ids e `clone_de`).
 
 Uso (o PyYAML não é dependência do projeto):
   uv run --with pyyaml python scripts/atualizar_duble.py ~/repos/bancos-duble/personas/personas.yaml <hash-do-commit-lido> [--verificar]
@@ -19,15 +19,19 @@ import yaml
 ALVO = Path(__file__).resolve().parent.parent / "tests" / "corpus" / "duble_personas.json"
 
 
+def _persona(p: dict) -> dict:
+    """Só o que liga a persona do corpus à do dublê; `clone_de` aparece só nos clones (B2.4, R1-09: uma persona do dublê por persona da F3)."""
+    base = {"id": p["id"], "n": p["n"], "cpf": p["cpf"], "cenario": p["cenario"], "f3": p.get("f3") or []}
+    return {**base, "clone_de": p["clone_de"]} if p.get("clone_de") else base
+
+
 def gerar(yaml_path: Path, commit: str) -> dict:
     d = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
     return {
-        "fonte": f"bancos-duble origin/main @{commit} personas/personas.yaml (versao {d['versao']}): so id, n, CPF sintetico, cenario e as P-ids do f3",
+        "fonte": f"bancos-duble @{commit} personas/personas.yaml (versao {d['versao']}): so id, n, CPF sintetico, cenario, as P-ids do f3 e o clone_de",
         "f3_globais": d["f3_globais"],
         "f3_sem_facta": d["f3_sem_facta"],
-        "personas": [
-            {"id": p["id"], "n": p["n"], "cpf": p["cpf"], "cenario": p["cenario"], "f3": p.get("f3") or []} for p in d["personas"]
-        ],
+        "personas": [_persona(p) for p in d["personas"]],
     }
 
 

@@ -1,15 +1,13 @@
 {
- "fonte": "bancos-duble origin/main @1305152 personas/personas.yaml (versao 1): so id, n, CPF sintetico, cenario e as P-ids do f3",
+ "fonte": "bancos-duble @1305152+B2.4-R1-09 personas/personas.yaml (versao 1): so id, n, CPF sintetico, cenario, as P-ids do f3 e o clone_de",
  "f3_globais": {
   "P30": "virada",
   "P31": "reabertura"
  },
  "f3_sem_facta": [
   "P13",
-  "P14",
   "P32",
   "P33",
-  "P34",
   "P35",
   "P36",
   "P37",
@@ -19,21 +17,15 @@
   "P41",
   "P42",
   "P43",
-  "P44",
   "P45",
   "P46",
   "P47",
-  "P48",
   "P49",
   "P50",
   "P51",
-  "P52",
   "P53",
   "P54",
   "P55",
-  "P56",
-  "P57",
-  "P58",
   "P60"
  ],
  "personas": [
@@ -52,10 +44,7 @@
    "cpf": "000.000.002-72",
    "cenario": "aprovado",
    "f3": [
-    "P02",
-    "P05",
-    "P09",
-    "P12"
+    "P02"
    ]
   },
   {
@@ -64,8 +53,7 @@
    "cpf": "000.000.003-53",
    "cenario": "aprovado",
    "f3": [
-    "P03",
-    "P06"
+    "P03"
    ]
   },
   {
@@ -74,9 +62,7 @@
    "cpf": "000.000.004-34",
    "cenario": "aprovado",
    "f3": [
-    "P04",
-    "P07",
-    "P08"
+    "P04"
    ]
   },
   {
@@ -177,8 +163,7 @@
    "cpf": "000.000.017-59",
    "cenario": "teto",
    "f3": [
-    "P10",
-    "P11"
+    "P10"
    ]
   },
   {
@@ -316,8 +301,7 @@
    "cpf": "000.000.035-30",
    "cenario": "indeterminado",
    "f3": [
-    "P24",
-    "P28"
+    "P24"
    ]
   },
   {
@@ -420,6 +404,350 @@
    "cpf": "000.000.099-00",
    "cenario": "cpf_invalido",
    "f3": []
+  },
+  {
+   "id": "aprovado-36-p05",
+   "n": 100,
+   "cpf": "000.000.100-73",
+   "cenario": "aprovado",
+   "f3": [
+    "P05"
+   ],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-48-p06",
+   "n": 101,
+   "cpf": "000.000.101-54",
+   "cenario": "aprovado",
+   "f3": [
+    "P06"
+   ],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-60-p07",
+   "n": 102,
+   "cpf": "000.000.102-35",
+   "cenario": "aprovado",
+   "f3": [
+    "P07"
+   ],
+   "clone_de": "aprovado-60"
+  },
+  {
+   "id": "aprovado-60-p08",
+   "n": 103,
+   "cpf": "000.000.103-16",
+   "cenario": "aprovado",
+   "f3": [
+    "P08"
+   ],
+   "clone_de": "aprovado-60"
+  },
+  {
+   "id": "aprovado-36-p09",
+   "n": 104,
+   "cpf": "000.000.104-05",
+   "cenario": "aprovado",
+   "f3": [
+    "P09"
+   ],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "teto-politica-p11",
+   "n": 105,
+   "cpf": "000.000.105-88",
+   "cenario": "teto",
+   "f3": [
+    "P11"
+   ],
+   "clone_de": "teto-politica"
+  },
+  {
+   "id": "aprovado-36-p12",
+   "n": 106,
+   "cpf": "000.000.106-69",
+   "cenario": "aprovado",
+   "f3": [
+    "P12"
+   ],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-48-p14",
+   "n": 107,
+   "cpf": "000.000.107-40",
+   "cenario": "aprovado",
+   "f3": [
+    "P14"
+   ],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "indet-criada-5min-p28",
+   "n": 108,
+   "cpf": "000.000.108-20",
+   "cenario": "indeterminado",
+   "f3": [
+    "P28"
+   ],
+   "clone_de": "indet-criada-5min"
+  },
+  {
+   "id": "aprovado-36-p34",
+   "n": 109,
+   "cpf": "000.000.109-01",
+   "cenario": "aprovado",
+   "f3": [
+    "P34"
+   ],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-36-p44",
+   "n": 110,
+   "cpf": "000.000.110-45",
+   "cenario": "aprovado",
+   "f3": [
+    "P44"
+   ],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-36-p48",
+   "n": 111,
+   "cpf": "000.000.111-26",
+   "cenario": "aprovado",
+   "f3": [
+    "P48"
+   ],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-48-p52",
+   "n": 112,
+   "cpf": "000.000.112-07",
+   "cenario": "aprovado",
+   "f3": [
+    "P52"
+   ],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-48-p56",
+   "n": 113,
+   "cpf": "000.000.113-98",
+   "cenario": "aprovado",
+   "f3": [
+    "P56"
+   ],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-36-p57",
+   "n": 114,
+   "cpf": "000.000.114-79",
+   "cenario": "aprovado",
+   "f3": [
+    "P57"
+   ],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-48-p58",
+   "n": 115,
+   "cpf": "000.000.115-50",
+   "cenario": "aprovado",
+   "f3": [
+    "P58"
+   ],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-24-pm01",
+   "n": 116,
+   "cpf": "000.000.116-30",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-24"
+  },
+  {
+   "id": "aprovado-36-pm02",
+   "n": 117,
+   "cpf": "000.000.117-11",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-48-pm03",
+   "n": 118,
+   "cpf": "000.000.118-00",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-60-pm04",
+   "n": 119,
+   "cpf": "000.000.119-83",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-60"
+  },
+  {
+   "id": "aprovado-24-pm05",
+   "n": 120,
+   "cpf": "000.000.120-17",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-24"
+  },
+  {
+   "id": "aprovado-36-pm06",
+   "n": 121,
+   "cpf": "000.000.121-06",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-48-pm07",
+   "n": 122,
+   "cpf": "000.000.122-89",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-60-pm08",
+   "n": 123,
+   "cpf": "000.000.123-60",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-60"
+  },
+  {
+   "id": "aprovado-24-pm09",
+   "n": 124,
+   "cpf": "000.000.124-40",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-24"
+  },
+  {
+   "id": "aprovado-36-pm10",
+   "n": 125,
+   "cpf": "000.000.125-21",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-48-pm11",
+   "n": 126,
+   "cpf": "000.000.126-02",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-60-pm12",
+   "n": 127,
+   "cpf": "000.000.127-93",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-60"
+  },
+  {
+   "id": "aprovado-24-pm13",
+   "n": 128,
+   "cpf": "000.000.128-74",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-24"
+  },
+  {
+   "id": "aprovado-36-pm14",
+   "n": 129,
+   "cpf": "000.000.129-55",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-48-pm15",
+   "n": 130,
+   "cpf": "000.000.130-99",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-60-pm16",
+   "n": 131,
+   "cpf": "000.000.131-70",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-60"
+  },
+  {
+   "id": "aprovado-24-pm17",
+   "n": 132,
+   "cpf": "000.000.132-50",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-24"
+  },
+  {
+   "id": "aprovado-48-pm19",
+   "n": 133,
+   "cpf": "000.000.133-31",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-60-pm20",
+   "n": 134,
+   "cpf": "000.000.134-12",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-60"
+  },
+  {
+   "id": "aprovado-24-pm21",
+   "n": 135,
+   "cpf": "000.000.135-01",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-24"
+  },
+  {
+   "id": "aprovado-36-pm22",
+   "n": 136,
+   "cpf": "000.000.136-84",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-36"
+  },
+  {
+   "id": "aprovado-48-pm23",
+   "n": 137,
+   "cpf": "000.000.137-65",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-48"
+  },
+  {
+   "id": "aprovado-60-pm24",
+   "n": 138,
+   "cpf": "000.000.138-46",
+   "cenario": "aprovado",
+   "f3": [],
+   "clone_de": "aprovado-60"
   }
  ]
 }

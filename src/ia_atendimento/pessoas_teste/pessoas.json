@@ -22,7 +22,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0623",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -46,7 +47,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -70,7 +72,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -94,17 +97,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P05",
    "pessoa_id": "00000000-0000-7000-8000-000000000005",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.100-73",
    "nome": "Marlene Ferovim",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000100",
+   "duble": "aprovado-36-p05",
    "pares": [
     {
      "banco": "FACTA",
@@ -118,17 +122,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P06",
    "pessoa_id": "00000000-0000-7000-8000-000000000006",
-   "cpf": "000.000.003-53",
+   "cpf": "000.000.101-54",
    "nome": "Ivo Gurovim",
-   "telefone": "550090000003",
-   "duble": "aprovado-48",
+   "telefone": "550090000101",
+   "duble": "aprovado-48-p06",
    "pares": [
     {
      "banco": "FACTA",
@@ -142,17 +147,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P07",
    "pessoa_id": "00000000-0000-7000-8000-000000000007",
-   "cpf": "000.000.004-34",
+   "cpf": "000.000.102-35",
    "nome": "Delma Itaesco",
-   "telefone": "550090000004",
-   "duble": "aprovado-60",
+   "telefone": "550090000102",
+   "duble": "aprovado-60-p07",
    "pares": [
     {
      "banco": "FACTA",
@@ -166,17 +172,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P08",
    "pessoa_id": "00000000-0000-7000-8000-000000000008",
-   "cpf": "000.000.004-34",
+   "cpf": "000.000.103-16",
    "nome": "Genivaldo Lavardi",
-   "telefone": "550090000004",
-   "duble": "aprovado-60",
+   "telefone": "550090000103",
+   "duble": "aprovado-60-p08",
    "pares": [
     {
      "banco": "FACTA",
@@ -190,17 +197,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P09",
    "pessoa_id": "00000000-0000-7000-8000-000000000009",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.104-05",
    "nome": "Rosalvo Maruvel",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000104",
+   "duble": "aprovado-36-p09",
    "pares": [
     {
      "banco": "FACTA",
@@ -214,7 +222,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -238,17 +247,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P11",
    "pessoa_id": "00000000-0000-7000-8000-000000000011",
-   "cpf": "000.000.017-59",
+   "cpf": "000.000.105-88",
    "nome": "Argemiro Ravovim",
-   "telefone": "550090000017",
-   "duble": "teto-politica",
+   "telefone": "550090000105",
+   "duble": "teto-politica-p11",
    "pares": [
     {
      "banco": "FACTA",
@@ -262,17 +272,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P12",
    "pessoa_id": "00000000-0000-7000-8000-000000000012",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.106-69",
    "nome": "Ivanilda Torardi",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000106",
+   "duble": "aprovado-36-p12",
    "pares": [
     {
      "banco": "FACTA",
@@ -286,7 +297,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -310,7 +322,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     },
     {
      "banco": "C6",
@@ -324,17 +337,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0412",
       "coef_valor": "0.010000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P14",
    "pessoa_id": "00000000-0000-7000-8000-000000000014",
-   "cpf": "000.000.003-53",
+   "cpf": "000.000.107-40",
    "nome": "Maristela Walardel",
-   "telefone": "550090000003",
-   "duble": "aprovado-48",
+   "telefone": "550090000107",
+   "duble": "aprovado-48-p14",
    "pares": [
     {
      "banco": "FACTA",
@@ -348,7 +362,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -372,7 +387,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -396,7 +412,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -420,7 +437,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -444,7 +462,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -468,7 +487,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -492,7 +512,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -516,7 +537,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -540,7 +562,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -564,7 +587,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -588,7 +612,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -612,7 +637,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -636,7 +662,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -660,17 +687,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P28",
    "pessoa_id": "00000000-0000-7000-8000-000000000028",
-   "cpf": "000.000.035-30",
+   "cpf": "000.000.108-20",
    "nome": "Rute Verovim",
-   "telefone": "550090000035",
-   "duble": "indet-criada-5min",
+   "telefone": "550090000108",
+   "duble": "indet-criada-5min-p28",
    "pares": [
     {
      "banco": "FACTA",
@@ -684,7 +712,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -708,7 +737,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -732,7 +762,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -756,7 +787,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -780,7 +812,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -804,17 +837,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P34",
    "pessoa_id": "00000000-0000-7000-8000-000000000034",
-   "cpf": "000.000.001-91",
+   "cpf": "000.000.109-01",
    "nome": "Cecilia Filimar",
-   "telefone": "550090000001",
-   "duble": "aprovado-24",
+   "telefone": "550090000109",
+   "duble": "aprovado-36-p34",
    "pares": [
     {
      "banco": "FACTA",
@@ -828,7 +862,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -852,7 +887,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -876,7 +912,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -900,7 +937,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -924,7 +962,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -948,7 +987,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -972,7 +1012,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -996,7 +1037,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1020,7 +1062,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1044,17 +1087,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P44",
    "pessoa_id": "00000000-0000-7000-8000-000000000044",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.110-45",
    "nome": "Odete Alvovim",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000110",
+   "duble": "aprovado-36-p44",
    "pares": [
     {
      "banco": "FACTA",
@@ -1068,7 +1112,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1092,7 +1137,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1116,7 +1162,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1140,17 +1187,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P48",
    "pessoa_id": "00000000-0000-7000-8000-000000000048",
-   "cpf": "000.000.004-34",
+   "cpf": "000.000.111-26",
    "nome": "Dora Ferravo",
-   "telefone": "550090000004",
-   "duble": "aprovado-60",
+   "telefone": "550090000111",
+   "duble": "aprovado-36-p48",
    "pares": [
     {
      "banco": "FACTA",
@@ -1164,7 +1212,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1188,7 +1237,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1212,7 +1262,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1236,17 +1287,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P52",
    "pessoa_id": "00000000-0000-7000-8000-000000000052",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.112-07",
    "nome": "Fatima Monelim",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000112",
+   "duble": "aprovado-48-p52",
    "pares": [
     {
      "banco": "FACTA",
@@ -1260,7 +1312,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1284,7 +1337,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1308,7 +1362,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1332,17 +1387,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P56",
    "pessoa_id": "00000000-0000-7000-8000-000000000056",
-   "cpf": "000.000.004-34",
+   "cpf": "000.000.113-98",
    "nome": "Telma Ulaesco",
-   "telefone": "550090000004",
-   "duble": "aprovado-60",
+   "telefone": "550090000113",
+   "duble": "aprovado-48-p56",
    "pares": [
     {
      "banco": "FACTA",
@@ -1356,17 +1412,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P57",
    "pessoa_id": "00000000-0000-7000-8000-000000000057",
-   "cpf": "000.000.001-91",
+   "cpf": "000.000.114-79",
    "nome": "Enzo Walimar",
-   "telefone": "550090000001",
-   "duble": "aprovado-24",
+   "telefone": "550090000114",
+   "duble": "aprovado-36-p57",
    "pares": [
     {
      "banco": "FACTA",
@@ -1380,17 +1437,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P58",
    "pessoa_id": "00000000-0000-7000-8000-000000000058",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.115-50",
    "nome": "Vilma Alvelim",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000115",
+   "duble": "aprovado-48-p58",
    "pares": [
     {
      "banco": "FACTA",
@@ -1404,7 +1462,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1433,10 +1492,10 @@
       {
        "contrato_id": "6000595",
        "referencia_banco": "9000044",
-       "oferta_id": "6000599",
        "macro": "pendente",
        "status_nativo_codigo": "12",
-       "status_nativo_texto": "12 - AGUARDANDO ASSINATURA DIGITAL"
+       "status_nativo_texto": "12 - AGUARDANDO ASSINATURA DIGITAL",
+       "oferta_id": "6000599"
       }
      ]
     }
@@ -1462,17 +1521,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M01",
    "pessoa_id": "00000000-0000-7000-8000-000000000101",
-   "cpf": "000.000.001-91",
+   "cpf": "000.000.116-30",
    "nome": "Plinio Engardel",
-   "telefone": "550090000001",
-   "duble": "aprovado-24",
+   "telefone": "550090000116",
+   "duble": "aprovado-24-pm01",
    "pares": [
     {
      "banco": "FACTA",
@@ -1486,17 +1546,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0623",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M02",
    "pessoa_id": "00000000-0000-7000-8000-000000000102",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.117-11",
    "nome": "Cintia Espuvel",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000117",
+   "duble": "aprovado-36-pm02",
    "pares": [
     {
      "banco": "FACTA",
@@ -1510,17 +1571,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M03",
    "pessoa_id": "00000000-0000-7000-8000-000000000103",
-   "cpf": "000.000.003-53",
+   "cpf": "000.000.118-00",
    "nome": "Davi Gurimar",
-   "telefone": "550090000003",
-   "duble": "aprovado-48",
+   "telefone": "550090000118",
+   "duble": "aprovado-48-pm03",
    "pares": [
     {
      "banco": "FACTA",
@@ -1534,17 +1596,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M04",
    "pessoa_id": "00000000-0000-7000-8000-000000000104",
-   "cpf": "000.000.004-34",
+   "cpf": "000.000.119-83",
    "nome": "Mirian Heluvel",
-   "telefone": "550090000004",
-   "duble": "aprovado-60",
+   "telefone": "550090000119",
+   "duble": "aprovado-60-pm04",
    "pares": [
     {
      "banco": "FACTA",
@@ -1558,17 +1621,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M05",
    "pessoa_id": "00000000-0000-7000-8000-000000000105",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.120-17",
    "nome": "Lucio Juruvel",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000120",
+   "duble": "aprovado-24-pm05",
    "pares": [
     {
      "banco": "FACTA",
@@ -1582,17 +1646,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0623",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M06",
    "pessoa_id": "00000000-0000-7000-8000-000000000106",
-   "cpf": "000.000.001-91",
+   "cpf": "000.000.121-06",
    "nome": "Selma Marovim",
-   "telefone": "550090000001",
-   "duble": "aprovado-24",
+   "telefone": "550090000121",
+   "duble": "aprovado-36-pm06",
    "pares": [
     {
      "banco": "FACTA",
@@ -1606,17 +1671,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M07",
    "pessoa_id": "00000000-0000-7000-8000-000000000107",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.122-89",
    "nome": "Tiago Pirardi",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000122",
+   "duble": "aprovado-48-pm07",
    "pares": [
     {
      "banco": "FACTA",
@@ -1630,17 +1696,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M08",
    "pessoa_id": "00000000-0000-7000-8000-000000000108",
-   "cpf": "000.000.003-53",
+   "cpf": "000.000.123-60",
    "nome": "Jussara Ravorim",
-   "telefone": "550090000003",
-   "duble": "aprovado-48",
+   "telefone": "550090000123",
+   "duble": "aprovado-60-pm08",
    "pares": [
     {
      "banco": "FACTA",
@@ -1654,17 +1721,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M09",
    "pessoa_id": "00000000-0000-7000-8000-000000000109",
-   "cpf": "000.000.004-34",
+   "cpf": "000.000.124-40",
    "nome": "Elias Tavovim",
-   "telefone": "550090000004",
-   "duble": "aprovado-60",
+   "telefone": "550090000124",
+   "duble": "aprovado-24-pm09",
    "pares": [
     {
      "banco": "FACTA",
@@ -1678,17 +1746,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0623",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M10",
    "pessoa_id": "00000000-0000-7000-8000-000000000110",
-   "cpf": "000.000.001-91",
+   "cpf": "000.000.125-21",
    "nome": "Nadir Toruvel",
-   "telefone": "550090000001",
-   "duble": "aprovado-24",
+   "telefone": "550090000125",
+   "duble": "aprovado-36-pm10",
    "pares": [
     {
      "banco": "FACTA",
@@ -1702,17 +1771,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M11",
    "pessoa_id": "00000000-0000-7000-8000-000000000111",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.126-02",
    "nome": "Murilo Verravo",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000126",
+   "duble": "aprovado-48-pm11",
    "pares": [
     {
      "banco": "FACTA",
@@ -1726,17 +1796,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M12",
    "pessoa_id": "00000000-0000-7000-8000-000000000112",
-   "cpf": "000.000.003-53",
+   "cpf": "000.000.127-93",
    "nome": "Carmem Alvardel",
-   "telefone": "550090000003",
-   "duble": "aprovado-48",
+   "telefone": "550090000127",
+   "duble": "aprovado-60-pm12",
    "pares": [
     {
      "banco": "FACTA",
@@ -1750,17 +1821,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M13",
    "pessoa_id": "00000000-0000-7000-8000-000000000113",
-   "cpf": "000.000.004-34",
+   "cpf": "000.000.128-74",
    "nome": "Jonas Barovim",
-   "telefone": "550090000004",
-   "duble": "aprovado-60",
+   "telefone": "550090000128",
+   "duble": "aprovado-24-pm13",
    "pares": [
     {
      "banco": "FACTA",
@@ -1774,17 +1846,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0623",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M14",
    "pessoa_id": "00000000-0000-7000-8000-000000000114",
-   "cpf": "000.000.001-91",
+   "cpf": "000.000.129-55",
    "nome": "Eliane Calovim",
-   "telefone": "550090000001",
-   "duble": "aprovado-24",
+   "telefone": "550090000129",
+   "duble": "aprovado-36-pm14",
    "pares": [
     {
      "banco": "FACTA",
@@ -1798,17 +1871,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M15",
    "pessoa_id": "00000000-0000-7000-8000-000000000115",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.130-99",
    "nome": "Lauro Dorimar",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000130",
+   "duble": "aprovado-48-pm15",
    "pares": [
     {
      "banco": "FACTA",
@@ -1822,17 +1896,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M16",
    "pessoa_id": "00000000-0000-7000-8000-000000000116",
-   "cpf": "000.000.003-53",
+   "cpf": "000.000.131-70",
    "nome": "Regina Engovim",
-   "telefone": "550090000003",
-   "duble": "aprovado-48",
+   "telefone": "550090000131",
+   "duble": "aprovado-60-pm16",
    "pares": [
     {
      "banco": "FACTA",
@@ -1846,17 +1921,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M17",
    "pessoa_id": "00000000-0000-7000-8000-000000000117",
-   "cpf": "000.000.004-34",
+   "cpf": "000.000.132-50",
    "nome": "Silas Galuvel",
-   "telefone": "550090000004",
-   "duble": "aprovado-60",
+   "telefone": "550090000132",
+   "duble": "aprovado-24-pm17",
    "pares": [
     {
      "banco": "FACTA",
@@ -1870,7 +1946,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0623",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
@@ -1894,17 +1971,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0526",
       "coef_valor": "0.010000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M19",
    "pessoa_id": "00000000-0000-7000-8000-000000000119",
-   "cpf": "000.000.001-91",
+   "cpf": "000.000.133-31",
    "nome": "Dario Jurolim",
-   "telefone": "550090000001",
-   "duble": "aprovado-24",
+   "telefone": "550090000133",
+   "duble": "aprovado-48-pm19",
    "pares": [
     {
      "banco": "FACTA",
@@ -1918,17 +1996,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M20",
    "pessoa_id": "00000000-0000-7000-8000-000000000120",
-   "cpf": "000.000.001-91",
+   "cpf": "000.000.134-12",
    "nome": "Helena Marondi",
-   "telefone": "550090000001",
-   "duble": "aprovado-24",
+   "telefone": "550090000134",
+   "duble": "aprovado-60-pm20",
    "pares": [
     {
      "banco": "FACTA",
@@ -1942,17 +2021,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M21",
    "pessoa_id": "00000000-0000-7000-8000-000000000121",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.135-01",
    "nome": "Gaspar Oriondi",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000135",
+   "duble": "aprovado-24-pm21",
    "pares": [
     {
      "banco": "FACTA",
@@ -1966,17 +2046,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0623",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M22",
    "pessoa_id": "00000000-0000-7000-8000-000000000122",
-   "cpf": "000.000.002-72",
+   "cpf": "000.000.136-84",
    "nome": "Lucia Ravelim",
-   "telefone": "550090000002",
-   "duble": "aprovado-36",
+   "telefone": "550090000136",
+   "duble": "aprovado-36-pm22",
    "pares": [
     {
      "banco": "FACTA",
@@ -1990,17 +2071,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0493",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M23",
    "pessoa_id": "00000000-0000-7000-8000-000000000123",
-   "cpf": "000.000.003-53",
+   "cpf": "000.000.137-65",
    "nome": "Fausto Tavimar",
-   "telefone": "550090000003",
-   "duble": "aprovado-48",
+   "telefone": "550090000137",
+   "duble": "aprovado-48-pm23",
    "pares": [
     {
      "banco": "FACTA",
@@ -2014,17 +2096,18 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0433",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   },
   {
    "persona_id": "P-M24",
    "pessoa_id": "00000000-0000-7000-8000-000000000124",
-   "cpf": "000.000.001-91",
+   "cpf": "000.000.138-46",
    "nome": "Isadora Torovim",
-   "telefone": "550090000001",
-   "duble": "aprovado-24",
+   "telefone": "550090000138",
+   "duble": "aprovado-60-pm24",
    "pares": [
     {
      "banco": "FACTA",
@@ -2038,7 +2121,8 @@
       "convenio": "CLT",
       "coeficiente_financeiro": "0.0400",
       "coef_valor": "0.012000"
-     }
+     },
+     "contratos": []
     }
    ]
   }

@@ -32,8 +32,10 @@ from ia_atendimento.relogio import RelogioFalso
 
 RAIZ = Path(__file__).resolve().parent.parent
 DIRETORIO = RAIZ / "fixtures" / "duble"
-CPF_P14 = "00000000353"
-CPF_P13 = "00000007528"
+CPF_P14 = catalogo_padrao().por_persona("P14").cpf_digitos
+CPF_P13 = catalogo_padrao().por_persona("P13").cpf_digitos
+CPF_P01 = catalogo_padrao().por_persona("P01").cpf_digitos
+CPF_P02 = catalogo_padrao().por_persona("P02").cpf_digitos
 CONTRATO_360 = Path(os.environ.get("CLIENTE360_CONTRATO_PATH", "~/repos/cliente360-web/contrato/cliente360.json")).expanduser()
 
 
@@ -222,18 +224,18 @@ def test_fixtures_duble_3rn_formas_reais_do_3rn_api_sao_aceitas_e_o_eco_e_exigid
     """Respostas reais do `/3rn/calcular` (3rn-api@9b20d44, `calcular`/`_calcular`/`validar_prazo_tabela`), cada uma com o eco; sem o eco, com campo a mais
     ou fora do vocabulário, o modelo recusa (e o arquivo de fixture, que exige o eco em todos os casos)."""
     reais = {
-        "SIM_AUSENTE": {"success": False, "cpf": "00000000191", "etapa": "vinculos", "status": "SIM_AUSENTE", "motivo": "Sem simulação válida", "nao_repagar": True},
+        "SIM_AUSENTE": {"success": False, "cpf": CPF_P01, "etapa": "vinculos", "status": "SIM_AUSENTE", "motivo": "Sem simulação válida", "nao_repagar": True},
         "prazo fora da tabela": {
-            "success": False, "cpf": "00000000191", "status": "REPROVADO", "motivo": 'Prazo 72x indisponível para a tabela "FGL 102".', "tabela": "FGL 102",
+            "success": False, "cpf": CPF_P01, "status": "REPROVADO", "motivo": 'Prazo 72x indisponível para a tabela "FGL 102".', "tabela": "FGL 102",
             "prazoMaximo": 60, "prazosDisponiveis": [24, 36, 48, 60], "nao_repagar": True,
         },
-        "erro do Step 2": {"success": False, "cpf": "00000000191", "etapa": "calculo", "status": "ERRO", "motivo": "Erro de conexão 3RN", "nao_repagar": True},
-        "rede instável": {"success": True, "cpf": "00000000191", "etapa": "calculo", "status": "PROCESSANDO", "motivo": "Rede instável: timeout", "nao_repagar": True},
+        "erro do Step 2": {"success": False, "cpf": CPF_P01, "etapa": "calculo", "status": "ERRO", "motivo": "Erro de conexão 3RN", "nao_repagar": True},
+        "rede instável": {"success": True, "cpf": CPF_P01, "etapa": "calculo", "status": "PROCESSANDO", "motivo": "Rede instável: timeout", "nao_repagar": True},
     }  # fmt: skip
     for rotulo, corpo in reais.items():
         assert Calcular3rnSemCalculo.model_validate(corpo).nao_repagar is True, rotulo
     calculado = {
-        "success": True, "cpf": "00000000191", "fonte_sim": "cache", "tabela": "FGL 102", "valorFinanciado": 3500.0, "valorLiquido": 3290.0, "parcela": 155.05,
+        "success": True, "cpf": CPF_P01, "fonte_sim": "cache", "tabela": "FGL 102", "valorFinanciado": 3500.0, "valorLiquido": 3290.0, "parcela": 155.05,
         "prazo": 48, "coeficiente_tabela": 0.008, "nao_repagar": True,
     }  # fmt: skip
     com_outra_tabela = {**calculado, "regra_id": "0f3d6a9e-1c2b-4d5e-8f70-123456789abc", "taxa_pedida": 4.98, "taxa": 4.98}
@@ -263,12 +265,12 @@ def test_fixtures_duble_outra_persona_cai_no_padrao(fixtures):
 
 def test_fixtures_duble_cpf_eco_e_modo(fixtures):
     """O `cpf` da resposta é o do pedido (o arquivo traz 00000000000); em `real`/`sombra` a fixture se recusa; CPF malformado não passa."""
-    assert fixtures.calcular_3rn("P01", "00000000191", "duble")[1]["cpf"] == "00000000191"
-    for fora in ("00000000272", "52998224725"):  # CPF de OUTRA persona e CPF de cliente: a fixture só responde pelo CPF da própria persona
+    assert fixtures.calcular_3rn("P01", CPF_P01, "duble")[1]["cpf"] == CPF_P01
+    for fora in (CPF_P02, "52998224725"):  # CPF de OUTRA persona e CPF de cliente: a fixture só responde pelo CPF da própria persona
         with pytest.raises(ValueError, match="CPF não é o da persona"):
             fixtures.calcular_3rn("P01", fora, "duble")
     with pytest.raises(ValueError, match="fora do catálogo"):
-        fixtures.simular_c6("P99", "00000000191", "duble")
+        fixtures.simular_c6("P99", CPF_P01, "duble")
     assert modulo.CPF_ECO == "00000000000" and fixtures.c6.casos["sem_oferta"].corpo.cpf == modulo.CPF_ECO
     for modo in ("real", "sombra"):
         with pytest.raises(ForaDoModoDeTeste):

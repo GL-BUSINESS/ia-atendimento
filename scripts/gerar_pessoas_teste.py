@@ -245,8 +245,11 @@ def fixture_cliente360(catalogo: CatalogoPessoasTeste) -> dict[str, Any]:
 
 def textos(raiz_corpus: Path | None = None) -> dict[Path, str]:
     """Caminho → conteúdo de tudo que este script gera. Valida o catálogo pelo mesmo modelo que o runtime usa."""
-    dados = construir(raiz_corpus)
-    catalogo = CatalogoPessoasTeste.model_validate(dados)
+    catalogo = CatalogoPessoasTeste.model_validate(construir(raiz_corpus))
+    dados = {
+        **construir(raiz_corpus),
+        "pessoas": catalogo.conteudo(),
+    }  # o arquivo é a forma NORMALIZADA do modelo: o hash do arquivo = o hash do modelo
     sha = f"{hash_canonico(catalogo.conteudo())}  pessoas_teste ({len(catalogo.pessoas)} pessoas; sha256 do JSON canonico da lista, catalogo.hash_canonico)\n"
     return {
         ARQUIVO: _json(dados), ARQUIVO_HASH: sha,

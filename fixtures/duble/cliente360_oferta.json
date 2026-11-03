@@ -226,8 +226,8 @@
      {
       "pessoa_id": "00000000-0000-7000-8000-000000000014",
       "nome": "Maristela Walardel",
-      "cpf_mascarado": "***.***.***-53",
-      "cpf": "00000000353",
+      "cpf_mascarado": "***.***.***-40",
+      "cpf": "00000010740",
       "vendedor": null,
       "nao_perturbe": null,
       "limite_contratos": null
@@ -273,7 +273,7 @@
        },
        "atributos_cadastrais": {
         "nome": "Maristela Walardel",
-        "telefone": "550090000003"
+        "telefone": "550090000107"
        },
        "coeficiente": {
         "alvo_tipo": "oferta",

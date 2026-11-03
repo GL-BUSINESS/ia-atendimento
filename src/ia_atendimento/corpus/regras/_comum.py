@@ -36,6 +36,14 @@ def instantes(inicio: datetime | None, turnos: Sequence[Turno]) -> list[datetime
     return saida
 
 
+def base_do_duble(corpus: Corpus, persona_duble: str | None) -> str | None:
+    """A persona-base do dublê: um clone (B2.4, R1-09: uma persona do dublê por persona da F3) aponta para a base pelo `clone_de`."""
+    if persona_duble is None:
+        return None
+    por_id = {d.id: d for d in corpus.duble.personas}
+    return por_id[persona_duble].clone_de or persona_duble if persona_duble in por_id else persona_duble
+
+
 def dialogos_com_persona(corpus: Corpus):
     """(id, persona, diálogo) de cada diálogo cuja persona existe (H ou M)."""
     por_id = {p.id: p for p in corpus.todas()}

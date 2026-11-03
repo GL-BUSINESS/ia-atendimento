@@ -41,7 +41,7 @@ from ia_atendimento.relogio import RelogioFalso
 RAIZ = Path(__file__).resolve().parent.parent
 AGORA = datetime(2026, 11, 17, 15, 0, tzinfo=UTC)
 BANCOS_DUBLE = Path(os.environ["BANCOS_DUBLE_PATH"]).expanduser() if os.environ.get("BANCOS_DUBLE_PATH") else None
-CPF_SINTETICO = re.compile(r"^000\.000\.0\d{2}-\d{2}$")
+CPF_SINTETICO = re.compile(r"^000\.000\.[01]\d{2}-\d{2}$")  # 0nn: as personas do corpus; 1nn: os clones do dublê (R1-09)
 TELEFONE_SINTETICO = re.compile(r"^55009000\d{4}$")
 
 
@@ -82,6 +82,24 @@ def test_pessoas_teste_cobrem_todas_as_personas(catalogo, corpo):
         assert (pessoa.cpf, pessoa.nome, pessoa.duble) == (persona.cpf, persona.nome, persona.cenario_facta.persona_duble), persona.id
         assert CPF_SINTETICO.match(pessoa.cpf) and TELEFONE_SINTETICO.match(pessoa.telefone), persona.id
         assert str(pessoa.pessoa_id).startswith("00000000-0000-7000-8000-"), "pessoa_id fora da faixa sintética"
+
+
+def test_pessoas_teste_um_cpf_e_um_telefone_por_persona(catalogo):
+    """R1-09: o estado do dublê (scenario do WireMock) e os stubs são por CPF; duas personas no mesmo CPF veriam a proposta uma da outra."""
+    assert len({p.cpf for p in catalogo.pessoas}) == 84
+    assert len({p.telefone for p in catalogo.pessoas}) == 84
+
+
+def test_pessoas_teste_prazo_do_t3_e_o_do_cenario_aprovado_do_dublê(catalogo, corpo):
+    """R1-09: a oferta que T3 mostra (36x, por exemplo) é a que o T5/T7 do dublê calcula; antes 23 das 41 personas `aprovado-N` divergiam."""
+    base = {d.id: d.clone_de or d.id for d in corpo.duble.personas}
+    conferidas = 0
+    for pessoa in catalogo.pessoas:
+        if pessoa.duble and (m := re.fullmatch(r"aprovado-(\d+)", base[pessoa.duble])):
+            facta = next(par for par in pessoa.pares if par.banco == "FACTA")
+            assert facta.economia.prazo_meses == int(m.group(1)), pessoa.persona_id
+            conferidas += 1
+    assert conferidas == 41
 
 
 def test_pessoas_teste_oferta_facta_ativa_segue_o_perfil_da_persona(catalogo, corpo):
@@ -264,7 +282,7 @@ def test_pessoas_teste_e_fixtures_sem_dado_de_pessoa(catalogo, fonte):
         for cpf in re.findall(r"\d{3}\.\d{3}\.\d{3}-\d{2}", texto):
             assert CPF_SINTETICO.match(cpf), cpf
         for onze in re.findall(r"(?<!\d)\d{11}(?!\d)", texto):
-            assert onze.startswith("0000000"), onze
+            assert re.match(r"000000[01]", onze), onze
         for tel in re.findall(r"(?<!\d)55\d{10,11}(?!\d)", texto):
             assert TELEFONE_SINTETICO.match(tel), tel
         for uid in re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", texto):
@@ -277,8 +295,11 @@ def test_pessoas_teste_e_fixtures_sem_dado_de_pessoa(catalogo, fonte):
 
 
 def test_pessoas_teste_hash_gravado_confere(catalogo):
-    """`pessoas.sha256` é o hash que o `bancos-duble` guarda no instantâneo dele; mexer no catálogo sem regravar reprova."""
-    assert hash_canonico(catalogo.conteudo()) == modulo_catalogo.ler_hash_gravado()
+    """`pessoas.sha256` é o hash que o `bancos-duble` guarda no instantâneo dele; mexer no catálogo sem regravar reprova. O hash vale para o
+    ARQUIVO (o que o duble lê) e para o modelo: o `pessoas.json` é a forma normalizada, sem chave que o modelo preencheria por padrão."""
+    bruto = json.loads((RAIZ / "src/ia_atendimento/pessoas_teste/pessoas.json").read_text(encoding="utf-8"))["pessoas"]
+    assert bruto == catalogo.conteudo()
+    assert hash_canonico(bruto) == hash_canonico(catalogo.conteudo()) == modulo_catalogo.ler_hash_gravado()
     mudado = [dict(p) for p in catalogo.conteudo()]
     mudado[0]["nome"] = "Outro Nome"
     assert hash_canonico(mudado) != modulo_catalogo.ler_hash_gravado()
