@@ -43,8 +43,14 @@ _ANTES_DO_HOST: Final = r"(?<![a-z0-9\-])(?<![a-z0-9\-]\.)"
 _ANTES_DO_ESQUEMA: Final = (
     r"(?<![a-z0-9+\-])(?<![a-z0-9+\-]\.)"  # `+` conta: o esquema (`a+b+c:`) varre até o fim se puder recomeçar em cada `+`
 )
+# Host com SINAL DE CAMINHO (`/`, `#`, `?x`, `:porta`) é link com QUALQUER TLD (`meusite.company/oferta`, `x.tv/abc`, `exemplo.test/pagar`).
+# Sem o sinal, só a lista de TLDs acima: a regra larga «qualquer x.y» faria de `sim.pode` um link (e «sim.pode» é um SIM na E6).
+# O `?` só conta com algo colado depois (`sim.pode?` é pergunta). Host nu fora da lista (`meusite.company`) é risco aceito (B8.2 mede).
+_SINAL_DE_CAMINHO: Final = r"(?=/|#|\?\S|:\d{2,5}(?!\d))"
 _LINK: Final = re.compile(
-    rf"(?i){_ANTES_DO_ESQUEMA}(?:[a-z][a-z0-9+.\-]*://|www\.)\S+|{_ANTES_DO_HOST}\.?(?:[a-z0-9-]+\.)+(?:{_TLDS})\b\S*"
+    rf"(?i){_ANTES_DO_ESQUEMA}(?:[a-z][a-z0-9+.\-]*://|www\.)\S+"
+    rf"|{_ANTES_DO_HOST}\.?(?:[a-z0-9-]+\.)+(?:{_TLDS})\b\S*"
+    rf"|{_ANTES_DO_HOST}(?:[a-z0-9-]+\.)+[a-z]{{2,24}}{_SINAL_DE_CAMINHO}\S*"
 )
 _PONTO_IDEOGRAFICO: Final = {"\u3002": ".", "\uff61": "."}  # «。» e «｡»: NFKC não os leva a «.»
 _DATA_COMPLETA: Final = re.compile(r"(?<!\d)(?:0?[1-9]|[12]\d|3[01])([/.\-])(?:0?[1-9]|1[0-2])\1(?:19|20)\d{2}(?!\d)")

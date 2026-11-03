@@ -131,3 +131,82 @@ def test_cadeias_com_underscore_acento_e_mais_continuam_lineares(trecho):
     texto = (trecho * 4000)[:4000]
     assert _melhor_de_tres_ms(lambda: ha_link(texto)) <= LIMITE_MS
     assert _melhor_de_tres_ms(lambda: proteger_texto(texto, NOMES)) <= LIMITE_MS
+
+
+# --- link com sinal de caminho vale com qualquer TLD; frases de chat sem espaço depois do ponto não são link (R2-05) ---------------------------
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "veja meusite.company/oferta?id=9",
+        "exemplo.test/pagar",
+        "ofertas.academy/abc",
+        "x.tv/abc",
+        "host.qualquer:8080",
+        "a.b.cc#frag",
+        "x.yz?q=1",
+        "meusite.company?id=9",
+        "ｅｘｅｍｐｌｏ．ｔｅｓｔ／ｘ",  # host de largura inteira
+        "exemplo。test/x",  # ponto ideográfico
+        "exemplo｡test/x",  # ponto ideográfico de meia largura
+        "ｏｆｅｒｔａｓ．ａｃａｄｅｍｙ／ａｂｃ",
+    ],
+)
+def test_host_com_sinal_de_caminho_e_link_com_qualquer_tld_e_ha_link_tambem(texto):
+    """R2-05: `meusite.company/oferta` passava (TLD fora da lista) e o portão final, que usa o mesmo regex, não o via."""
+    assert ha_link(texto), texto
+    protegido = proteger_texto(texto, ())
+    assert "[LINK]" in protegido and not ha_link(protegido)
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        "sim.pode",
+        "Sr.Silva",
+        "bom dia.tudo bem?",
+        "e/ou",
+        "vc.pode",
+        "oi.tudo",
+        "ate.logo",
+        "sim.pode?",
+        "ok.tudo?",
+        "ok.obrigado!",
+        "não.pode?",
+        "tchau.vc",
+    ],
+)
+def test_frase_de_chat_sem_espaco_depois_do_ponto_nao_e_link(frase):
+    """NÃO se adota a regra larga `x.y`: 10 de 15 frases de chat virariam `[LINK]` e «sim.pode» é um SIM na E6."""
+    assert not ha_link(frase) and proteger_texto(frase, ()) == frase
+
+
+def test_numero_com_barra_nao_e_link():
+    assert not ha_link("5.000/mes") and not ha_link("10.5/12") and not ha_link("R$ 5.000/mes")
+
+
+def test_o_corpus_da_f3_inteiro_nao_tem_falso_positivo_de_link():
+    """Prova contra os DADOS: nenhuma das 966 redações do corpus (depois da máscara de PII) tem link."""
+    from pathlib import Path
+
+    from ia_atendimento.corpus import carregar
+    from ia_atendimento.mascara import mascarar
+
+    corpus = carregar(Path(__file__).parent / "corpus")
+    falas = [
+        (nome.nome, x)
+        for p_id, d in corpus.dialogos.items()
+        for nome in corpus.todas()
+        if nome.id == p_id
+        for t in d.turnos
+        for x in ((t.texto_cliente, *t.variacoes) if t.texto_cliente else ())
+    ]
+    assert len(falas) > 900
+    assert [f for n, f in falas if ha_link(mascarar(f, [n]))] == []
+
+
+def test_cadeias_com_o_sinal_de_caminho_continuam_lineares():
+    for texto in ("a." * 2000, ("a.b/" * 1000), ("ab.ab." * 700), ("x.y:80 " * 570)):
+        assert _melhor_de_tres_ms(lambda texto=texto: ha_link(texto)) <= LIMITE_MS
+        assert _melhor_de_tres_ms(lambda texto=texto: proteger_texto(texto[:4000], NOMES)) <= LIMITE_MS
