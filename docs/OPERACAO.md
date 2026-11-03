@@ -8,7 +8,7 @@
 
 ```bash
 uv sync
-BANCOS_DUBLE_PATH=<checkout do bancos-duble> bash scripts/check.sh   # portão: ruff, varredura, checksum da 0001, 0002 em dia, pessoas_teste em dia, pytest (a variável é obrigatória, B2.4)
+BANCOS_DUBLE_PATH=<checkout do bancos-duble> bash scripts/check.sh   # portão: ruff, varredura, gitleaks, checksum da 0001, 0002 em dia, pessoas_teste em dia, pytest (a variável é obrigatória, B2.4)
 bash scripts/aplicar_migracoes_local.sh      # Postgres 18 descartável + papéis + migrações + ledger
 ```
 
