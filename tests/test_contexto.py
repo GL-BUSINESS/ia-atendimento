@@ -904,3 +904,28 @@ def test_executar_turno_so_aceita_o_contexto_montado_nunca_texto_solto():
     agente = criar_agente(ProvedorFalso(_Fixo(Turno(intencao="saudacao", acao="responder", confianca="alta"))), MODELO)
     with pytest.raises(TypeError, match="Contexto"):
         asyncio.run(executar_turno(agente, DEPS, TextoSolto()))  # type: ignore[arg-type]
+
+
+# --- as falhas do contexto são falhas do turno (M-11) -------------------------------------------------------------------------------------
+
+
+def test_contexto_nao_cabe_e_contexto_com_dado_pessoal_sao_erro_do_modelo():
+    """M-11: o processador (B1.6) conta `except ErroDoModelo`; as duas falhas do contexto ficavam de fora e o job reentrava sem contar."""
+    from ia_atendimento.turno import ErroDoModelo
+
+    nao_cabe, dado = ctx.ContextoNaoCabe(5000, 4000), ctx.ContextoComDadoPessoal()
+    for erro, codigo in ((nao_cabe, "contexto_nao_cabe"), (dado, "contexto_com_dado_pessoal")):
+        assert isinstance(erro, ErroDoModelo) and isinstance(erro, ctx.FalhaDoContexto) and isinstance(erro, ctx.ContextoErro)
+        assert erro.codigo == codigo and erro.uso is None and erro.status is None
+    assert (nao_cabe.tokens, nao_cabe.teto) == (5000, 4000) and "5000" in str(nao_cabe) and "4000" in str(nao_cabe)
+    assert not isinstance(ctx.FaseSemTurnoDoModelo("E1"), ErroDoModelo)  # erro do chamador (bug), não falha do modelo
+
+
+def test_montar_contexto_que_nao_cabe_chega_ao_processador_como_erro_do_modelo(db_conn, e3, chaveiro):
+    from ia_atendimento.turno import ErroDoModelo
+
+    atd, _ = e3
+    receber(db_conn, atd, chaveiro, "oi", nomes=NOMES)
+    with pytest.raises(ErroDoModelo) as erro:  # é o `except` que a B1.6 escreve
+        _montar(db_conn, atd, chaveiro, teto=100)
+    assert erro.value.codigo == "contexto_nao_cabe"

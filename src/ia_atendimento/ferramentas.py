@@ -32,6 +32,7 @@ from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import Tool, ToolDefinition
 
 from ia_atendimento.contexto import PROJECAO_DAS_FERRAMENTAS, Apelidos, auditar_textos, projetar_resultado
+from ia_atendimento.turno import ErroDoModelo
 
 MENSAGEM_DE_NOVA_TENTATIVA: Final = "A ferramenta não conseguiu responder agora; siga sem ela."
 
@@ -54,14 +55,17 @@ class FerramentaSemProjecao(ValueError):
     """Ferramenta registrada sem projeção em `PROJECAO_DAS_FERRAMENTAS` (ou fora do formato do registro): o agente não sobe."""
 
 
-class RetornoDeFerramentaInvalido(TypeError):
-    """O retorno da ferramenta não é um objeto (mapa): não há como projetar. A mensagem nunca cita o retorno."""
+class RetornoDeFerramentaInvalido(ErroDoModelo, TypeError):
+    """O retorno da ferramenta não é um objeto (mapa): não há como projetar. A mensagem nunca cita o retorno. Conta como falha do turno."""
+
+    def __init__(self, nome: str) -> None:
+        ErroDoModelo.__init__(self, "retorno_de_ferramenta_invalido", f"a ferramenta {nome} deve devolver um objeto")
 
 
 def proteger_retorno(nome: str, retorno: Any, deps: Deps) -> dict[str, Any]:
     """Projeta o retorno da ferramenta `nome` pela allowlist, audita o que sobrou e devolve só o que pode ir ao modelo."""
     if not isinstance(retorno, Mapping):
-        raise RetornoDeFerramentaInvalido(f"a ferramenta {nome} deve devolver um objeto")
+        raise RetornoDeFerramentaInvalido(nome)
     projetado = projetar_resultado({nome: retorno}, deps.apelidos, deps.nomes)
     corpo: dict[str, Any] = json.loads(projetado)[nome] if projetado else {}
     auditar_textos("", json.dumps(corpo, ensure_ascii=False), deps.nomes)

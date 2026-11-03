@@ -49,7 +49,7 @@ from ia_atendimento.modelos_conversa import EstadoConversa
 from ia_atendimento.modulos_fase import FASES_SEM_TURNO_DO_MODELO, SISTEMA, esquemas_das_ferramentas, modulo_da_fase
 from ia_atendimento.protecao import proteger_texto
 from ia_atendimento.tokens import ESTIMADOR_PADRAO, EstimadorDeTokens
-from ia_atendimento.turno import PLACEHOLDERS_DA_FASE, PLACEHOLDERS_DO_TEXTO, Turno, formato_do_turno
+from ia_atendimento.turno import PLACEHOLDERS_DA_FASE, PLACEHOLDERS_DO_TEXTO, ErroDoModelo, Turno, formato_do_turno
 
 TETO_TOKENS: Final = 4000  # H §3.1: teto duro de entrada
 TROCAS_NO_PROMPT: Final = 3
@@ -127,17 +127,28 @@ class FaseSemTurnoDoModelo(ContextoErro, ValueError):
     """E0, E1 e E9 não têm turno do modelo (H §2.3): montar o contexto delas é erro do chamador."""
 
 
-class ContextoNaoCabe(ContextoErro):
+class FalhaDoContexto(ContextoErro, ErroDoModelo):
+    """Falha do contexto que conta como falha do turno do modelo. Quem faz `except ErroDoModelo` (o processador da B1.6, que repassa na
+    2ª) a pega junto das do provedor e da saída; sem isso o job reentrava sem contar e o cliente ficava sem repasse (M-11)."""
+
+    def __init__(self, codigo: str, mensagem: str) -> None:
+        ErroDoModelo.__init__(self, codigo, mensagem)
+
+
+class ContextoNaoCabe(FalhaDoContexto):
     """Mesmo sem resumo, trocas antigas e exemplos o prompt passa do teto: o turno conta como falha do modelo (B1.6 repassa na 2ª)."""
 
     def __init__(self, tokens: int, teto: int) -> None:
-        super().__init__(f"contexto de {tokens} tokens acima do teto de {teto} depois de cortar tudo que era opcional")
+        super().__init__("contexto_nao_cabe", f"contexto de {tokens} tokens acima do teto de {teto} depois de cortar tudo que era opcional")
         self.tokens = tokens
         self.teto = teto
 
 
-class ContextoComDadoPessoal(ContextoErro):
+class ContextoComDadoPessoal(FalhaDoContexto):
     """A máscara ainda mudaria o prompt montado (ou há símbolo de moeda): nada vai ao modelo. Não diz o que casou."""
+
+    def __init__(self, mensagem: str = "o prompt montado ainda tem dado pessoal ou valor; o turno não sai") -> None:
+        super().__init__("contexto_com_dado_pessoal", mensagem)
 
 
 # --- proteção do texto -------------------------------------------------------------------------------------------------------------------
@@ -551,6 +562,7 @@ __all__ = [
     "ContextoComDadoPessoal",
     "ContextoNaoCabe",
     "ExemploDaFase",
+    "FalhaDoContexto",
     "FaseSemTurnoDoModelo",
     "Insumos",
     "auditar_prompt",

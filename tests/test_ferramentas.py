@@ -13,7 +13,7 @@ import httpx
 import pytest
 from pydantic_ai import ModelRetry, RunContext
 
-from ia_atendimento.agente import ResolvedorModelo, criar_agente, executar_turno
+from ia_atendimento.agente import ErroDoModelo, ResolvedorModelo, criar_agente, executar_turno
 from ia_atendimento.contexto import Contexto, ContextoComDadoPessoal
 from ia_atendimento.ferramentas import (
     Deps,
@@ -188,3 +188,12 @@ def test_as_quatro_ferramentas_do_modelo_sobem_com_o_nome_do_catalogo():
     tools, capacidades = registrar({"T2": oferta_ativa, "T3": oferta_ativa, "T5": oferta_ativa, "T10": oferta_ativa})
     assert [t.name for t in tools] == ["T2", "T3", "T5", "T10"] and len(capacidades) == 1
     assert registrar({}) == ([], [])
+
+
+async def test_falha_da_protecao_de_ferramenta_chega_como_erro_do_modelo_com_o_gasto():
+    """Retorno que não é objeto = ferramenta quebrada: conta como falha do turno (`except ErroDoModelo`) e leva o gasto do que já foi cobrado."""
+    with pytest.raises(ErroDoModelo) as erro:
+        await _turno_com_ferramenta(_ferramenta(f"oferta de {CPF}"))
+    assert isinstance(erro.value, RetornoDeFerramentaInvalido) and erro.value.codigo == "retorno_de_ferramenta_invalido"
+    assert erro.value.uso is not None and erro.value.uso.tokens_in == 1000 and erro.value.uso.custo_brl > 0
+    assert CPF not in str(erro.value)

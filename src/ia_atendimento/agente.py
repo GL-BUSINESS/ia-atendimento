@@ -73,7 +73,13 @@ RETENTATIVAS_DO_SDK: Final = 0  # a segunda chance do turno é o `output_retries
 TIMEOUT_PADRAO_S: Final = 8.0  # sem `Settings` (ex.: ProvedorFalso): o mesmo teto do `Settings.modelo_timeout_s`
 TOKENS_DE_SAIDA_DO_FALSO: Final = 90
 CARACTERES_POR_TOKEN_DO_FALSO: Final = 3
-_ERROS_DO_PROVEDOR: Final = (AgentRunError, httpx.HTTPError, OpenAIError, TimeoutError)
+_ERROS_DO_PROVEDOR: Final = (
+    AgentRunError,
+    httpx.HTTPError,
+    OpenAIError,
+    TimeoutError,
+    ErroDoModelo,
+)  # ErroDoModelo: a proteção de ferramenta
 _ERROS_DE_TEMPO: Final = (TimeoutError, httpx.TimeoutException, ModelRequestTimeout, ModelTimeoutError, RunTimedOut)
 
 
@@ -308,6 +314,9 @@ def _uso_do_turno(numeros: tuple[int, int, int, int], latencia_ms: int, trace_id
 
 def _erro_do_modelo(erro: BaseException, uso: UsoDoTurno) -> ErroDoModelo:
     """Mensagem FIXA (tipo de falha e status): o texto do SDK ou da validação pode citar o corpo da resposta ou a saída do modelo."""
+    if isinstance(erro, ErroDoModelo):  # já é nosso (a proteção do retorno de ferramenta): só ganha o gasto do turno
+        erro.uso = uso
+        return erro
     if isinstance(erro, UnexpectedModelBehavior):
         return SaidaInvalida("saida_invalida", "o modelo não devolveu um Turno válido", uso=uso)
     if isinstance(erro, _ERROS_DE_TEMPO):
