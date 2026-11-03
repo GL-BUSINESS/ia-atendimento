@@ -356,7 +356,14 @@ def test_scrubber_cobre_chave_nome_de_evento_link_e_json(escrever):
     texto = _serializar([exportado]) + json.dumps([dict(lig.attributes) for lig in exportado.links], default=str)
     texto += " ".join(exportado.attributes) + " ".join(e.name for e in exportado.events)
     _sem_pii(texto)
-    assert "000\\n000" not in texto and "000\n000" not in texto
+
+
+def test_pii_partida_por_quebra_de_linha_dentro_de_json_e_mascarada_no_valor_decodificado():
+    """No JSON escapado o CPF vira `000\\n000\\n012\\n34` (com a letra `n` no meio) e a máscara não o enxerga; decodificado, ele casa."""
+    exportado = _com_span(lambda sp: sp.set_attribute("k", json.dumps({"t": "000\n000\n012\n34", "e": EMAIL})))
+    valor = exportado.attributes["k"]
+    assert "000" not in valor and "012" not in valor and EMAIL not in valor
+    assert json.loads(valor)["e"] == "[EMAIL]"
 
 
 def test_configurar_duas_vezes_encerra_o_provedor_anterior():
