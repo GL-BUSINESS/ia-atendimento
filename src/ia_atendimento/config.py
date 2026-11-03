@@ -9,8 +9,11 @@ conferido pelo mesmo parser do libpq que fará a conexão (`%5F`, `?user=` e afi
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from urllib.parse import unquote, urlsplit
 
 from psycopg import ProgrammingError
@@ -36,6 +39,32 @@ TAMANHO_MIN_SEGREDO = 16  # `.env.example` traz os segredos vazios: esquecer de 
 OPCOES_PROIBIDAS = re.compile(r"\b(?:role|session_authorization)\b", re.IGNORECASE)
 TAMANHO_MIN_CHAVE_HMAC = 32  # chaves HMAC de mensagem (`h16` e `msg_fingerprint`): ao menos 32 caracteres
 CHAVE_ID_MAX = 32767  # coluna smallint (conversa_cifrada.chave_id, cofre.chave_id)
+# Roteador só-EUA do Fireworks (estudo G §4): `accounts/<conta>/routers/deepseek-<versão>-us`. O sufixo `-us` é o que fixa a região.
+PADRAO_ROTEADOR = re.compile(r"^accounts/[a-z0-9][a-z0-9-]{0,62}/routers/deepseek-[a-z0-9][a-z0-9._-]{0,54}-us$")
+ROTEADOR_PADRAO = "accounts/fireworks/routers/deepseek-v4p1-flash-1017-us"
+# Como desligar o raciocínio no `extra_body` (G §3: ambos documentados pelo Fireworks, NENHUM provado no V4.1 Flash: A2.9 mede).
+# Padrão `reasoning_effort_none` (o parâmetro OpenAI-compatível); trocar para `thinking_disabled` é só mudar a variável.
+FORMAS_DE_DESLIGAR_RACIOCINIO = ("reasoning_effort_none", "thinking_disabled")
+# Preço de planejamento do Fireworks só-EUA (estudo G §4), US$ por 1M tokens, e o câmbio de `premissas.json`. Contrato 08 §9.
+PRECO_IN_USD = Decimal("0.45")
+PRECO_CACHE_USD = Decimal("0.009")
+PRECO_OUT_USD = Decimal("1.80")
+CAMBIO = Decimal("5.3346")
+PRECO_MAXIMO = Decimal(1000)  # trava de digitação: US$ 1.000 por 1M tokens não é preço de modelo, é erro de vírgula
+
+
+@dataclass(frozen=True)
+class Precos:
+    """Preço do modelo em US$ por 1M tokens (entrada não cacheada, entrada cacheada, saída) e o câmbio para R$. Fonte: "
+    "`Settings.preco_*`."""
+
+    entrada_usd: Decimal = PRECO_IN_USD
+    cache_usd: Decimal = PRECO_CACHE_USD
+    saida_usd: Decimal = PRECO_OUT_USD
+    cambio: Decimal = CAMBIO
+
+
+PRECOS_PADRAO = Precos()
 
 
 class Settings(BaseSettings):
@@ -48,7 +77,21 @@ class Settings(BaseSettings):
     modelo_base_url_1: str = "https://us.api.fireworks.ai/inference/v1"
     modelo_api_key_1: SecretStr = Field(min_length=TAMANHO_MIN_SEGREDO)
     api_token: SecretStr = Field(min_length=TAMANHO_MIN_SEGREDO)
+    # Roteador só-EUA que a chamada usa (o `modelo_nome` é o nome lógico que a config e o passo gravam). Estudo G §4.
+    modelo_roteador: str = ROTEADOR_PADRAO
+    modelo_raciocinio_off: Literal["reasoning_effort_none", "thinking_disabled"] = "reasoning_effort_none"
+    modelo_temperatura: float = Field(default=0.3, ge=0, le=1)
+    modelo_max_tokens: int = Field(default=400, ge=64, le=2000)  # H §3.1: saída ≤ 220 tokens; folga para o JSON do Turno
+    modelo_timeout_s: float = Field(default=20.0, gt=0, le=120)  # tempo total do turno no modelo (H: p95 ≤ 4 s; a reserva é o repasse)
+    modelo_tentativas_http: int = Field(default=1, ge=0, le=3)  # retentativas do SDK (429/5xx/conexão) DENTRO do mesmo provedor
+    # Preços (contrato 08 §9): ausentes não existem (têm padrão) e ≤ 0 derrubam o boot.
+    preco_in_usd: Decimal = Field(default=PRECO_IN_USD, gt=0, le=PRECO_MAXIMO)
+    preco_cache_usd: Decimal = Field(default=PRECO_CACHE_USD, gt=0, le=PRECO_MAXIMO)
+    preco_out_usd: Decimal = Field(default=PRECO_OUT_USD, gt=0, le=PRECO_MAXIMO)
+    cambio: Decimal = Field(default=CAMBIO, gt=0, le=PRECO_MAXIMO)
     phoenix_endpoint: str | None = None
+    phoenix_projeto: str = Field(default="ia-atendimento", pattern=r"^[A-Za-z0-9._-]{1,64}$")
+    phoenix_api_key: SecretStr | None = None
     # Chave AES-256-GCM da conversa/cofre: id vigente (mensal) + arquivo 0600 com {"<id>": "<base64 de 32 bytes>"}.
     chave_aes_id: int = Field(ge=1, le=CHAVE_ID_MAX)
     chave_aes_arquivo: Path
@@ -62,6 +105,16 @@ class Settings(BaseSettings):
         if self.chave_h16.get_secret_value() == self.chave_fingerprint.get_secret_value():
             raise ValueError("chave_h16 e chave_fingerprint devem ser diferentes")
         return self
+
+    @model_validator(mode="after")
+    def _roteador_e_o_do_modelo(self) -> Settings:
+        """O roteador só-EUA tem de ser o do `modelo_nome` (`<modelo>-us`): fixa a versão (1017) e a região no mesmo golpe."""
+        if "/" not in self.modelo_nome and self.modelo_roteador.rsplit("/", 1)[-1] != f"{self.modelo_nome}-us":
+            raise ValueError("modelo_roteador deve ser o roteador só-EUA do modelo_nome (<modelo_nome>-us)")
+        return self
+
+    def precos(self) -> Precos:
+        return Precos(self.preco_in_usd, self.preco_cache_usd, self.preco_out_usd, self.cambio)
 
     @field_validator("database_url")
     @classmethod
@@ -89,6 +142,13 @@ class Settings(BaseSettings):
     def _modelo_so_deepseek_ou_gemini(cls, valor: str) -> str:
         if not PADRAO_MODELO.fullmatch(valor) or any(termo in valor.lower() for termo in TERMOS_PROIBIDOS_NO_MODELO):
             raise ValueError("modelo_nome deve ser deepseek-* ou gemini-* (nada da Anthropic, nada fora das famílias aprovadas)")
+        return valor
+
+    @field_validator("modelo_roteador")
+    @classmethod
+    def _roteador_so_eua(cls, valor: str) -> str:
+        if not PADRAO_ROTEADOR.fullmatch(valor) or any(termo in valor.lower() for termo in TERMOS_PROIBIDOS_NO_MODELO):
+            raise ValueError("modelo_roteador deve ser accounts/<conta>/routers/deepseek-<versão>-us (roteador só-EUA, nada da Anthropic)")
         return valor
 
     @field_validator("modelo_base_url_1")
