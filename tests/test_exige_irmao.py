@@ -63,3 +63,13 @@ def test_localizar_devolve_o_checkout_quando_acha(tmp_path, monkeypatch):
     monkeypatch.setenv("BANCOS_DUBLE_PATH", str(tmp_path))
     monkeypatch.setenv(apoio_irmao.EXIGE, "1")
     assert apoio_irmao.localizar("BANCOS_DUBLE_PATH", ARQUIVO, "bancos-duble") == tmp_path
+
+
+def test_ci_traz_o_irmao_e_exige_a_consistencia_em_vez_de_pular():
+    """R2-11: o CI rodava `pytest` puro e os testes cruzados pulavam. Agora ele faz checkout do bancos-duble, define a variável, liga a exigência e roda o `exigir_irmao.sh`."""
+    ci = (RAIZ / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert 'PESSOAS_TESTE_EXIGE_IRMAO: "1"' in ci
+    assert "BANCOS_DUBLE_PATH: ${{ github.workspace }}/irmao/bancos-duble" in ci
+    assert "repository: GL-BUSINESS/bancos-duble" in ci and "path: irmao/bancos-duble" in ci
+    assert "bash scripts/exigir_irmao.sh" in ci and "gerar_pessoas_teste.py --verificar" in ci
+    assert ci.index("path: irmao/bancos-duble") < ci.index("uv run pytest"), "o irmão vem antes do pytest"
