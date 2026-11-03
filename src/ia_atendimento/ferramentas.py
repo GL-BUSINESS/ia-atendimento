@@ -92,8 +92,8 @@ class ProjecaoDeFerramentas(AbstractCapability[Deps]):
     async def wrap_tool_execute(
         self, ctx: RunContext[Deps], *, call: ToolCallPart, tool_def: ToolDefinition, args: Any, handler: Any
     ) -> Any:
-        """O texto de um `ModelRetry`/`ToolFailed` da ferramenta é lido pelo modelo e pode citar o dado que falhou: vai um texto fixo "
-        "no lugar."""
+        """O texto de um `ModelRetry`/`ToolFailed` da ferramenta é lido pelo modelo e pode citar o dado que falhou: vai um texto fixo
+        no lugar."""
         try:
             return await handler(args)
         except ToolRetryError:
@@ -103,8 +103,8 @@ class ProjecaoDeFerramentas(AbstractCapability[Deps]):
 
 
 def registrar(ferramentas: Mapping[str, Callable[..., Any]]) -> tuple[list[Tool[Deps]], list[AbstractCapability[Deps]]]:
-    """`{"T3": funcao}` → as `Tool` (com o nome do catálogo) e a capability que protege o retorno. Nome sem projeção ⇒ "
-    "`FerramentaSemProjecao`."""
+    """`{"T3": funcao}` → as `Tool` (com o nome do catálogo) e a capability que protege o retorno. Nome sem projeção ⇒
+    `FerramentaSemProjecao`."""
     if not isinstance(ferramentas, Mapping):
         raise FerramentaSemProjecao("ferramentas deve ser um mapa {nome do catálogo: função}, como {'T3': oferta_ativa}")
     sem = sorted(n for n in ferramentas if n not in PROJECAO_DAS_FERRAMENTAS)

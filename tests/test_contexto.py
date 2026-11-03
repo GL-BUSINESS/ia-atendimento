@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import string
 import uuid
 from pathlib import Path
 from typing import Any
@@ -962,3 +963,18 @@ def test_na_e2_a_ferramenta_t3_nao_manda_copiar_um_oferta_ref_que_o_estado_nao_t
     e2, e3 = esquemas_das_ferramentas("E2"), esquemas_das_ferramentas("E3")
     assert "T3" in e2 and "oferta_ref" in e2 and "não há oferta_ref" in e2 and "apelido" not in e2
     assert "apelido que está no estado" in e3 and "não há oferta_ref" not in e3
+
+
+def test_rajada_enorme_entra_limitada_com_uma_linha_de_omitidas(db_conn, e3, chaveiro):
+    """B-3 (sonda p7): 60 mensagens custavam 2.096 tokens estimados só no bloco 8 (o teto de H é 200); agora entram as 10 últimas e uma linha diz o resto."""
+    atd, _ = e3
+    rotulos = [string.ascii_lowercase[i % 26] + string.ascii_lowercase[i // 26] for i in range(60)]  # letras: número viraria [NUMERO]
+    for rotulo in rotulos:
+        receber(
+            db_conn, atd, chaveiro, f"mensagem {rotulo} do cliente, quero saber mais sobre as condicoes e as taxas todas aqui", nomes=NOMES
+        )
+    c = _montar(db_conn, atd, chaveiro)
+    assert c.insumos.pendentes[0] == "[50 mensagens anteriores omitidas]" and len(c.insumos.pendentes) == 11
+    assert f"mensagem {rotulos[-1]} do" in c.insumos.pendentes[-1] and f"mensagem {rotulos[49]} do" not in "".join(c.insumos.pendentes)
+    assert f"mensagem {rotulos[50]} do" in c.insumos.pendentes[1]  # as 10 ÚLTIMAS, em ordem
+    assert c.blocos[7].tokens < 600 and c.cortes == ()

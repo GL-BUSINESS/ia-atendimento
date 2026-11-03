@@ -43,6 +43,7 @@ from ia_atendimento.config import Settings
 from ia_atendimento.mascara import mascarar
 
 ALERTA_RACIOCINIO: Final = "alerta_raciocinio"
+ALERTA_USO_AUSENTE: Final = "alerta_uso_ausente"
 NOME_DO_TRACER: Final = "ia_atendimento"
 SPAN_DO_TURNO: Final = "ia.turno"
 TRACE_ID_NULO: Final = "0" * 32
@@ -309,3 +310,9 @@ def alertar_raciocinio(tokens_raciocinio: int, *, modelo: str, provedor: str) ->
     """A resposta trouxe tokens de raciocínio (G §7, risco «raciocínio ligado por engano»): alerta em log e no span corrente."""
     registro.warning("%s: %d tokens de raciocínio (modelo=%s, provedor=%s)", ALERTA_RACIOCINIO, tokens_raciocinio, modelo, provedor)
     trace.get_current_span().add_event(ALERTA_RACIOCINIO, {"tokens_raciocinio": tokens_raciocinio, "modelo": modelo, "provedor": provedor})
+
+
+def alertar_uso_ausente(*, modelo: str, provedor: str) -> None:
+    """A resposta do provedor veio sem `usage` (B-2): o custo do turno sai zero sem ser medido. Alerta em log e no span corrente."""
+    registro.warning("%s: resposta sem usage (modelo=%s, provedor=%s); o custo do turno não é medida", ALERTA_USO_AUSENTE, modelo, provedor)
+    trace.get_current_span().add_event(ALERTA_USO_AUSENTE, {"modelo": modelo, "provedor": provedor})

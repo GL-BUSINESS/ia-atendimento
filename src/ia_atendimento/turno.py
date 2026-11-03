@@ -220,8 +220,8 @@ FERRAMENTA_DE_SAIDA: Final = "final_result"  # nome que o Pydantic AI dá à fer
 
 @cache
 def formato_do_turno() -> str:
-    """A ferramenta de saída como o provedor a recebe (nome, descrição e esquema do `Turno`). Conta nos tokens de entrada, junto do "
-    "bloco 1."""
+    """A ferramenta de saída como o provedor a recebe (nome, descrição e esquema do `Turno`). Conta nos tokens de entrada, junto do
+    bloco 1."""
     ferramenta = {
         "type": "function",
         "function": {
@@ -357,8 +357,8 @@ def motivo_de_decisao(motivo: str) -> str | None:
 
 @dataclass(frozen=True)
 class ResultadoTurno:
-    """Um turno do modelo: o `Turno` validado + o que ele custou. `modelo` e `provedor` são os de `modelo_por_faixa` (o que o passo "
-    "grava)."""
+    """Um turno do modelo: o `Turno` validado + o que ele custou. `modelo` e `provedor` são os de `modelo_por_faixa` (o que o passo
+    grava)."""
 
     turno: Turno
     modelo: str
@@ -366,6 +366,7 @@ class ResultadoTurno:
     uso: UsoDoTurno
     ferramentas_chamadas: tuple[str, ...] = ()
     raciocinio_detectado: bool = False
+    uso_ausente: bool = False  # a resposta veio sem `usage`: tokens e custo 0 não são medida (alerta_uso_ausente)
     acao_invalida: bool = False
     referencias: Mapping[str, str] = field(
         default_factory=dict, repr=False

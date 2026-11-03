@@ -57,6 +57,7 @@ EXEMPLOS_POR_FASE: Final = 2
 MENSAGENS_MINIMAS_APOS_CORTE: Final = 2  # a última troca nunca sai: é o que a IA acabou de perguntar e a resposta do cliente
 CARACTERES_DAS_PENDENTES: Final = 560  # ~200 tokens (teto do bloco 8); dividido pela rajada
 CARACTERES_MINIMOS_POR_PENDENTE: Final = 120
+MAX_PENDENTES_NO_PROMPT: Final = 10  # rajada maior: entram as 10 últimas e uma linha diz quantas ficaram de fora (B-3)
 TETOS_DO_BLOCO: Final = {1: 800, 2: 650, 3: 600, 4: 600, 5: 300, 6: 700, 7: 400, 8: 200}  # H §3.1 (referência; só o total é imposto)
 NOMES_DOS_BLOCOS: Final = {
     1: "sistema", 2: "modulo_da_fase", 3: "ferramentas", 4: "estado", 5: "resumo", 6: "trocas", 7: "resultados", 8: "pendentes",
@@ -332,8 +333,10 @@ def _linhas_pendentes(
     ocultar_como: str | None = None,
 ) -> tuple[str, ...]:
     """Uma linha por pendente. `ocultar_como` (campo da E5) troca o TEXTO por `[dado:<campo>]`: o modelo nem vê o que o cliente digitou."""
+    omitidas = max(len(pendentes) - MAX_PENDENTES_NO_PROMPT, 0)
+    pendentes = pendentes[omitidas:]
     limite = max(CARACTERES_MINIMOS_POR_PENDENTE, CARACTERES_DAS_PENDENTES // max(len(pendentes), 1))
-    linhas = []
+    linhas = [f"[{omitidas} mensagens anteriores omitidas]"] if omitidas else []
     for pendente in pendentes:
         if pendente.msg_tipo != "texto":
             linhas.append(f"[mídia sem texto: {pendente.msg_tipo}]")
@@ -353,8 +356,8 @@ class Apelidos:
     """`oferta-1`, `opcao-2`...: o modelo cita a referência pelo apelido e o processador (B1.6) volta ao id real por `referencias`."""
 
     def __init__(self, mapa: Mapping[str, str] | None = None) -> None:
-        """`mapa` (apelido → id real) semeia os apelidos já dados no contexto: o mesmo id real recebe o MESMO apelido no resultado de "
-        "ferramenta."""
+        """`mapa` (apelido → id real) semeia os apelidos já dados no contexto: o mesmo id real recebe o MESMO apelido no resultado de
+        ferramenta."""
         self.mapa: dict[str, str] = {}
         self._por_valor: dict[tuple[str, str], str] = {}
         for apelido, real in (mapa or {}).items():

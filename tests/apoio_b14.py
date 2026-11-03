@@ -64,6 +64,7 @@ def resposta_openai(
     saida: int = 90,
     tokens_raciocinio: int = 0,
     conteudo_de_raciocinio: str | None = None,
+    sem_uso: bool = False,
 ) -> httpx.Response:
     """Resposta de `chat/completions` com a ferramenta de saída `final_result` (o `Turno`) e o `usage` pedido."""
     mensagem: dict[str, Any] = {"role": "assistant", "content": None}
@@ -82,7 +83,7 @@ def resposta_openai(
         "created": 1_700_000_000,
         "model": "accounts/fireworks/routers/deepseek-v4p1-flash-1017-us",
         "choices": [{"index": 0, "message": mensagem, "finish_reason": "tool_calls" if turno is not None else "stop"}],
-        "usage": uso,
+        "usage": None if sem_uso else uso,
     }
     return httpx.Response(200, json=corpo)
 

@@ -738,3 +738,42 @@ def test_argumentos_de_ferramenta_validos():
     ).ferramenta
     assert (f.args.oferta_ref, f.args.opcao_ref, f.args.alvo) == ("oferta-1", "opcao-2", "parcela")
     assert _turno(acao="usar_ferramenta", ferramenta={"nome": "T10"}).ferramenta.args.oferta_ref is None
+
+
+# --- cliente HTTP reaproveitado e fechado (B-7); resposta sem usage não é custo zero calado (B-2) --------------------------------------
+
+
+async def test_resolver_reaproveita_o_cliente_http_por_par_e_aclose_o_fecha():
+    """B-7: `resolver` criava um `AsyncOpenAI` por chamada (um handshake TLS aos EUA por turno e sockets até o GC)."""
+    resolvedor = ResolvedorModelo(settings_de_teste())
+    a = resolvedor.resolver("deepseek-v4p1-flash-1017", PROVEDOR_FIREWORKS_US, False)
+    b = resolvedor.resolver("deepseek-v4p1-flash-1017", PROVEDOR_FIREWORKS_US, False)
+    assert a is b and a.client is b.client
+    await resolvedor.aclose()
+    assert a.client.is_closed()
+    assert resolvedor.resolver("deepseek-v4p1-flash-1017", PROVEDOR_FIREWORKS_US, False) is not a  # depois de fechado, um novo
+
+
+async def test_aclose_nao_fecha_o_cliente_http_que_foi_injetado():
+    rede = RedeSimulada([resposta_openai(TURNO_E2)])
+    cliente = rede.cliente()
+    resolvedor = ResolvedorModelo(settings_de_teste(), cliente_http=cliente)
+    resolvedor.resolver("deepseek-v4p1-flash-1017", PROVEDOR_FIREWORKS_US, False)
+    await resolvedor.aclose()
+    assert not cliente.is_closed  # propriedade do httpx
+    await cliente.aclose()
+
+
+async def test_resposta_sem_usage_alerta_e_marca_o_resultado(caplog):
+    caplog.set_level(logging.WARNING, logger="ia_atendimento.observabilidade")
+    agente = agente_na_rede(RedeSimulada([resposta_openai(TURNO_E2, sem_uso=True)]), settings=settings_de_teste())
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
+    assert r.uso_ausente is True and r.custo_brl == 0 and r.tokens_in == 0
+    assert observabilidade.ALERTA_USO_AUSENTE in caplog.text
+
+
+async def test_resposta_com_usage_nao_alerta(caplog):
+    caplog.set_level(logging.WARNING, logger="ia_atendimento.observabilidade")
+    agente = agente_na_rede(RedeSimulada([resposta_openai(TURNO_E2)]), settings=settings_de_teste())
+    r = await executar_turno(agente, DEPS, contexto_falso("E2"))
+    assert r.uso_ausente is False and observabilidade.ALERTA_USO_AUSENTE not in caplog.text

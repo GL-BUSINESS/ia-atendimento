@@ -55,8 +55,8 @@ PRECO_MAXIMO = Decimal(1000)  # trava de digitação: US$ 1.000 por 1M tokens n�
 
 @dataclass(frozen=True)
 class Precos:
-    """Preço do modelo em US$ por 1M tokens (entrada não cacheada, entrada cacheada, saída) e o câmbio para R$. Fonte: "
-    "`Settings.preco_*`."""
+    """Preço do modelo em US$ por 1M tokens (entrada não cacheada, entrada cacheada, saída) e o câmbio para R$. Fonte:
+    `Settings.preco_*`."""
 
     entrada_usd: Decimal = PRECO_IN_USD
     cache_usd: Decimal = PRECO_CACHE_USD

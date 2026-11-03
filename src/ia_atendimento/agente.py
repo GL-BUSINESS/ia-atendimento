@@ -109,13 +109,13 @@ class ModeloDaFaixa:
 
 
 class ProvedorNaoConfigurado(Exception):
-    """Par modelo/provedor fora do que o MVP tem (só `deepseek-v4p1-flash-1017` em `fireworks-us`). Outro par é mudança de código "
-    "revisada."""
+    """Par modelo/provedor fora do que o MVP tem (só `deepseek-v4p1-flash-1017` em `fireworks-us`). Outro par é mudança de código
+    revisada."""
 
 
 class RaciocinioNaoLiberado(ProvedorNaoConfigurado):
-    """`raciocinio=true` numa faixa: só depois da F3 (plano T6). Ligar sem medir sobe custo e latência e quebra a chamada de ferramenta "
-    "(G §3)."""
+    """`raciocinio=true` numa faixa: só depois da F3 (plano T6). Ligar sem medir sobe custo e latência e quebra a chamada de ferramenta
+    (G §3)."""
 
 
 class Provedor(Protocol):
@@ -125,8 +125,8 @@ class Provedor(Protocol):
 
 
 def extra_body_raciocinio(forma: str) -> dict[str, Any]:
-    """O trecho do `extra_body` que desliga o raciocínio. As duas formas estão na API do Fireworks (G §3); NENHUMA provada no V4.1 "
-    "Flash (A2.9)."""
+    """O trecho do `extra_body` que desliga o raciocínio. As duas formas estão na API do Fireworks (G §3); NENHUMA provada no V4.1
+    Flash (A2.9)."""
     if forma == "reasoning_effort_none":
         return {"reasoning_effort": "none"}
     if forma == "thinking_disabled":
@@ -140,6 +140,7 @@ class ResolvedorModelo:
     def __init__(self, settings: Settings, *, cliente_http: httpx.AsyncClient | None = None) -> None:
         self._settings = settings
         self._cliente_http = cliente_http  # injetável: os testes põem um transporte simulado aqui
+        self._modelos: dict[tuple[str, str, bool], OpenAIChatModel] = {}  # um cliente (e um pool TLS) por par, não por turno (B-7)
         observabilidade.registrar_segredo(settings.modelo_api_key_1)
 
     @property
@@ -155,6 +156,20 @@ class ResolvedorModelo:
             raise ProvedorNaoConfigurado(f"par {modelo}/{provedor} não configurado (MVP: {s.modelo_nome}/{PROVEDOR_FIREWORKS_US})")
         if raciocinio:
             raise RaciocinioNaoLiberado("raciocinio=true só depois da F3 (A2.9 mede o parâmetro e a F3 aprova)")
+        if (modelo, provedor, raciocinio) not in self._modelos:
+            self._modelos[(modelo, provedor, raciocinio)] = self._criar()
+        return self._modelos[(modelo, provedor, raciocinio)]
+
+    async def aclose(self) -> None:
+        """Fecha o cliente HTTP do modelo (no desligamento do processo). O `httpx.AsyncClient` injetado é de quem o injetou: não se
+        fecha aqui."""
+        modelos, self._modelos = self._modelos, {}
+        if self._cliente_http is None:
+            for modelo in modelos.values():
+                await modelo.client.close()
+
+    def _criar(self) -> OpenAIChatModel:
+        s = self._settings
         cliente = AsyncOpenAI(
             base_url=s.modelo_base_url_1,
             api_key=s.modelo_api_key_1.get_secret_value(),
@@ -373,9 +388,12 @@ async def executar_turno(
         raciocinio = _trazem_raciocinio(historico, numeros[3])
         if raciocinio:
             observabilidade.alertar_raciocinio(numeros[3], modelo=modelo, provedor=provedor)
+        uso_ausente = numeros[0] == 0 and numeros[2] == 0
+        if uso_ausente:  # 200 sem `usage`: o custo sairia 0,000000 calado e o gasto do dia (Σ passo.custo_brl) subestimado
+            observabilidade.alertar_uso_ausente(modelo=modelo, provedor=provedor)
         resultado = ResultadoTurno(
             execucao.output, modelo, provedor, uso, _ferramentas_chamadas(historico, agente.ferramentas),
-            raciocinio_detectado=raciocinio, referencias=dict(deps.apelidos.mapa),
+            raciocinio_detectado=raciocinio, uso_ausente=uso_ausente, referencias=dict(deps.apelidos.mapa),
         )  # fmt: skip
         span.set_attributes(
             {"turno.acao": resultado.turno.acao, "turno.intencao": resultado.turno.intencao, "turno.custo_brl": str(uso.custo_brl)}
