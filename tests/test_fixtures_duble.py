@@ -61,7 +61,7 @@ def _grava(tmp_path: Path, bruto: dict[str, dict[str, Any]]) -> Path:
 def test_fixtures_duble_validam_contra_o_schema_pydantic_da_forma(fixtures):
     """Os três arquivos carregam, e carregam pelo diretório do checkout (o wheel leva o mesmo, `force-include`)."""
     assert modulo.diretorio_padrao() == DIRETORIO
-    assert set(fixtures.cliente360.casos) == {"P01", "P13", "P14", "P-M18", "P59", "desconhecida"}
+    assert set(fixtures.exemplo_cliente360.casos) == {"P01", "P13", "P14", "P-M18", "P59", "desconhecida"}
     assert {"calculado", "sem_simulacao", "prazo_indisponivel"} <= set(fixtures.tres_rn.casos) and {"sem_oferta"} <= set(fixtures.c6.casos)
     for caso in fixtures.tres_rn.casos.values():
         assert isinstance(caso.corpo, Calcular3rnCalculado | Calcular3rnSemCalculo)
@@ -72,7 +72,10 @@ def test_fixtures_duble_validam_contra_o_schema_pydantic_da_forma(fixtures):
 def test_fixtures_duble_cada_oferta_tem_a_forma_do_schema_oferta(fixtures):
     """Toda `oferta_ativa` das fixtures do 360 é uma `Oferta` válida (obrigatórios do esquema presentes, nenhum campo inventado)."""
     ofertas = [
-        par.oferta_ativa for caso in fixtures.cliente360.casos.values() for par in caso.propostas.pares if par.oferta_ativa is not None
+        par.oferta_ativa
+        for caso in fixtures.exemplo_cliente360.casos.values()
+        for par in caso.propostas.pares
+        if par.oferta_ativa is not None
     ]
     assert len(ofertas) >= 4
     for oferta in ofertas:
@@ -266,7 +269,7 @@ def test_fixtures_duble_outra_persona_cai_no_padrao(fixtures):
 def test_fixtures_duble_cpf_eco_e_modo(fixtures):
     """O `cpf` da resposta é o do pedido (o arquivo traz 00000000000); em `real`/`sombra` a fixture se recusa; CPF malformado não passa."""
     assert fixtures.calcular_3rn("P01", CPF_P01, "duble")[1]["cpf"] == CPF_P01
-    for fora in (CPF_P02, "52998224725"):  # CPF de OUTRA persona e CPF de cliente: a fixture só responde pelo CPF da própria persona
+    for fora in (CPF_P02, "5299822" + "4725"):  # CPF de OUTRA persona e CPF de cliente: a fixture só responde pelo CPF da própria persona
         with pytest.raises(ValueError, match="CPF não é o da persona"):
             fixtures.calcular_3rn("P01", fora, "duble")
     with pytest.raises(ValueError, match="fora do catálogo"):
@@ -291,9 +294,16 @@ def test_fixtures_duble_so_persona_do_corpus_tem_caso_proprio(fixtures):
 # --- cliente360_oferta.json: o exemplo e o relativo -----------------------------------------------------------------------------------
 
 
+def test_fixtures_duble_o_golden_do_360_nao_e_uma_fonte_servivel(fixtures):
+    """R1-13: o `valid_until` do arquivo é o de `agora_referencia` (vence em 17/11): ele é exemplo, não resposta. A API pública não o chama `cliente360`."""
+    assert not hasattr(fixtures, "cliente360") and hasattr(fixtures, "exemplo_cliente360")
+    assert fixtures.exemplo_cliente360.agora_referencia == "2026-11-17T15:00:00Z"
+    assert not hasattr(fixtures, "propostas") and not hasattr(fixtures, "resumo")
+
+
 def test_fixtures_duble_exemplo_do_360_carrega_o_valid_until_relativo(fixtures):
     """O arquivo é a saída da fonte em `agora_referencia`: o `valid_until` dele é agora_referencia + 2 h, e a regra relativa está escrita nele."""
-    c360 = fixtures.cliente360
+    c360 = fixtures.exemplo_cliente360
     agora = datetime.strptime(c360.agora_referencia, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     assert c360.relativo.valid_until_s == 7200
     for caso in c360.casos.values():

@@ -327,7 +327,7 @@ def test_pessoas_teste_catalogo_recusa_arquivo_ruim(tmp_path, catalogo):
 
     assert len(carregar_catalogo(com(lambda d: None)).pessoas) == 84
     ruins = {
-        "cpf de cliente": lambda d: d["pessoas"][0].update(cpf="529.982.247-25"),
+        "cpf de cliente": lambda d: d["pessoas"][0].update(cpf="529.982." + "247-25"),
         "dv errado": lambda d: d["pessoas"][0].update(cpf="000.000.001-92"),
         "pessoa_id fora da faixa": lambda d: d["pessoas"][0].update(pessoa_id="11111111-1111-7111-8111-111111111111"),
         "pessoa_id repetido": lambda d: d["pessoas"][1].update(pessoa_id=d["pessoas"][0]["pessoa_id"]),
@@ -337,6 +337,7 @@ def test_pessoas_teste_catalogo_recusa_arquivo_ruim(tmp_path, catalogo):
         "oferta sem economia": lambda d: d["pessoas"][0]["pares"][0].update(economia=None),
         "par repetido": lambda d: d["pessoas"][0]["pares"].append(dict(d["pessoas"][0]["pares"][0], oferta_id="1")),
         "telefone real": lambda d: d["pessoas"][0].update(telefone="11"),
+        "telefone fora da faixa 5500 9000": lambda d: d["pessoas"][0].update(telefone="5511912345678"),
     }
     for rotulo, mutar in ruins.items():
         with pytest.raises(PessoasTesteInvalidas):

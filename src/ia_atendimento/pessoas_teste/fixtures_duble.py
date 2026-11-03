@@ -1,9 +1,11 @@
 """Os arquivos `fixtures/duble/*.json` (B2.4): forma medida de `Oferta` (360), `/3rn/calcular` e `/c6/oferta/simular`.
 
-SEM WireMock e SEM chamada real. São o que o gateway de ferramentas devolve em `duble|teste` quando a F3 (P13, P14) ou o ensaio pedem T5 de
-outro banco: sem elas a F3 chamaria o C6 de verdade (1 req/s, custo) e o 3RN (fila da AJIN). Cada arquivo é validado pelas formas de
-`formas.py` ao carregar; `scripts/gerar_pessoas_teste.py` os gera do catálogo, então a oferta de T3 e a simulação de T5 da mesma persona
-nunca divergem.
+SEM WireMock e SEM chamada real. `3rn_calcular.json` e `c6_simular.json` são o que o gateway de ferramentas devolve em `duble|teste`
+quando a F3 (P13, P14) ou o ensaio pedem T5 de outro banco: sem elas a F3 chamaria o C6 de verdade (1 req/s, custo) e o 3RN (fila da AJIN).
+`cliente360_oferta.json` é só um EXEMPLO congelado (golden, `exemplo_cliente360`): o `valid_until` dele vale em `agora_referencia` e
+vence; T1/T3 saem SEMPRE de `FontePessoasTeste`, que calcula tudo ao servir e recusa `real|sombra`. Cada arquivo é validado pelas formas
+de `formas.py` ao carregar; `scripts/gerar_pessoas_teste.py` os gera do catálogo, então a oferta de T3 e a simulação de T5 da mesma
+persona nunca divergem.
 
 `cpf` nas respostas de banco é ECO do pedido: o arquivo traz `00000000000` e `servir_*` o troca pelo CPF consultado (11 dígitos).
 O arquivo mora em `fixtures/duble/` do checkout e, no pacote instalado, em `ia_atendimento/fixtures/duble/` (o wheel o leva, como as
@@ -126,7 +128,9 @@ class ArquivoC6(_ArquivoDeBanco):
 
 
 class FixturesDuble(_Fechado):
-    cliente360: ArquivoCliente360
+    exemplo_cliente360: (
+        ArquivoCliente360  # EXEMPLO congelado em `agora_referencia` (golden): T1/T3 SEMPRE vêm de `FontePessoasTeste`, nunca daqui
+    )
     tres_rn: Arquivo3rn
     c6: ArquivoC6
 
@@ -159,7 +163,9 @@ def carregar_fixtures_duble(diretorio: Path | str | None = None) -> FixturesDubl
     try:
         c360, tres, c6 = (json.loads((base / nome).read_text(encoding="utf-8")) for nome in NOMES)
         return FixturesDuble(
-            cliente360=ArquivoCliente360.model_validate(c360), tres_rn=Arquivo3rn.model_validate(tres), c6=ArquivoC6.model_validate(c6)
+            exemplo_cliente360=ArquivoCliente360.model_validate(c360),
+            tres_rn=Arquivo3rn.model_validate(tres),
+            c6=ArquivoC6.model_validate(c6),
         )
     except (OSError, ValueError):  # `ValidationError` do Pydantic é um `ValueError`
         raise PessoasTesteInvalidas("fixtures/duble ausente ou fora da forma esperada") from None

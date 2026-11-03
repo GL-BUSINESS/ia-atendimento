@@ -88,7 +88,9 @@ class PessoaDeTeste(_Modelo):
     pessoa_id: UUID
     cpf: str
     nome: str
-    telefone: Annotated[str, StringConstraints(pattern=r"^[0-9]{12,13}$")]
+    telefone: Annotated[
+        str, StringConstraints(pattern=r"^55009000[0-9]{4}$")
+    ]  # a faixa sintética `5500 9000-00nn`; nunca um telefone de verdade
     duble: str | None  # persona do dublê da FACTA a que o CPF pertence (None = sem stub: persona «sem FACTA»)
     pares: tuple[ParDeTeste, ...]
 
