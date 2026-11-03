@@ -17,12 +17,16 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
     resumo → trocas antigas → exemplos até ≤ 4.000; CPF, telefone, e-mail, nome, valores e ids reais nunca vão ao modelo (máscara de novo, `[VALOR]`/`[PRAZO]`,
     apelidos `oferta-1`, auditoria do prompt inteiro). Oferta só a partir da E3 (Q1).
   - `observabilidade.py`: OTel → Phoenix (desligado por padrão), exportador que mascara todo span, filtro de logs, segredos como `[SEGREDO]`, alerta de raciocínio.
-  - `config.py`: `modelo_roteador` (só `-us`), `modelo_raciocinio_off`, `modelo_temperatura`, `modelo_max_tokens`, `modelo_timeout_s`, `modelo_tentativas_http`,
+  - `config.py`: `modelo_roteador` (só `-us`), `modelo_raciocinio_off`, `modelo_temperatura`, `modelo_max_tokens`, `modelo_timeout_s`,
     `preco_in_usd`/`preco_cache_usd`/`preco_out_usd`/`cambio` (≤ 0 derruba o boot), `phoenix_projeto`, `phoenix_api_key`.
   - Revisão automática de segurança (2 MEDIUM em `contexto.py`, corrigidos): o `perfil` ao modelo passou a allowlist **por chave** (inteiro só em `idade_do_lead_min`/`etapas_do_robo_concluidas`, cada
     um com seu limite; `banco` `^[A-Z0-9_]{1,32}$`; `origem`, `ultimo_sentido`, `tipo_ultima_fala` e `etapa_inapp` em enums fechados) e a folha de resultado de ferramenta voltou a só minúsculas; ambas rejeitam
     os nomes da conversa, e `auditar_prompt` também.
   - Testes: `tests/test_agente.py`, `tests/test_contexto.py`, `tests/test_observabilidade.py` (cobertura do código novo ≈ 98%).
+  - Revisão 2 (`docs/REVISAO-B1.4-0311-r2.md`; 1 alto, 7 médios, 4 baixos; correções em `docs/DECISOES-B1.4-0211.md` §6): `proteger_texto` linear (lookbehind em caracteres de host) e com corte da entrada em 1.000 caracteres (R2-01);
+    qualquer exceção de ferramenta é `FerramentaFalhou` (`ErroDoModelo`, texto fixo) (R2-02); a ferramenta registrada só aparece no corpo HTTP, só executa e só conta tokens na fase que a libera (R2-03); `status`/`etapa` e todas as
+    folhas de texto do resultado por domínio fechado (R2-04); host com sinal de caminho é link com qualquer TLD (R2-05); `[NUMERO:n]`, hora com `hrs`/`hs`/`min`, `dd/mm hh:mm` isento da máscara de 8 dígitos e o extrator de agenda
+    sobre o texto de `mascarar` (R2-07, R2-08). Testes novos: `test_protecao.py`; `test_ferramentas.py` e `test_contexto.py` ampliados.
   - Revisão 1 (`docs/REVISAO-B1.4-0311.md`; 0 crítico, 1 alto, 12 médios, 11 baixos; correções em `docs/DECISOES-B1.4-0211.md` §5): retorno de ferramenta só volta ao modelo projetado e
     auditado (`ferramentas.py`, A-1); `protecao.py` (número «nu» → `[NUMERO]`, data → `[DATA]`, link → `[LINK]`, `r$` solto → `[VALOR]`); mensagem da E5 oculta por padrão; nome colado a `_`/dígito mascarado
     (`mascara.py`); `banco` só do catálogo e folhas por domínio fechado; placeholder fora da fase ⇒ `TextoForaDaFase`; `executar_turno` só aceita o `Contexto` montado; tempo-limite de 8 s (teto 10) e

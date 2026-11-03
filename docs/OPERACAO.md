@@ -119,7 +119,8 @@ do ambiente (nomes em `.env.example`; segredos só no `.env` ou no arquivo 0600 
   `LogRecord` de todo logger também. É a segunda cerca: a primeira é o contexto, que nunca monta o prompt com esses dados. Para ver o texto do cliente no Phoenix o TI
   usa o «ver bruto» (14 d); aqui nunca.
 - **Ferramentas.** `criar_agente(..., ferramentas={"T3": função})` é o único caminho: o nome precisa ter projeção em `PROJECAO_DAS_FERRAMENTAS` (senão o agente nem sobe) e o retorno só volta ao
-  modelo projetado, mascarado e auditado. Ferramenta nova entra com a projeção dela, no mesmo PR.
+  modelo projetado, mascarado e auditado; toda folha de texto do retorno é de domínio fechado. A ferramenta só aparece no corpo HTTP, só executa e só conta tokens na fase que a libera
+  (`FERRAMENTAS_DO_MODELO_POR_FASE`; passe `tokens_das_ferramentas=agente.tokens_das_ferramentas` a `montar_contexto`). Ferramenta nova entra com a projeção dela, no mesmo PR.
 - **E5 (coleta de dados).** `montar_contexto` oculta a mensagem do cliente (`[dado:<campo>]`): ela é o valor do campo. Só chega ao modelo com `desvio_liberado=True`, e quem decide o desvio é o processador.
 - **Teto de 4 mil tokens** é **estimativa** (`tokens.EstimadorPorCaracteres`: 3 caracteres/token + 10%). O tokenizer do DeepSeek ainda não foi medido (H §3.1, HIPÓTESE):
   a **B8.2** mede e troca o estimador (`EstimadorPorCodificador`) sem mexer no resto.
