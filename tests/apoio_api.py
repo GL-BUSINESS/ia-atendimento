@@ -69,6 +69,7 @@ class EspiaDeFila:
         self.turnos: list[tuple[uuid.UUID, str]] = []
         self.inicios: list[tuple[uuid.UUID, str]] = []
         self.encerramentos: list[tuple[uuid.UUID, str, float]] = []
+        self.retomadas: list[tuple[uuid.UUID, uuid.UUID, str, datetime]] = []
 
     def turno(self, conn: psycopg.Connection, atendimento_id: uuid.UUID, chat_id: str) -> None:
         self.turnos.append((atendimento_id, chat_id))
@@ -78,6 +79,12 @@ class EspiaDeFila:
 
     def encerrar_por_chave(self, conn: psycopg.Connection, atendimento_id: uuid.UUID, chat_id: str, atraso_s: float) -> bool:
         self.encerramentos.append((atendimento_id, chat_id, atraso_s))
+        return True
+
+    def agendar_retomada(
+        self, conn: psycopg.Connection, agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, dispara_em: datetime
+    ) -> bool:
+        self.retomadas.append((agendamento_id, atendimento_id, chat_id, dispara_em))
         return True
 
 

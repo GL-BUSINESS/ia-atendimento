@@ -7,6 +7,7 @@ própria API, `fila.enfileirar_*_sync`). Os testes da API injetam um espião que
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Protocol
 
 import procrastinate
@@ -26,6 +27,12 @@ class Enfileirador(Protocol):
         """Agenda o encerramento da parada leve com atraso; `False` se já havia um agendado para o atendimento."""
         ...
 
+    def agendar_retomada(
+        self, conn: psycopg.Connection, agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, dispara_em: datetime
+    ) -> bool:
+        """Alarme da volta combinada em `dispara_em` (`schedule_at`, sem lock do chat); `False` se o agendamento já tinha um esperando."""
+        ...
+
 
 class EnfileiradorProcrastinate:
     def __init__(self, app: procrastinate.App) -> None:
@@ -39,3 +46,8 @@ class EnfileiradorProcrastinate:
 
     def encerrar_por_chave(self, conn: psycopg.Connection, atendimento_id: uuid.UUID, chat_id: str, atraso_s: float) -> bool:
         return fila.enfileirar_encerrar_por_chave_sync(self._app, conn, atendimento_id, chat_id, atraso_s=atraso_s) is not None
+
+    def agendar_retomada(
+        self, conn: psycopg.Connection, agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, dispara_em: datetime
+    ) -> bool:
+        return fila.agendar_retomada_sync(self._app, conn, agendamento_id, atendimento_id, chat_id, dispara_em) is not None

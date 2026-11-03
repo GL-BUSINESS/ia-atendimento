@@ -8,9 +8,10 @@
   agendamento é `cg:{chat_id}:{sufixo16}`, a forma que o `agendamento_forma_check` da 0001 aceita; o `texto_hash` é HMAC do texto mascarado.
 - **A hora vem do extrator determinístico** (B5.7a), nunca do modelo. Em v1 só vale UMA hora explícita dentro da janela: zero ou mais de um
   candidato válido ⇒ `agendado:false, motivo:"sem_hora"` e nada é gravado (ambíguo é da proposta/confirmação, B5.7c).
-- O atendimento nasce `reservado` (`gatilho='agendamento'`, `retoma_em = dispara_em`, `lease_ate = retoma_em + agenda_folga_min`, o CHECK
-  exige
-  `lease_ate >= retoma_em`). Quem dispara, confirma e retoma é a máquina da B5.7b/c; `estado.abrir_agendado` continua não existindo.
+- O atendimento nasce `reservado` por `estado.abrir_agendado` (`gatilho='agendamento'`, `retoma_em = dispara_em`, `lease_ate = retoma_em +
+  agenda_folga_min`, o CHECK exige `lease_ate >= retoma_em`) e **não toca o chat**. A reserva grava o passo
+  `agendamento` (`proposto`); o job `retomar` é enfileirado pela API NA MESMA transação (`api/agendamentos.py`). Quem confirma e quem
+  dispara é a B5.7b/c (`agenda_estado`, `agenda_jobs`).
 """
 
 from __future__ import annotations
@@ -19,12 +20,13 @@ import hashlib
 import hmac
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated, Any, Final
 
 import psycopg
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
+from ia_atendimento.agenda_estado import passo_de_agendamento
 from ia_atendimento.agenda_extrator import VERSAO as EXTRATOR_VERSAO
 from ia_atendimento.agenda_extrator import ConfigAgenda, extrair
 from ia_atendimento.calendario import FUSO, limites_do_dia, validar_calendario_bloqueio
@@ -35,8 +37,8 @@ from ia_atendimento.estado import (
     EstadoErro,
     Hex24,
     Versoes,
+    abrir_agendado,
     executar_traduzindo,
-    fingerprint_de_identidade,
     idempotency_key,
     resolver_modo,
 )
@@ -44,9 +46,7 @@ from ia_atendimento.mascara import mascarar
 from ia_atendimento.tipos import DataHora
 
 PREFIXO_TEXTO: Final = b"texto/v1\n"
-GATILHO: Final = "agendamento"
 DISPARADO_POR: Final = "dialogo_agendar"
-FAIXA_PADRAO: Final = "media"
 
 
 class ChaveIncoerente(EstadoErro):
@@ -181,14 +181,6 @@ def chat_ocupado(conn: psycopg.Connection, chat_id: str) -> bool:
     return conn.execute("SELECT 1 FROM ia.atendimento WHERE chat_id = %s AND estado <> 'encerrado'", (chat_id,)).fetchone() is not None
 
 
-_INSERIR_ATENDIMENTO: Final = """
-INSERT INTO ia.atendimento (origem, chave_logica, idempotency_key, entrada_fingerprint, gatilho, disparado_por, faixa_esforco, pessoa_id,
-  chat_id, phone_id, clt_job_id, roteiro_versao, regras_versao, catalogo_versao, motor_versao, modo, ultimo_cliente_em, retoma_em,
-  lease_ate, iniciado_em, atualizado_em)
-VALUES (%(origem)s, %(chave)s, %(idem)s, %(fp)s, 'agendamento', %(disparado_por)s, %(faixa)s, %(pessoa)s, %(chat)s, %(phone)s, %(job)s,
-  %(roteiro)s, %(regras)s, %(catalogo)s, %(motor)s, %(modo)s, %(ultimo)s, %(retoma)s, %(lease)s, %(agora)s, %(agora)s)
-RETURNING atendimento_id
-"""
 _INSERIR_AGENDAMENTO: Final = """
 INSERT INTO ia.agendamento (atendimento_id, pessoa_id, chat_id, entrada, seq, pedido_em, msg_chave, texto_hash, retoma_fase,
 horario_extraido,
@@ -214,31 +206,24 @@ def reservar(
     folga_min: int,
     agora: datetime,
 ) -> Agendado:
-    """Cria o atendimento `reservado` de agendamento e a linha `pendente` NA TRANSAÇÃO do chamador (savepoint próprio). Chat ocupado ⇒
-    `ChatOcupado`."""
+    """Cria o atendimento `reservado` de agendamento (`estado.abrir_agendado`), a linha `pendente` e o passo `agendamento` NA TRANSAÇÃO do
+    chamador (savepoint próprio). Chat ocupado ⇒ `ChatOcupado`."""
     modo = resolver_modo(chat_id=entrada.chat_id, modo_global=modo_global, chats_teste=chats_teste)
-    identidade = {
-        "chat_id": entrada.chat_id, "chave_logica": chave_logica, "clt_job_id": str(entrada.clt_job_id), "gatilho": GATILHO,
-        "pessoa_id": str(entrada.pessoa_id), "phone_id": entrada.phone_id,
-    }  # fmt: skip
-    idem = idempotency_key(chave_logica)
-    params = {
-        "origem": origem, "chave": chave_logica, "idem": idem, "fp": fingerprint_de_identidade(identidade), "disparado_por": DISPARADO_POR,
-        "faixa": FAIXA_PADRAO, "pessoa": entrada.pessoa_id, "chat": entrada.chat_id, "phone": entrada.phone_id, "job": entrada.clt_job_id,
-        "roteiro": versoes.roteiro, "regras": versoes.regras, "catalogo": versoes.catalogo, "motor": versoes.motor, "modo": modo,
-        "ultimo": entrada.ultimo_cliente_em or entrada.datetime_post, "retoma": quando, "lease": quando + timedelta(minutes=folga_min),
-        "agora": agora,
-    }  # fmt: skip
     with conn.transaction():
-        atendimento = executar_traduzindo(conn, _INSERIR_ATENDIMENTO, params)
+        atendimento = abrir_agendado(
+            conn, origem=origem, chave_logica=chave_logica, disparado_por=DISPARADO_POR, pessoa_id=entrada.pessoa_id,
+            chat_id=entrada.chat_id, phone_id=entrada.phone_id, clt_job_id=entrada.clt_job_id, versoes=versoes, modo=modo,
+            retoma_em=quando, ultimo_cliente_em=entrada.ultimo_cliente_em or entrada.datetime_post, agora=agora, folga_min=folga_min,
+        )  # fmt: skip
         agendamento = executar_traduzindo(
             conn,
             _INSERIR_AGENDAMENTO,
             {
-                "atd": atendimento[0], "pessoa": entrada.pessoa_id, "chat": entrada.chat_id, "agora": agora,
+                "atd": atendimento.atendimento_id, "pessoa": entrada.pessoa_id, "chat": entrada.chat_id, "agora": agora,
                 "msg_chave": msg_chave_do_agendamento(entrada.chat_id, entrada.datetime_post), "texto_hash": hash_do_texto,
                 "retoma_fase": entrada.retoma_fase, "quando": quando, "extrator": EXTRATOR_VERSAO, "confianca": confianca,
-                "chave": chave_logica, "idem": idem,
+                "chave": chave_logica, "idem": idempotency_key(chave_logica),
             },
         )  # fmt: skip
-    return Agendado(atendimento[0], agendamento[0], agendamento[1], quando, "explicita", confianca)
+        passo_de_agendamento(conn, atendimento.atendimento_id, agendamento[0], "proposto")
+    return Agendado(atendimento.atendimento_id, agendamento[0], agendamento[1], quando, "explicita", confianca)

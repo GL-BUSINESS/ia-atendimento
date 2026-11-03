@@ -9,7 +9,10 @@
   `POOL_MAX=8` com `concurrency=4` deixa 2 conexões livres por processo (4 jobs + listener + batimento).
 - **App por chamada:** o `Blueprint` nasce em `criar_app`, nunca no import: `add_tasks_from` o modifica, então não se reaproveita.
   Os `Servicos` (funções injetadas, `jobs.py`) chegam à tarefa por `additional_context`, sem estado global.
-- Nenhuma tarefa decide negócio: chama o handler de `jobs.py`.
+- **Volta combinada (B5.7b):** `alarme_retomar` (agendado em `dispara_em`, SEM lock, `queueing_lock=retomar:{agendamento_id}`) enfileira o
+  `retomar` de verdade (`lock=chat:`, `queueing_lock=retomar_exec:{agendamento_id}`); `reaper_agenda` por minuto reenfileira o que ficou
+  sem job vivo.
+- Nenhuma tarefa decide negócio: chama o handler de `jobs.py` ou `agenda_jobs.py`.
 """
 
 from __future__ import annotations
@@ -23,10 +26,11 @@ from typing import Any
 import procrastinate
 import psycopg
 from procrastinate import exceptions as pexc
+from procrastinate.jobs import Status as JobStatus
 from psycopg import ProgrammingError
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
-from ia_atendimento import jobs
+from ia_atendimento import agenda_jobs, jobs
 from ia_atendimento.calendario import BLOQUEIO_DATAPREV_EM, DATAPREV_ATE, HORA_BLOQUEIO_ENTRADA, cron_utc
 from ia_atendimento.chave import ConfigCorrida
 from ia_atendimento.relogio import Relogio
@@ -78,7 +82,7 @@ def _servicos(contexto: procrastinate.JobContext) -> jobs.Servicos:
 def _montar_tarefas(com_periodicas: bool) -> procrastinate.Blueprint:
     bp = procrastinate.Blueprint()
     _tarefas_do_chat(bp)
-    periodicas = _tarefas_de_manutencao(bp)
+    periodicas = {**_tarefas_de_manutencao(bp), **_tarefas_da_agenda(bp)}
     if com_periodicas:
         _registrar_periodicas(bp, periodicas)
     return bp
@@ -115,6 +119,34 @@ def _tarefas_do_chat(bp: procrastinate.Blueprint) -> None:
     @bp.task(name="encerrar_por_chave", pass_context=True)
     async def encerrar_por_chave(contexto: procrastinate.JobContext, atendimento_id: str) -> None:
         await jobs.executar_encerrar_por_chave(_servicos(contexto), uuid.UUID(atendimento_id))
+
+
+def _tarefas_da_agenda(bp: procrastinate.Blueprint) -> dict[str, Any]:
+    """A volta combinada (alarme, job de verdade e a rede por minuto); devolve a periódica."""
+
+    @bp.task(name="alarme_retomar", pass_context=True, retry=RETRY_FILA)
+    async def alarme_retomar(contexto: procrastinate.JobContext, agendamento_id: str, atendimento_id: str, chat_id: str) -> None:
+        """Alarme SEM lock (um `todo` futuro com `lock=chat:` seguraria os turnos do chat na pausa): ao disparar, enfileira o `retomar`."""
+        await enfileirar_retomar(contexto.app, uuid.UUID(agendamento_id), uuid.UUID(atendimento_id), chat_id)
+
+    @bp.task(name="retomar", pass_context=True)  # sem retry: a reivindicação (CAS `confirmado → disparado`) não é reentrante
+    async def retomar(contexto: procrastinate.JobContext, agendamento_id: str, atendimento_id: str, chat_id: str) -> None:
+        async def reagendar(em: datetime) -> None:
+            await agendar_retomada(contexto.app, uuid.UUID(agendamento_id), uuid.UUID(atendimento_id), chat_id, em)
+
+        await agenda_jobs.executar_retomar(_servicos(contexto), uuid.UUID(agendamento_id), reagendar, job_id=contexto.job.id)
+
+    @bp.task(name="reaper_agenda", pass_context=True, queueing_lock="reaper_agenda")
+    async def reaper_agenda(contexto: procrastinate.JobContext, timestamp: int) -> None:
+        async def enfileirar(v: agenda_jobs.Vencido) -> None:
+            # `doing` de worker morto segura o lock do chat para sempre: dá-lo como falho antes de enfileirar de novo
+            for job_id in v.travados:
+                await contexto.app.job_manager.finish_job_by_id_async(job_id, JobStatus.FAILED, delete_job=False)
+            await enfileirar_retomar(contexto.app, v.agendamento_id, v.atendimento_id, v.chat_id)
+
+        await agenda_jobs.executar_reaper_agenda(_servicos(contexto), enfileirar)
+
+    return {"reaper_agenda": reaper_agenda}
 
 
 def _tarefas_de_manutencao(bp: procrastinate.Blueprint) -> dict[str, Any]:
@@ -163,6 +195,7 @@ def _registrar_periodicas(bp: procrastinate.Blueprint, tarefas: dict[str, Any]) 
     referencia = date(2026, 11, 12)
     agenda = {
         "reaper_lease": "* * * * *",
+        "reaper_agenda": "* * * * *",  # B5.7b: reenfileira a volta combinada que ficou sem job vivo
         "expirar_parados": "*/30 * * * *",
         "auditoria_pii": "7 * * * *",
         "podar": cron_utc(HORA_PODA_LOCAL, referencia),
@@ -208,6 +241,15 @@ def _pedido_alarme_encerrar_por_chave(
     return "alarme_encerrar_por_chave", opcoes, {"atendimento_id": str(atendimento_id), "chat_id": chat_id}
 
 
+def _pedido_alarme_retomar(
+    agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, em: datetime, conexao: Any
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """O alarme NÃO leva `lock` (ver a docstring do módulo); o `queueing_lock` garante um alarme `todo` por agendamento."""
+    opcoes = {"queueing_lock": f"{agenda_jobs.PREFIXO_ALARME}{agendamento_id}", "schedule_at": em, "connection": conexao}
+    argumentos = {"agendamento_id": str(agendamento_id), "atendimento_id": str(atendimento_id), "chat_id": chat_id}
+    return "alarme_retomar", opcoes, argumentos
+
+
 async def enfileirar_turno(
     app: procrastinate.App, atendimento_id: uuid.UUID, chat_id: str, *, rajada_s: float = JANELA_RAJADA_S, conexao: Any = None
 ) -> int | None:
@@ -225,6 +267,21 @@ async def enfileirar_encerrar_por_chave(app: procrastinate.App, atendimento_id: 
     """O encerramento de verdade: roda já, com o lock do chat (serializa com os turnos). Chamado pelo alarme ao disparar."""
     opcoes = {"lock": f"chat:{chat_id}", "queueing_lock": f"encerrar_exec:{atendimento_id}"}
     return await _enfileirar(app, "encerrar_por_chave", opcoes, atendimento_id=str(atendimento_id))
+
+
+async def agendar_retomada(
+    app: procrastinate.App, agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, em: datetime, *, conexao: Any = None
+) -> int | None:
+    """Alarme da volta combinada para `em` (UTC = `dispara_em`). `None` = já havia um alarme `todo` deste agendamento."""
+    tarefa, opcoes, argumentos = _pedido_alarme_retomar(agendamento_id, atendimento_id, chat_id, em, conexao)
+    return await _enfileirar(app, tarefa, opcoes, **argumentos)
+
+
+async def enfileirar_retomar(app: procrastinate.App, agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str) -> int | None:
+    """O `retomar` de verdade: roda já, com o lock do chat (serializa com os turnos). Vem do alarme ao disparar e do `reaper_agenda`."""
+    opcoes = {"lock": f"chat:{chat_id}", "queueing_lock": f"{agenda_jobs.PREFIXO_EXEC}{agendamento_id}"}
+    argumentos = {"agendamento_id": str(agendamento_id), "atendimento_id": str(atendimento_id), "chat_id": chat_id}
+    return await _enfileirar(app, "retomar", opcoes, **argumentos)
 
 
 async def agendar_lembrete(
@@ -274,6 +331,14 @@ def enfileirar_encerrar_por_chave_sync(
 ) -> int | None:
     """Um ALARME por atendimento, com atraso (escalonado pelo chamador), sem lock; idempotente por `queueing_lock`."""
     tarefa, opcoes, argumentos = _pedido_alarme_encerrar_por_chave(atendimento_id, chat_id, atraso_s, conexao)
+    return _enfileirar_sync(app, tarefa, opcoes, **argumentos)
+
+
+def agendar_retomada_sync(
+    app: procrastinate.App, conexao: psycopg.Connection, agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, em: datetime
+) -> int | None:
+    """Um alarme por agendamento, para `dispara_em`, na transação do chamador (a API ou a confirmação); idempotente por `queueing_lock`."""
+    tarefa, opcoes, argumentos = _pedido_alarme_retomar(agendamento_id, atendimento_id, chat_id, em, conexao)
     return _enfileirar_sync(app, tarefa, opcoes, **argumentos)
 
 
