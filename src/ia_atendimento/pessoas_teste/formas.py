@@ -229,6 +229,9 @@ class ResultadoPropostasPessoa(_Fechada):
             raise ValueError("`encontrado:false` devolve `pares` vazio e `pessoa_id`/`atribuicao` nulos")
         if self.encontrado and (self.pessoa_id is None or self.atribuicao is None or self.atribuicao.versao is None):
             raise ValueError("`encontrado:true` traz `pessoa_id` e `atribuicao {versao, site_profile_id}`")
+        chaves = [(p.banco, p.produto) for p in self.pares]
+        if chaves != sorted(set(chaves)):
+            raise ValueError("`pares` vêm ordenados por (banco, produto), sem repetir, como o 360 real")
         ativas = sum(1 for p in self.pares if p.oferta_ativa is not None)
         if self.varias_ofertas != (ativas > 1):
             raise ValueError("`varias_ofertas` ⇔ oferta ativa em mais de um par")

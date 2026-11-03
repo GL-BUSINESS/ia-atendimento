@@ -81,7 +81,9 @@ class FontePessoasTeste:
             )
             return vazio.model_dump(mode="json", exclude_unset=True)
         valido_ate = agora + (self._validade if validade is None else validade)
-        pares = [self._par(pessoa, par, agora, valido_ate, versao) for par in pessoa.pares]
+        pares = sorted(
+            (self._par(pessoa, par, agora, valido_ate, versao) for par in pessoa.pares), key=lambda p: (p.banco, p.produto)
+        )  # a ordem do 360 real: `sorted(pares.items())` por (banco, produto)
         resultado = ResultadoPropostasPessoa(
             encontrado=True,
             pessoa_id=str(pessoa.pessoa_id),

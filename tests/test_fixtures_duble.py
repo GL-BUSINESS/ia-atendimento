@@ -129,6 +129,7 @@ MUTACOES: list[tuple[str, str, Any]] = [
     ("cliente360_oferta.json", "com_contrato declarado so_oferta", lambda d: _com(d, [*PAR_P59, "caso"], "so_oferta")),
     ("cliente360_oferta.json", "com_contrato sem alvo_sugerido do contrato", lambda d: _com(d, [*PAR_P59, "alvo_sugerido"], None)),
     ("cliente360_oferta.json", "contrato pendente marcado terminal", lambda d: _com(d, [*PAR_P59, "contratos", 0, "terminal"], True)),
+    ("cliente360_oferta.json", "pares fora da ordem do 360 (P13: FACTA antes de C6)", lambda d: d["casos"]["P13"]["propostas"]["pares"].reverse()),
     ("cliente360_oferta.json", "contrato sem referencia_banco", lambda d: _sem(d, [*PAR_P59, "contratos", 0, "contrato", "referencia_banco"])),
     ("cliente360_oferta.json", "contrato com campo fora do contrato", lambda d: _com(d, [*PAR_P59, "contratos", 0, "contrato", "pct_empresa"], "1")),
     ("cliente360_oferta.json", "contrato macro desconhecido", lambda d: _com(d, [*PAR_P59, "contratos", 0, "contrato", "macro"], "quase_pago")),

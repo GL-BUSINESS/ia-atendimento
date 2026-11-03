@@ -125,11 +125,24 @@ def test_pessoas_teste_todas_as_personas_leem_t1_e_t3(catalogo, fonte, modo):
         assert resumo.itens[0].cpf == pessoa.cpf_digitos
         propostas = ResultadoPropostasPessoa.model_validate(fonte.propostas(pessoa.pessoa_id, modo))
         assert propostas.encontrado and propostas.pessoa_id == str(pessoa.pessoa_id)
-        assert [p.banco for p in propostas.pares] == [par.banco for par in pessoa.pares], pessoa.persona_id
+        assert [p.banco for p in propostas.pares] == sorted(par.banco for par in pessoa.pares), pessoa.persona_id  # a ordem do 360 real
         com_oferta = [par for par in pessoa.pares if par.economia is not None]
-        assert [p.banco for p in propostas.pares if p.oferta_ativa] == [par.banco for par in com_oferta], pessoa.persona_id
+        assert [p.banco for p in propostas.pares if p.oferta_ativa] == sorted(par.banco for par in com_oferta), pessoa.persona_id
         assert {p.caso for p in propostas.pares} <= {"so_oferta", "com_contrato"}
         assert propostas.atribuicao.versao == 0 and propostas.atribuicao.site_profile_id is None, "pessoa sem atribuição: versao 0 (R1-03)"
+
+
+def test_pessoas_teste_pares_saem_ordenados_por_banco_e_produto_como_no_360_real(catalogo, fonte):
+    """R2-01: `pessoas_propostas` faz `for (banco, produto), grupo in sorted(pares.items())`. P13, a única com dois pares, sai `[C6, FACTA]` (a ordem do catálogo é a inversa)."""
+    pessoa = catalogo.por_persona("P13")
+    assert [par.banco for par in pessoa.pares] == ["FACTA", "C6"], (
+        "a ordem do catálogo não é a do 360 (o catálogo não muda, o hash também não)"
+    )
+    pares = fonte.propostas(pessoa.pessoa_id, "duble")["pares"]
+    assert [(p["banco"], p["produto"]) for p in pares] == [("C6", "CLT"), ("FACTA", "CLT")]
+    for p in catalogo.pessoas:
+        servidos = [(x["banco"], x["produto"]) for x in fonte.propostas(p.pessoa_id, "teste")["pares"]]
+        assert servidos == sorted(servidos), p.persona_id
 
 
 def test_pessoas_teste_p13_tem_oferta_no_c6_e_p14_nao_tem_par_no_3rn(catalogo, fonte):
