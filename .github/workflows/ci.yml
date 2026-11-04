@@ -10,14 +10,16 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   testes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Sem segredos. Runner trocavel sem PR: a variavel de repositorio CI_RUNNER (JSON) aponta
+    # para o grupo s3-ci; sem ela o job roda no ubuntu-latest do GitHub.
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"ubuntu-latest"') }}
+    timeout-minutes: 11 # observado: ate 313 s no GitHub (x2)
+    # Um CI por ref; so um PR cancela a execucao anterior (na main cada push roda ate o fim).
+    concurrency:
+      group: ci-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     services:
       postgres:
         image: postgres:18
