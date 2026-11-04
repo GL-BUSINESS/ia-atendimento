@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -48,6 +49,7 @@ __all__ = [
     "abertos_agora",
     "bloqueio_entrada",
     "config_em",
+    "config_no_tempo",
     "config_vigente",
     "garantir_defaults",
     "gasto_dia",
@@ -103,6 +105,21 @@ def config_em(conn: psycopg.Connection, nome: str, instante: datetime) -> Any:
     if linha is None:
         linha = conn.execute("SELECT valor FROM ia.config_versao WHERE nome = %s ORDER BY versao LIMIT 1", (nome,)).fetchone()
     return linha[0] if linha is not None else PADROES.get(nome)
+
+
+def config_no_tempo(conn: psycopg.Connection, nome: str) -> Callable[[datetime], Any]:
+    """`config_em` para muitos instantes com UMA leitura (o `expirar_parados` avalia centenas de `iniciado_em` por rodada): as versões
+    de `nome` ficam em memória e a regra é a mesma (a maior versão publicada até o instante; sem nenhuma até lá, a mais antiga; nunca
+    gravada, o padrão do registro)."""
+    versoes = conn.execute("SELECT publicado_em, valor FROM ia.config_versao WHERE nome = %s ORDER BY versao", (nome,)).fetchall()
+
+    def em(instante: datetime) -> Any:
+        if not versoes:
+            return PADROES.get(nome)
+        ate_la = [valor for publicado_em, valor in versoes if publicado_em <= instante]
+        return ate_la[-1] if ate_la else versoes[0][1]
+
+    return em
 
 
 def registrar_config(

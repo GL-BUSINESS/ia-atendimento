@@ -10,12 +10,12 @@
 from __future__ import annotations
 
 import copy
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from ia_atendimento import expiracao, jobs, worker
-from ia_atendimento.chave import registrar_config
+from ia_atendimento.chave import config_em, config_no_tempo, registrar_config
 from ia_atendimento.chave_registro import PADROES
 from tests import fixtures_fila as ff
 from tests.apoio_agenda import inserir_job
@@ -88,3 +88,51 @@ async def test_o_job_usa_o_servico_de_producao(banco, conn_super, relogio):
 
     servicos = worker.montar_servicos(_Pool())
     assert jobs.configurado(servicos.expirar_parados)
+    # revisão A9: executa a injeção de produção (relógio real), não só confere que não é o `_NaoConfigurado`
+    velho = inserir_atendimento(conn_super, estado="aberto", modo="real", iniciado_em=datetime.now(UTC) - timedelta(days=3))
+    assert await servicos.expirar_parados() >= 1
+    assert _estado(conn_super, velho) == ("encerrado", "expirado", "expirar_parados")
+    assert _encerrou(conn_super, velho) == ["expirar_parados"]
+
+
+async def test_candidatos_velhos_dentro_do_prazo_nao_escondem_os_vencidos(banco, conn_super, relogio, monkeypatch):
+    """Revisão A8: a busca anda em páginas. Com uma página de 2, os dois `alta` mais velhos (dias_max 3, ainda no prazo) vinham
+    primeiro e o `media` mais novo e já vencido (dias_max 2) ficava de fora da rodada."""
+    monkeypatch.setattr(expiracao, "LIMITE_CANDIDATOS", 2)
+    agora = relogio.agora()
+    altos = [
+        inserir_atendimento(conn_super, estado="aberto", modo="real", iniciado_em=agora - timedelta(days=2, hours=12)) for _ in range(2)
+    ]
+    for atd in altos:
+        conn_super.execute(
+            "UPDATE ia.atendimento SET faixa_esforco = 'alta', comissao_esperada_brl = 900 WHERE atendimento_id = %s", (atd,)
+        )
+    vencido = inserir_atendimento(conn_super, estado="aberto", modo="real", iniciado_em=agora - timedelta(days=2, hours=1))
+    assert await _expirar(banco, relogio) == 1
+    assert _estado(conn_super, vencido)[1] == "expirado"
+    assert [_estado(conn_super, a)[0] for a in altos] == ["aberto", "aberto"]
+
+
+def test_config_no_tempo_segue_a_regra_do_config_em(conn_app, relogio):
+    """Uma leitura para muitos instantes, com a mesma regra do `config_em` (antes da 1ª versão, entre versões, depois da última, e o
+    padrão do registro para a chave nunca gravada)."""
+    antes = relogio.agora()
+    relogio.avancar(hours=1)
+    primeira = copy.deepcopy(PADROES["faixas_esforco"])
+    primeira["faixas"]["media"]["dias_max"] = 3
+    registrar_config(conn_app, "faixas_esforco", primeira, "teste", relogio=relogio, motivo="v1")
+    relogio.avancar(hours=1)
+    segunda = copy.deepcopy(primeira)
+    segunda["faixas"]["media"]["dias_max"] = 5
+    registrar_config(conn_app, "faixas_esforco", segunda, "teste", relogio=relogio, motivo="v2")
+    em = config_no_tempo(conn_app, "faixas_esforco")
+    instantes = [
+        antes - timedelta(days=365),
+        antes,
+        antes + timedelta(hours=1, minutes=30),
+        relogio.agora(),
+        relogio.agora() + timedelta(days=1),
+    ]
+    assert [em(i) for i in instantes] == [config_em(conn_app, "faixas_esforco", i) for i in instantes]
+    assert [em(i)["faixas"]["media"]["dias_max"] for i in instantes] == [2, 2, 3, 5, 5]  # 2 = o seed (a versão mais antiga)
+    assert config_no_tempo(conn_app, "nome_nunca_gravado")(antes) is None

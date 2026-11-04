@@ -20,34 +20,44 @@ from typing import Final
 import psycopg
 
 from ia_atendimento import espelho, estado
-from ia_atendimento.chave import config_em
+from ia_atendimento.chave import config_no_tempo
 from ia_atendimento.espera import TETO_DIAS, limites_de
 from ia_atendimento.estado_erros import EstadoErro
 from ia_atendimento.jobs import ESTADOS_EXPIRAVEIS, LIMITE_LOTE, Servicos
 
 MOTIVO: Final = "expirar_parados"
 PISO_DIAS: Final = 1  # menor `dias_max` que o registro aceita
-LIMITE_CANDIDATOS: Final = 1000
+LIMITE_CANDIDATOS: Final = 1000  # tamanho da página de candidatos
 
 _SQL_CANDIDATOS: Final = """
 SELECT a.atendimento_id, a.faixa_esforco, a.iniciado_em FROM ia.atendimento a
 WHERE a.estado = ANY(%(estados)s) AND a.iniciado_em < %(piso)s
+  AND (%(depois_em)s::timestamptz IS NULL OR (a.iniciado_em, a.atendimento_id) > (%(depois_em)s, %(depois_id)s::uuid))
   AND NOT EXISTS (SELECT 1 FROM procrastinate.procrastinate_jobs j WHERE j.lock = 'chat:' || a.chat_id AND j.status IN ('doing', 'todo'))
-ORDER BY a.iniciado_em LIMIT %(limite)s
+ORDER BY a.iniciado_em, a.atendimento_id LIMIT %(limite)s
 """
 
 
 def vencidos(conn: psycopg.Connection, agora: datetime, limite: int = LIMITE_LOTE) -> list[uuid.UUID]:
-    """Atendimentos expiráveis cujo `iniciado_em + dias_max` (da faixa, na versão de `iniciado_em`) já passou."""
-    params = {"estados": list(ESTADOS_EXPIRAVEIS), "piso": agora - timedelta(days=PISO_DIAS), "limite": LIMITE_CANDIDATOS}
+    """Atendimentos expiráveis cujo `iniciado_em + dias_max` (da faixa, na versão de `iniciado_em`) já passou. Percorre os candidatos
+    em páginas (keyset por `iniciado_em, atendimento_id`) até achar `limite` ou acabar: os mais velhos ainda dentro de um `dias_max`
+    maior não escondem os mais novos de faixa menor. As versões de `faixas_esforco` são lidas uma vez (`config_no_tempo`)."""
+    faixas_em = config_no_tempo(conn, "faixas_esforco")
+    params = {
+        "estados": list(ESTADOS_EXPIRAVEIS), "piso": agora - timedelta(days=PISO_DIAS), "limite": LIMITE_CANDIDATOS,
+        "depois_em": None, "depois_id": None,
+    }  # fmt: skip
     achados: list[uuid.UUID] = []
-    for atd, faixa, iniciado_em in conn.execute(_SQL_CANDIDATOS, params).fetchall():
-        dias = min(TETO_DIAS, limites_de(config_em(conn, "faixas_esforco", iniciado_em), faixa).dias_max)
-        if agora - iniciado_em > timedelta(days=dias):
-            achados.append(atd)
-        if len(achados) >= limite:
-            break
-    return achados
+    while True:
+        pagina = conn.execute(_SQL_CANDIDATOS, params).fetchall()
+        for atd, faixa, iniciado_em in pagina:
+            if agora - iniciado_em > timedelta(days=min(TETO_DIAS, limites_de(faixas_em(iniciado_em), faixa).dias_max)):
+                achados.append(atd)
+                if len(achados) >= limite:
+                    return achados
+        if len(pagina) < LIMITE_CANDIDATOS:
+            return achados
+        params = {**params, "depois_em": pagina[-1][2], "depois_id": pagina[-1][0]}
 
 
 def expirar_um(conn: psycopg.Connection, atendimento_id: uuid.UUID, agora: datetime) -> bool:
