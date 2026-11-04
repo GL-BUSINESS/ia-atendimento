@@ -66,6 +66,12 @@ class ErroDeFerramenta(Exception):
         self.retry_apos_s = retry_apos_s
         super().__init__(codigo if precondicao is None else f"{codigo}:{precondicao}")
 
+    def copia_limpa(self) -> ErroDeFerramenta:
+        """O mesmo erro, novo e nunca levantado: sem `__cause__`, `__context__` nem `__traceback__`. O executor que faz `except HTTPError:
+        raise ErroDeFerramenta("RECUSA")` deixa no original a exceção do banco (com PII na mensagem) e os frames que tiveram o CPF revelado;
+        o `Resultado` guarda só a cópia (revisão B5.1, M-4)."""
+        return ErroDeFerramenta(self.codigo, precondicao=self.precondicao, retry_apos_s=self.retry_apos_s)
+
     def para_o_modelo(self) -> dict[str, Any]:
         corpo: dict[str, Any] = {CHAVE_DO_ERRO: self.codigo}
         if self.precondicao is not None:

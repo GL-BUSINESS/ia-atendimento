@@ -122,6 +122,10 @@ def test_teste_e_sombra_nunca_resolvem_host_de_producao(posse_real):
     for servico, classe in itertools.product(SERVICOS_DE_FORA, sorted(CLASSES_DE_EFEITO - {"acao_interna"})):
         teste = destinos.resolver(servico, classe, "teste", posse_real=posse_real)
         assert teste.url not in PRODUCAO, (servico, classe)
+        if servico == "facta" and classe == "leitura" and posse_real:  # M-7: nem produção nem simulador
+            with pytest.raises(ErroDeFerramenta, match="MODO_SOMENTE_LEITURA"):
+                destinos.resolver(servico, classe, "sombra", posse_real=posse_real)
+            continue
         sombra = destinos.resolver(servico, classe, "sombra", posse_real=posse_real)
         if servico == "facta" or classe != "leitura":
             assert sombra.url not in PRODUCAO and sombra.tipo == "interceptado", (servico, classe)
@@ -138,6 +142,10 @@ def test_producao_so_em_real_salvo_leitura_fora_da_facta():
     for servico, classe, modo, posse in itertools.product(
         SERVICOS_DE_FORA, sorted(CLASSES_DE_EFEITO - {"acao_interna"}), MODOS, (False, True)
     ):
+        if servico == "facta" and classe == "leitura" and posse and modo in ("duble", "sombra"):
+            with pytest.raises(ErroDeFerramenta, match="MODO_SOMENTE_LEITURA"):
+                destinos.resolver(servico, classe, modo, posse_real=posse)
+            continue
         destino = destinos.resolver(servico, classe, modo, posse_real=posse)
         if destino.url in PRODUCAO:
             permitido = modo == "real" or (classe == "leitura" and servico != "facta" and (modo == "sombra" or (modo == "duble" and posse)))
@@ -152,6 +160,17 @@ def test_duble_sem_posse_le_fixture_e_teste_le_fixture_mesmo_com_posse():
     assert destinos.resolver("c360", "leitura", "duble").tipo == "fixture"
     assert destinos.resolver("c360", "leitura", "teste", posse_real=True).tipo == "fixture"  # pessoa sintética: o 360 real não a tem
     assert destinos.resolver("c360", "leitura", "duble", posse_real=True).tipo == "producao"  # parada dura com posse real lê o real
+
+
+@pytest.mark.parametrize("modo", ["duble", "sombra"])
+def test_leitura_da_facta_com_posse_real_sob_parada_dura_nao_e_simulada(modo):
+    """Revisão B5.1, M-7: a T8 de uma tentativa REAL sob parada dura não pode sair do simulador (`nao_criada` para uma digitação que
+    pode existir abre caminho à redigitação). Nem a produção (roteiro): `MODO_SOMENTE_LEITURA`. Sem posse real segue interceptada."""
+    destinos = _destinos()
+    with pytest.raises(ErroDeFerramenta, match="MODO_SOMENTE_LEITURA"):
+        destinos.resolver("facta", "leitura", modo, posse_real=True)
+    assert destinos.resolver("facta", "leitura", modo, posse_real=False).tipo == "interceptado"
+    assert destinos.resolver("facta", "efeito_irreversivel", modo, posse_real=True).tipo == "interceptado"
 
 
 def test_acao_interna_nao_tem_host():

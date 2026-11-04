@@ -28,11 +28,20 @@ class OrcamentoDoTurno:
     def cabe(self) -> bool:
         return self.sincronas < self.max_sincronas and self.segundos < self.max_segundos
 
+    def reservar(self) -> bool:
+        """Pega a vaga da síncrona AGORA, sem `await` entre conferir e contar: o Pydantic AI roda as function tools em paralelo, e conferir
+        antes e contar só no fim deixava 6 síncronas passarem num teto de 4 (revisão B5.1, M-1). A vaga reservada conta mesmo se a chamada
+        parar numa pré-condição: o teto é de tentativas do turno."""
+        if not self.cabe():
+            return False
+        self.sincronas += 1
+        return True
+
     def restante_s(self) -> float:
         return max(self.max_segundos - self.segundos, 0.0)
 
     def gastar(self, segundos: float) -> None:
-        self.sincronas += 1
+        """Acerta só o tempo (a vaga já foi contada em `reservar`)."""
         self.segundos += max(segundos, 0.0)
 
     @classmethod
@@ -55,6 +64,14 @@ class ContadorDoAtendimento:
 
     def registrar_paga(self, atendimento_id: UUID) -> None:
         self._pagas[atendimento_id] += 1
+
+    def reservar_paga(self, atendimento_id: UUID) -> bool:
+        """Conta a consulta paga na hora do disparo, sem `await` entre conferir e contar: o banco cobra a TENTATIVA (resposta inválida e
+        timeout também), não só o sucesso (revisão B5.1, M-3)."""
+        if self._pagas[atendimento_id] >= self.max_pagas:
+            return False
+        self._pagas[atendimento_id] += 1
+        return True
 
     def registrar_corrigivel(self, atendimento_id: UUID) -> None:
         self._corrigiveis[atendimento_id] += 1

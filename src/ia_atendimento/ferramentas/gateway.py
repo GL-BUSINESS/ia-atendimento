@@ -5,16 +5,20 @@ Ordem fixa de uma chamada (falha em qualquer passo devolve `Resultado` com `Erro
 1. **Validação** (§2): a ferramenta existe; o modelo só chama as `do_modelo`; os argumentos cumprem o esquema `extra=forbid`. O modelo
    passa só apelidos (`oferta-1`): o gateway os troca pelo id real e confere no estado do atendimento (`referencias`); apelido que o
    contexto não deu, ou id de outro atendimento, é `PARAMETRO_INVALIDO`. Sem quem confira, só o apelido do próprio contexto vale.
-2. **Orçamento** (§6): por turno ≤ 4 síncronas e ≤ 5 s; por atendimento ≤ 2 pagas e ≤ 3 corrigíveis.
+2. **Orçamento** (§6): por turno ≤ 4 síncronas (a vaga é reservada aqui, atômica: o modelo chama em paralelo) e ≤ 5 s; por atendimento
+   ≤ 2 pagas (contadas no disparo, a tentativa) e ≤ 3 corrigíveis (a saída `corrigivel` e o `CORRIGIVEL` tipado do executor).
 3. **Pré-condições por código** (§3): cada nome declarado precisa de um verificador que devolva `True`; sem verificador, com exceção ou
    com qualquer outra resposta, `PRECONDICAO_FALHOU{nome}` (fail-closed). Banco fora da flag é `banco_habilitado`.
-4. **Destino na hora do efeito** (§11, §12; R2-02): `modo_efetivo` relido AGORA (cache ≤ 5 s) e o destino resolvido por `Destinos`.
-   Interceptado ⇒ só o simulador roda (sem simulador, `MODO_SOMENTE_LEITURA`).
-5. **CPF em memória** (D18): só para a ferramenta que o usa e só com destino de produção ou dublê; lido a cada chamada, entregue ao
-   executor e esquecido.
-6. **Execução** com limitador por serviço (FACTA 2, 3RN 2, C6 1; §10) e timeout (o menor entre o da ferramenta e o que resta do turno).
-   Timeout de leitura é `BANCO_INDISPONIVEL`; qualquer falha de efeito irreversível é `INDETERMINADO` (regra 12: nunca reenvia); outra
-   exceção é `DESCONHECIDO`. A mensagem da exceção nunca sai daqui.
+4. **Vaga do limitador** por serviço (FACTA 2, 3RN 2, C6 1; §10): o serviço não depende do modo, então a espera vem ANTES do destino.
+   Síncrona: um prazo só (o menor entre o da ferramenta e o que resta do turno) cobre a fila e o efeito. Assíncrona: a fila tem o seu
+   prazo e o do efeito recomeça ao pegar a vaga.
+5. **Destino na hora do efeito** (§11, §12; R2-02): `modo_efetivo` relido AGORA (cache ≤ 5 s), depois da fila, e o destino resolvido
+   por `Destinos`. Interceptado ⇒ só o simulador roda (sem simulador, `MODO_SOMENTE_LEITURA`).
+6. **CPF em memória** (D18): só para a ferramenta que o usa e só com destino de produção ou dublê; lido a cada chamada, entregue ao
+   executor e esquecido. A leitura é um ponto de espera: o destino é relido depois dela, e entre ele e o executor não há `await`.
+   **Execução**: timeout de leitura (ou na fila) é `BANCO_INDISPONIVEL`; falha de efeito irreversível JÁ DISPARADO é `INDETERMINADO`
+   (regra 12: nunca reenvia); outra exceção é `DESCONHECIDO`. A mensagem da exceção nunca sai daqui, e o erro tipado do executor é
+   refeito sem a causa.
 7. **Saída** (§7): reconstruída pelo esquema; ao modelo, `retorno_ao_modelo()` → projeção da allowlist (`proteger_retorno`).
 8. **Registro** (§8): `RegistroDaChamada` (forma do ledger, sem PII), span `ia.ferramenta` e uma linha de log, só com códigos.
 
@@ -210,21 +214,22 @@ class Gateway:
         self, nome: str, args: Any, contexto: ContextoDaChamada, *, orcamento: OrcamentoDoTurno, pelo_modelo: bool = False
     ) -> Resultado:
         spec = self._catalogo.get(nome)
-        if spec is None or (pelo_modelo and not spec.do_modelo):
-            registro.info("ferramenta recusada: fora do catálogo ou não é do modelo")
-            return Resultado(nome if spec is not None else "?", erro=ErroDeFerramenta("PARAMETRO_INVALIDO"))
+        if spec is None:  # sem nome do ledger (CHECK da 0001): só a linha de log
+            registro.info("ferramenta recusada: fora do catálogo")
+            return Resultado("?", erro=ErroDeFerramenta("PARAMETRO_INVALIDO"))
         andamento = _Andamento()
         with observabilidade.span_da_ferramenta(ferramenta=spec.nome_no_ledger, versao=spec.versao, classe=spec.classe) as span:
             try:
+                if pelo_modelo and not spec.do_modelo:  # o modelo pedindo o que não pode vai ao registro e ao span (revisão B5.1, B-4)
+                    raise ErroDeFerramenta("PARAMETRO_INVALIDO")
                 pedido = self._preparar(spec, args, contexto, pelo_modelo)
                 andamento.args_hash, andamento.banco = _hash_dos_args(pedido), pedido.banco
                 self._conferir_orcamento(spec, contexto, orcamento)
                 await self._conferir_precondicoes(pedido)
-                andamento.destino = self._resolver(pedido)
                 dados = await self._executar(pedido, andamento, orcamento)
                 resultado = Resultado(spec.nome, dados=dados, destino=andamento.destino)
-            except ErroDeFerramenta as erro:
-                resultado = Resultado(spec.nome, erro=erro, destino=andamento.destino)
+            except ErroDeFerramenta as erro:  # cópia nova: sem a causa do executor nem os frames com o CPF (M-4)
+                resultado = Resultado(spec.nome, erro=erro.copia_limpa(), destino=andamento.destino)
             self._fechar(spec, contexto, resultado, andamento, span)
         return resultado
 
@@ -268,13 +273,13 @@ class Gateway:
         return banco
 
     def _conferir_orcamento(self, spec: Especificacao, contexto: ContextoDaChamada, orcamento: OrcamentoDoTurno) -> None:
+        """Os tetos do atendimento aqui são a recusa cedo; a paga é contada de novo, atômica, no disparo. A vaga da síncrona é RESERVADA
+        aqui, sem `await` entre conferir e contar (chamadas do modelo rodam em paralelo; revisão B5.1, M-1)."""
         atendimento = contexto.atendimento_id
-        esgotado = (
-            (spec.execucao == "sincrona" and not orcamento.cabe())
-            or (spec.classe == "leitura_paga" and self._contador.pagas(atendimento) >= self._contador.max_pagas)
-            or (spec.classe == "efeito_irreversivel" and self._contador.corrigiveis(atendimento) >= self._contador.max_corrigiveis)
+        esgotado = (spec.classe == "leitura_paga" and self._contador.pagas(atendimento) >= self._contador.max_pagas) or (
+            spec.classe == "efeito_irreversivel" and self._contador.corrigiveis(atendimento) >= self._contador.max_corrigiveis
         )
-        if esgotado:
+        if esgotado or (spec.execucao == "sincrona" and not orcamento.reservar()):
             raise ErroDeFerramenta("ORCAMENTO_ESGOTADO")
 
     async def _conferir_precondicoes(self, pedido: Pedido) -> None:
@@ -293,49 +298,77 @@ class Gateway:
         return self._destinos.resolver(servico, spec.classe, modo, posse_real=contexto.posse_real)
 
     async def _executar(self, pedido: Pedido, andamento: _Andamento, orcamento: OrcamentoDoTurno) -> BaseModel:
-        spec, destino = pedido.especificacao, andamento.destino
-        if destino is None:
-            raise ErroDeFerramenta("DESCONHECIDO")
-        interceptado = destino.tipo == "interceptado"
-        funcao = (self._simuladores if interceptado else self._executores).get(spec.nome)
-        if funcao is None:
-            raise ErroDeFerramenta("MODO_SOMENTE_LEITURA" if interceptado else "DESCONHECIDO")
-        cpf = await self._cpf(pedido) if spec.usa_cpf and destino.tipo in _DESTINOS_COM_CPF else None
-        bruto, codigo = await self._rodar(funcao, Chamada(pedido, destino, cpf), andamento, orcamento)
+        spec = pedido.especificacao
+        bruto, tipado, codigo, despachado = await self._rodar(pedido, andamento, orcamento)
+        if tipado is not None:  # o erro tipado é refeito aqui, fora do `except`: sem a causa do executor (M-4)
+            if despachado and tipado[0] == "CORRIGIVEL":  # o executor levantou `CORRIGIVEL`: conta no teto de 3 (M-3)
+                self._contador.registrar_corrigivel(pedido.contexto.atendimento_id)
+            raise ErroDeFerramenta(tipado[0], precondicao=tipado[1], retry_apos_s=tipado[2])
         if codigo is not None:
             raise ErroDeFerramenta(codigo)
-        if isinstance(bruto, ErroDeFerramenta):
-            raise bruto
         dados = reconstruir(spec, bruto)
-        self._contar(spec, pedido.contexto.atendimento_id, dados)
+        if getattr(dados, "classe", None) == "corrigivel":
+            self._contador.registrar_corrigivel(pedido.contexto.atendimento_id)
         return dados
 
     async def _rodar(
-        self, funcao: Executor, chamada: Chamada, andamento: _Andamento, orcamento: OrcamentoDoTurno
-    ) -> tuple[Any, CodigoDeErro | None]:
-        """Roda o executor com limitador e timeout. Devolve (retorno, código de erro); nenhuma exceção do executor sobe com a mensagem."""
-        spec = chamada.pedido.especificacao
+        self, pedido: Pedido, andamento: _Andamento, orcamento: OrcamentoDoTurno
+    ) -> tuple[Any, tuple[CodigoDeErro, str | None, int | None] | None, CodigoDeErro | None, bool]:
+        """Vaga do limitador → destino → CPF → executor, com timeout. Devolve (retorno, erro tipado, código, despachado); nenhuma exceção
+        sobe com a mensagem.
+
+        - A vaga vem PRIMEIRO (o serviço não depende do modo) e o destino é resolvido depois dela, logo antes do executor: a parada dura
+          alcança a T7 que esperava na fila atrás de duas T8 (revisão B5.1, A-1). Se o CPF é lido, o destino é relido depois da leitura.
+        - Síncrona: um prazo só cobre a fila e o efeito (a espera conta no turno e estoura como `BANCO_INDISPONIVEL`; M-2). Assíncrona: a
+          fila tem o seu prazo e, ao pegar a vaga, o prazo do efeito recomeça (`reschedule`).
+        - `INDETERMINADO` só quando o efeito irreversível SAIU (`despachado`): timeout na fila não é dúvida, nada foi enviado."""
+        spec = pedido.especificacao
         sincrona = spec.execucao == "sincrona"
         prazo = min(spec.timeout_s, orcamento.restante_s()) if sincrona else spec.timeout_s
-        limitador = self._limitadores.get(_servico(chamada))
-        inicio = self._cronometro()
+        limitador = self._limitadores.get(_servico(pedido))
+        inicio, despachado = self._cronometro(), False
         retorno: Any = None
+        tipado: tuple[CodigoDeErro, str | None, int | None] | None = None
         codigo: CodigoDeErro | None = None
         try:
-            async with limitador or contextlib.nullcontext(), asyncio.timeout(prazo):
-                retorno = await funcao(chamada)
-        except ErroDeFerramenta as erro:  # o executor pode devolver um erro tipado (CORRIGIVEL, RECUSA…): é do vocabulário, sem PII
-            retorno = erro
+            async with asyncio.timeout(prazo) as relogio_do_prazo:
+                async with limitador or contextlib.nullcontext():
+                    if not sincrona:
+                        relogio_do_prazo.reschedule(asyncio.get_running_loop().time() + spec.timeout_s)
+                    funcao, chamada = await self._preparar_disparo(pedido, andamento)
+                    despachado = True  # daqui até o `await` não há ponto de espera: o destino é o desta hora
+                    retorno = await funcao(chamada)
+        except ErroDeFerramenta as erro:  # do gateway (antes do disparo) ou do executor (CORRIGIVEL, RECUSA…): só os campos do vocabulário
+            tipado = (erro.codigo, erro.precondicao, erro.retry_apos_s)
         except TimeoutError:
-            codigo = "INDETERMINADO" if spec.classe == "efeito_irreversivel" else "BANCO_INDISPONIVEL"
+            codigo = "INDETERMINADO" if despachado and spec.classe == "efeito_irreversivel" else "BANCO_INDISPONIVEL"
         except Exception:
-            codigo = "INDETERMINADO" if spec.classe == "efeito_irreversivel" else "DESCONHECIDO"
+            codigo = "INDETERMINADO" if despachado and spec.classe == "efeito_irreversivel" else "DESCONHECIDO"
         finally:
             decorrido = self._cronometro() - inicio
             andamento.latencia_ms = max(int(decorrido * 1000), 0)
             if sincrona:
                 orcamento.gastar(decorrido)
-        return retorno, codigo
+        return retorno, tipado, codigo, despachado
+
+    async def _preparar_disparo(self, pedido: Pedido, andamento: _Andamento) -> tuple[Executor, Chamada]:
+        """Destino desta hora, CPF se o destino o pede e a consulta paga contada; o último passo antes do executor não tem `await`."""
+        spec = pedido.especificacao
+        destino = self._resolver(pedido)
+        cpf: CpfEmMemoria | None = None
+        if spec.usa_cpf and destino.tipo in _DESTINOS_COM_CPF:
+            cpf = await self._cpf(pedido)
+            destino = self._resolver(pedido)  # a leitura do CPF é um ponto de espera: o modo pode ter mudado nela
+            if destino.tipo not in _DESTINOS_COM_CPF:
+                cpf = None
+        andamento.destino = destino
+        interceptado = destino.tipo == "interceptado"
+        funcao = (self._simuladores if interceptado else self._executores).get(spec.nome)
+        if funcao is None:
+            raise ErroDeFerramenta("MODO_SOMENTE_LEITURA" if interceptado else "DESCONHECIDO")
+        if spec.classe == "leitura_paga" and not self._contador.reservar_paga(pedido.contexto.atendimento_id):
+            raise ErroDeFerramenta("ORCAMENTO_ESGOTADO")
+        return funcao, Chamada(pedido, destino, cpf)
 
     async def _cpf(self, pedido: Pedido) -> CpfEmMemoria:
         cpf = None
@@ -345,12 +378,6 @@ class Gateway:
         if not isinstance(cpf, CpfEmMemoria):
             raise ErroDeFerramenta("DESCONHECIDO")
         return cpf
-
-    def _contar(self, spec: Especificacao, atendimento_id: UUID, dados: BaseModel) -> None:
-        if spec.classe == "leitura_paga":
-            self._contador.registrar_paga(atendimento_id)
-        if getattr(dados, "classe", None) == "corrigivel":
-            self._contador.registrar_corrigivel(atendimento_id)
 
     def _fechar(self, spec: Especificacao, contexto: ContextoDaChamada, resultado: Resultado, andamento: _Andamento, span: Any) -> None:
         destino = andamento.destino
@@ -396,9 +423,9 @@ class Gateway:
         )
 
 
-def _servico(chamada: Chamada) -> str:
-    spec = chamada.pedido.especificacao
-    return SERVICO_DO_BANCO.get(chamada.banco or "", "") if spec.servico == "banco" else spec.servico
+def _servico(pedido: Pedido) -> str:
+    spec = pedido.especificacao
+    return SERVICO_DO_BANCO.get(pedido.banco or "", "") if spec.servico == "banco" else spec.servico
 
 
 async def _vale(verificar: Callable[[Pedido], Any], pedido: Pedido) -> bool:

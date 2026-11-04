@@ -10,6 +10,7 @@ Regra de destino (servico × classe × modo_efetivo; `posse_real` só pesa sob p
 | | real | teste | duble | sombra |
 |---|---|---|---|---|
 | FACTA (T5/T7/T8/T9), qualquer classe | produção | dublê da VPS (`FACTA_BASE_TESTE`) | interceptado | interceptado |
+| FACTA, leitura, com posse real | produção | dublê da VPS | `MODO_SOMENTE_LEITURA` | `MODO_SOMENTE_LEITURA` |
 | 360/3RN/C6, leitura | produção | fixture | fixture; com posse real, produção só leitura | produção só leitura |
 | 360/3RN/C6, leitura paga ou efeito | produção | interceptado | interceptado | interceptado |
 | ação interna | interno | interno | interno | interno |
@@ -155,6 +156,11 @@ class Destinos:
             return Destino("producao", modo, base.producao)
         if servico == "facta":
             if modo != "teste":
+                if classe == "leitura" and posse_real:
+                    # Leitura da FACTA de um atendimento com posse real sob parada dura (T5, T8, T9): nem a produção (roteiro B5.1) nem o
+                    # simulador, que responderia `nao_criada` a uma digitação que pode existir e abriria caminho à redigitação (revisão
+                    # B5.1, M-7). Fail-closed até o dono decidir entre o roteiro e a linha «Ler real» de 08 §6.
+                    raise ErroDeFerramenta("MODO_SOMENTE_LEITURA")
                 return Destino("interceptado", modo)
             if not base.teste:
                 raise ErroDeFerramenta("MODO_SOMENTE_LEITURA")  # sem dublê configurado: nunca cai na produção
