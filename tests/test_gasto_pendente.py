@@ -55,13 +55,11 @@ def _passo(conn, atd, ordem: int, custo, *, ocorrido_em: datetime, tipo: str = "
 
 
 def test_gasto_do_dia_soma_passos_em_brt_e_todos_os_modos(conn_app, conn_super):
-    agora = datetime.now(UTC)
-    atd = inserir_atendimento(conn_super, estado="aberto", modo="duble", iniciado_em=agora)
-    conn_super.execute(
-        "INSERT INTO ia.passo (atendimento_id, ordem, tipo, texto, turno, fase, peca, custo_brl)"
-        " VALUES (%s, 1, 'erro', 'Erro na peça modelo.', 1, 'E1', 'modelo', 5)",
-        (atd,),
-    )
+    """Relógio fixo (revisão A10): com `datetime.now()` e o `now()` do banco, a meia-noite de São Paulo entre os dois o derrubava."""
+    agora = MEIA_NOITE_17 + timedelta(hours=23, minutes=59)  # 17/11 23:59 BRT: o último minuto do dia
+    atd = inserir_atendimento(conn_super, estado="aberto", modo="duble", iniciado_em=agora - timedelta(minutes=1))
+    _passo(conn_super, atd, 1, Decimal(5), ocorrido_em=agora)
+    _passo(conn_super, atd, 2, Decimal(7), ocorrido_em=agora + timedelta(minutes=1))  # 18/11 00:00 BRT: outro dia
     assert gasto_dia(conn_app, agora) == Decimal(5)
 
 
@@ -142,7 +140,8 @@ def test_custo_ausente_conta_passo_com_tokens_ou_do_modelo_sem_custo(conn_app, c
         (Decimal(100), Decimal(100), "critico"),
         (Decimal(125), Decimal(100), "critico"),
         (Decimal("125.01"), Decimal(100), "repassar"),
-        (Decimal(0), Decimal(0), "repassar"),  # limite zero: qualquer gasto (inclusive zero) já passou dele
+        (Decimal(0), Decimal(0), "critico"),  # limite zero sem gasto: barra entrada nova, os abertos concluem (revisão A7)
+        (Decimal("0.01"), Decimal(0), "repassar"),  # limite zero com gasto: já passou de 125 %
     ],
 )
 def test_80_100_125_por_cento(gasto, limite, nivel):

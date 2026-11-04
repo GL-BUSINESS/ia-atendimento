@@ -88,9 +88,10 @@ def custo_ausente_dia(conn: psycopg.Connection, agora: datetime) -> int:
 
 
 def nivel_do_gasto(gasto: Decimal, limite: Decimal) -> Nivel:
-    """80 % amarelo, 100 % crítico, acima de 125 % repassa. Limite zero: o teto já foi alcançado (e passado) com qualquer gasto."""
+    """80 % amarelo, 100 % crítico, acima de 125 % repassa. Limite zero: com gasto zero é crítico (o operador zerou o limite para barrar
+    entrada nova; os abertos concluem, 08 §9); com qualquer gasto já passou de 125 % e repassa."""
     if limite <= 0:
-        return "repassar"
+        return "critico" if gasto <= 0 else "repassar"
     fracao = gasto / limite
     if fracao > REPASSAR:
         return "repassar"
