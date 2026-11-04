@@ -1,0 +1,37 @@
+# gitleaks: segredos (chaves, tokens, JWT reais) e CPF formatado no repositório. Ficam de fora só os CPFs da
+# lista `CPFS_SINTETICOS` do `scripts/varredura.py` e a faixa `000.000.[01]nn-dd` das pessoas de teste (PD-6);
+# qualquer outro CPF formatado é achado. Complementa a varredura (telefone, e-mail, CPF sem pontos).
+# Achados do histórico, já fora da árvore: `.gitleaksignore`, por impressão digital (commit + arquivo + regra + linha).
+title = "ia-atendimento"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "cpf-formatado"
+description = "CPF formatado (000.000.000-00): só as pessoas sintéticas 000.000.[01]nn-dd podem aparecer"
+regex = '''\b\d{3}\.\d{3}\.\d{3}-\d{2}\b'''
+keywords = ["-"]
+tags = ["pii", "cpf"]
+
+[[allowlists]]
+description = "pessoas sintéticas 000.000.0nn-dd, clones 000.000.1nn-dd (B2.4) e os CPFs de exemplo públicos da varredura"
+regexTarget = "match"
+# Só a regra de CPF (sem isto o gitleaks dispensaria QUALQUER regra cujo match contivesse a pessoa,
+# inclusive segredo) e o CPF inteiro, ancorado (o match da regra é exatamente o CPF).
+targetRules = ["cpf-formatado"]
+regexes = [
+  '''^000\.000\.[01]\d{2}-\d{2}$''',
+  '''^529\.982\.247-25$''',
+  '''^123\.456\.789-09$''',
+  '''^111\.444\.777-35$''',
+]
+
+[[allowlists]]
+description = "falso positivo de generic-api-key: o rótulo do contador de alerta em tests/test_boot_real.py (B1.5)"
+targetRules = ["generic-api-key"]
+regexes = ['''^contador=assinatura_invalida$''']
+
+[[allowlists]]
+description = "uv.lock (hashes de dependências) e __pycache__ (bytecode local, ignorado pelo git, repete as amostras dos testes): não são segredo"
+paths = ['''^uv\.lock$''', '''(^|/)__pycache__/''']

@@ -18,6 +18,9 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
   reservada 075-098, sem pedir ajuste ao bancos-duble; gabarito amarrado ao cenário do dublê (`gabarito_cenario_duble`); hold-out com roteiro do
   cliente e falas próprias; ≥ 2 turnos por intenção e 10 de texto livre do modelo; janela de 24 h exclusiva; `FERRAMENTAS_POR_FASE` igual a H §2.3b;
   `src/` não aponta mais para `tests/`.
+- **RG-128 e RG-119, portão** (`ci.yml`, `scripts/check.sh`, `scripts/gitleaks.sh`, `.gitleaks.toml`, `.gitleaksignore`): o passo do sha256 do CI rodava com o
+  caminho dobrado (`working-directory: migrations` + `migrations/0001.sha256`) e nunca chegou ao `pytest`; o `check.sh` ganha gitleaks **estrito** (8.30.1): sem o binário
+  o portão falha, e a varredura cobre a árvore e o histórico da branch atual.
 
 ## [0.2.0] - 2026-10-30
 

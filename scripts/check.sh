@@ -8,6 +8,7 @@ run uv lock --check
 run uv run ruff check .
 run uv run ruff format --check .
 run uv run python scripts/varredura.py
+run bash scripts/gitleaks.sh   # estrito: sem o binário o portão FALHA (RG-119, PD-6)
 (cd migrations && run sha256sum -c 0001.sha256)
 run uv run python scripts/gerar_0002.py --verificar
 inicio=$(date +%s)
