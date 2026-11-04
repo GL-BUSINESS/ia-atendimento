@@ -151,7 +151,9 @@ def test_valores_de_tipo_e_limite_errados_sao_recusados(conn_app, relogio):
         ("agenda_periodos", {"Cedo": "08:30"}),
         ("agenda_janela", {"inicio": "07:00", "fim": "19:00"}),
         ("agenda_janela", {"inicio": "08:30", "fim": "19:00", "sabado_fim": "20:30"}),
-        ("janela_mensagem", {"dias": {"7": {"inicio": "08:00", "fim": "12:00"}}}),
+        ("janela_mensagem", {"dias": {"7": {"inicio": "07:00", "fim": "12:00"}}}),  # D-18: o dia 7 vale, mas só dentro de 08–20
+        ("janela_mensagem", {"dias": {"7": {"inicio": "08:00", "fim": "20:30"}}}),
+        ("calendario_bloqueio", {**PADROES["calendario_bloqueio"], "domingos": "false"}),
         ("calendario_bloqueio", {"domingos": True, "feriados": [], "janelas": []}),
         ("modelo_por_faixa", {"baixa": {"modelo": "claude-x", "provedor": "p", "raciocinio": False, "custo_max_brl": 1}}),
         ("faixas_esforco", {"limites_brl": [400, 150, 800], "faixas": {}}),
@@ -304,6 +306,23 @@ def test_cinco_recusas_de_entrada(conn_app, conn_super, relogio):
     assert recusa(conn_app, relogio) is None
     inserir_atendimento(conn_super, estado="aguardando_cliente")
     assert recusa(conn_app, relogio) == "abertos_max"
+
+
+def test_domingo_so_abre_a_entrada_com_as_duas_chaves_publicadas(conn_app, relogio):
+    """D-18 (B1.8): com a 0005 no banco, o registro aceita as duas chaves; o domingo abre só com as duas e fecha de novo com uma versão nova."""
+    ligar(conn_app, relogio)
+    domingo = RelogioFalso(datetime(2026, 11, 29, 15, 0, tzinfo=UTC))  # domingo 29/11, 12:00 SP
+    assert recusa(conn_app, domingo) == "fora_de_janela"  # seed: fechado
+    com_domingo = {"dias": {**PADROES["janela_mensagem"]["dias"], "7": {"inicio": "09:00", "fim": "18:00"}}}
+    reg(conn_app, relogio, "janela_mensagem", com_domingo)
+    assert recusa(conn_app, domingo) == "fora_de_janela", "só a janela aberta: domingos=true ainda fecha"
+    reg(conn_app, relogio, "calendario_bloqueio", {**PADROES["calendario_bloqueio"], "domingos": False})
+    assert recusa(conn_app, domingo) is None, "as duas chaves abertas"
+    assert recusa(conn_app, RelogioFalso(datetime(2026, 11, 29, 21, 30, tzinfo=UTC))) == "fora_de_janela"  # 18:30 SP: depois do dia 7
+    reg(conn_app, relogio, "janela_mensagem", PADROES["janela_mensagem"])
+    assert recusa(conn_app, domingo) == "fora_de_janela", "só o bloqueio aberto: o dia 7 sumiu da janela"
+    reg(conn_app, relogio, "calendario_bloqueio", PADROES["calendario_bloqueio"])
+    assert recusa(conn_app, domingo) == "fora_de_janela"
 
 
 def test_opt_out_e_disparos_dia(conn_app, conn_super, relogio):
