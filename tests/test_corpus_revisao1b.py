@@ -382,6 +382,25 @@ def test_dentro_da_agenda():
         calendario.dentro_da_agenda(datetime(2026, 11, 17, 10, 0))
 
 
+def test_calendario_do_corpus_abre_o_domingo_so_por_parametro():
+    """D-18 (B1.8): o padrão segue fechado (I3 e as regras não mudam até a B8.1c); aberto, o domingo vale 08–20 e a agenda 08:30–19:00.
+    15/11 é feriado no corpus e segue bloqueado; 22/11 cai na DATAPREV. Casos de domingo aberto usam 08/11 e 29/11."""
+
+    def sp(dia, h, m=0):
+        return datetime(2026, 11, dia, h + 3, m, tzinfo=UTC)
+
+    for dia in (8, 29):
+        assert not calendario.dentro_do_horario(sp(dia, 12)) and not calendario.dentro_da_agenda(sp(dia, 12))
+        assert calendario.dentro_do_horario(sp(dia, 8), domingo_aberto=True)
+        assert calendario.dentro_do_horario(sp(dia, 19, 59), domingo_aberto=True)
+        assert not calendario.dentro_do_horario(sp(dia, 20), domingo_aberto=True)
+        assert calendario.dentro_da_agenda(sp(dia, 19), domingo_aberto=True)  # domingo não tem o corte de sábado
+        assert not calendario.dentro_da_agenda(sp(dia, 8, 29), domingo_aberto=True)
+    for dia in (15, 22):
+        assert not calendario.dentro_do_horario(sp(dia, 12), domingo_aberto=True)
+        assert not calendario.dentro_da_agenda(sp(dia, 12), domingo_aberto=True)
+
+
 def test_cenarios_do_instante_cobre_cada_rotulo():
     def utc(d, h, m=0):
         return datetime(2026, 11, d, h, m, tzinfo=UTC)
