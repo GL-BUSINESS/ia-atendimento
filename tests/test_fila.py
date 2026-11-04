@@ -174,7 +174,10 @@ async def test_iniciar_e_lembrete_rodam_com_lock_do_chat(conninfo_app, conn_supe
     servicos = montar_servicos(banco, relogio, chamadas)
     app = criar(conninfo_app)
     atendimento, chat = uuid.uuid4(), hex24()
+    from ia_atendimento.chave import registrar_config
     from ia_atendimento.jobs import InstantaneoLembrete
+
+    registrar_config(conn_super, "ia_ativa", True, "teste", relogio=relogio)  # desde a B1.6a o `iniciar` relê `ia_ativa` ao executar
 
     chamadas.instantaneos[atendimento] = InstantaneoLembrete(
         estado="aguardando_cliente",
