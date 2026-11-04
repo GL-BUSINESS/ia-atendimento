@@ -47,6 +47,7 @@ __all__ = [
     "VersaoConfig",
     "abertos_agora",
     "bloqueio_entrada",
+    "config_em",
     "config_vigente",
     "garantir_defaults",
     "gasto_dia",
@@ -90,6 +91,18 @@ def config_vigente(conn: psycopg.Connection, nome: str) -> VersaoConfig | None:
         (nome,),
     ).fetchone()
     return VersaoConfig(*linha) if linha else None
+
+
+def config_em(conn: psycopg.Connection, nome: str, instante: datetime) -> Any:
+    """Valor da chave vigente em `instante` (a maior versão publicada até ele). Sem versão até lá (a chave foi gravada depois, ex.: seed no
+    boot posterior ao atendimento), a mais antiga; nunca gravada, o padrão do registro. É o que «a config vigente em `iniciado_em`» quer
+    dizer: trocar a config não muda atendimento em curso."""
+    linha = conn.execute(
+        "SELECT valor FROM ia.config_versao WHERE nome = %s AND publicado_em <= %s ORDER BY versao DESC LIMIT 1", (nome, instante)
+    ).fetchone()
+    if linha is None:
+        linha = conn.execute("SELECT valor FROM ia.config_versao WHERE nome = %s ORDER BY versao LIMIT 1", (nome,)).fetchone()
+    return linha[0] if linha is not None else PADROES.get(nome)
 
 
 def registrar_config(
