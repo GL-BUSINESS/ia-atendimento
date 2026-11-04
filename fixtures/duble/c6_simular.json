@@ -1,0 +1,190 @@
+{
+ "versao": 1,
+ "fonte": "forma de /c6/oferta/simular (c6-api app/routers/oferta.py, simular) e da condicao (sim_client.extrair_opcoes); valores sinteticos",
+ "eco_cpf": "`cpf` ecoa o pedido: o arquivo traz 00000000000 e o gateway o troca pelo CPF consultado",
+ "padrao": "sem_oferta",
+ "por_persona": {
+  "P13": "simulado_P13",
+  "P-M18": "simulado_P-M18"
+ },
+ "casos": {
+  "sem_oferta": {
+   "http": 404,
+   "corpo": {
+    "success": true,
+    "result": "sem_oferta",
+    "cpf": "00000000000",
+    "fonte": "online",
+    "custo": true,
+    "status": "REPROVADO",
+    "motivo": "Sem oferta disponível.",
+    "motivo_banco": "Reprovado Política Interna (texto sintético)",
+    "simulacao": null,
+    "condicoes_persistidas": false,
+    "oferta": null
+   }
+  },
+  "simulado_P13": {
+   "http": 200,
+   "corpo": {
+    "success": true,
+    "result": "simulado",
+    "cpf": "00000000000",
+    "fonte": "online",
+    "custo": true,
+    "status": "OK",
+    "motivo": "Simulação concluída.",
+    "simulacao": {
+     "condicoes_credito": [
+      {
+       "condicao": {
+        "id_simulacao": "SIM-TESTE-P13-24",
+        "valor_cliente": 4800.0,
+        "valor_parcela": 320.64,
+        "quantidade_parcelas": 24,
+        "convenio": {
+         "codigo": "800077",
+         "descricao": "Convenio sintetico de teste"
+        },
+        "coeficiente_tabela": 0.01
+       }
+      },
+      {
+       "condicao": {
+        "id_simulacao": "SIM-TESTE-P13-36",
+        "valor_cliente": 4800.0,
+        "valor_parcela": 252.48,
+        "quantidade_parcelas": 36,
+        "convenio": {
+         "codigo": "800077",
+         "descricao": "Convenio sintetico de teste"
+        },
+        "coeficiente_tabela": 0.01
+       }
+      },
+      {
+       "condicao": {
+        "id_simulacao": "SIM-TESTE-P13-48",
+        "valor_cliente": 4800.0,
+        "valor_parcela": 219.36,
+        "quantidade_parcelas": 48,
+        "convenio": {
+         "codigo": "800077",
+         "descricao": "Convenio sintetico de teste"
+        },
+        "coeficiente_tabela": 0.01
+       }
+      },
+      {
+       "condicao": {
+        "id_simulacao": "SIM-TESTE-P13-60",
+        "valor_cliente": 4800.0,
+        "valor_parcela": 197.76,
+        "quantidade_parcelas": 60,
+        "convenio": {
+         "codigo": "800077",
+         "descricao": "Convenio sintetico de teste"
+        },
+        "coeficiente_tabela": 0.01
+       }
+      }
+     ]
+    },
+    "condicoes_persistidas": true,
+    "oferta": null,
+    "opcao_selecionada": {
+     "id_simulacao": "SIM-TESTE-P13-60",
+     "convenio": "800077",
+     "convenio_nome": "Convenio sintetico de teste",
+     "prazo": 60,
+     "valor_parcela": 197.76,
+     "valor_liberado": 4800.0,
+     "proibida": false,
+     "motivo": null,
+     "coeficiente_tabela": 0.01
+    }
+   }
+  },
+  "simulado_P-M18": {
+   "http": 200,
+   "corpo": {
+    "success": true,
+    "result": "simulado",
+    "cpf": "00000000000",
+    "fonte": "online",
+    "custo": true,
+    "status": "OK",
+    "motivo": "Simulação concluída.",
+    "simulacao": {
+     "condicoes_credito": [
+      {
+       "condicao": {
+        "id_simulacao": "SIM-TESTE-P-M18-24",
+        "valor_cliente": 3000.0,
+        "valor_parcela": 200.4,
+        "quantidade_parcelas": 24,
+        "convenio": {
+         "codigo": "800077",
+         "descricao": "Convenio sintetico de teste"
+        },
+        "coeficiente_tabela": 0.01
+       }
+      },
+      {
+       "condicao": {
+        "id_simulacao": "SIM-TESTE-P-M18-36",
+        "valor_cliente": 3000.0,
+        "valor_parcela": 157.8,
+        "quantidade_parcelas": 36,
+        "convenio": {
+         "codigo": "800077",
+         "descricao": "Convenio sintetico de teste"
+        },
+        "coeficiente_tabela": 0.01
+       }
+      },
+      {
+       "condicao": {
+        "id_simulacao": "SIM-TESTE-P-M18-48",
+        "valor_cliente": 3000.0,
+        "valor_parcela": 137.1,
+        "quantidade_parcelas": 48,
+        "convenio": {
+         "codigo": "800077",
+         "descricao": "Convenio sintetico de teste"
+        },
+        "coeficiente_tabela": 0.01
+       }
+      },
+      {
+       "condicao": {
+        "id_simulacao": "SIM-TESTE-P-M18-60",
+        "valor_cliente": 3000.0,
+        "valor_parcela": 123.6,
+        "quantidade_parcelas": 60,
+        "convenio": {
+         "codigo": "800077",
+         "descricao": "Convenio sintetico de teste"
+        },
+        "coeficiente_tabela": 0.01
+       }
+      }
+     ]
+    },
+    "condicoes_persistidas": true,
+    "oferta": null,
+    "opcao_selecionada": {
+     "id_simulacao": "SIM-TESTE-P-M18-36",
+     "convenio": "800077",
+     "convenio_nome": "Convenio sintetico de teste",
+     "prazo": 36,
+     "valor_parcela": 157.8,
+     "valor_liberado": 3000.0,
+     "proibida": false,
+     "motivo": null,
+     "coeficiente_tabela": 0.01
+    }
+   }
+  }
+ }
+}

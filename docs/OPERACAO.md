@@ -8,7 +8,7 @@
 
 ```bash
 uv sync
-bash scripts/check.sh                        # portão: ruff, varredura, checksum da 0001, 0002 em dia, pytest
+BANCOS_DUBLE_PATH=<checkout do bancos-duble> bash scripts/check.sh   # portão: ruff, varredura, gitleaks, checksum da 0001, 0002 em dia, pessoas_teste em dia, pytest (a variável é obrigatória, B2.4)
 bash scripts/aplicar_migracoes_local.sh      # Postgres 18 descartável + papéis + migrações + ledger
 ```
 
@@ -196,3 +196,32 @@ worker o para com **40 s**; a periódica `jobs_presos` falha o job de worker mor
 **Regra de código para a B1.6: nenhum I/O síncrono dentro do laço do worker** (SDK síncrono do modelo ou do ChatGuru ⇒ `asyncio.to_thread`): a vigia e o batimento
 rodam no mesmo laço, e um handler que o bloqueie por mais de ~40 s derruba o worker, e por mais de 60 s deixa a fila liberar o chat com o job ainda rodando.
 Prova: `tests/test_worker_real.py` sobe o comando de verdade, vê o batimento no banco, o healthcheck, a vigia (código 3) e o SIGTERM (código 0).
+
+## 10. Chats de teste e `pessoas_teste` (B2.4) — só pelo kit, só a TI
+
+`pessoas_teste` é a lista das 84 pessoas sintéticas (uma por `persona_id` da F3: P01–P60 e P-M01–P-M24; CPF `000.000.nnn` **único por persona**, `pessoa_id` `00000000-0000-7000-8000-…`).
+Um chat de teste **nunca tem CPF**, mas `atendimento.pessoa_id` é obrigatório: no ensaio B, no smoke e na F3 a pessoa vem daqui, e em `duble|teste` T1 e T3 leem a oferta FACTA
+(`valid_until` = agora + 2 h, a cada leitura) de `FontePessoasTeste`, não do 360. Em `real` e `sombra` a fonte se recusa (`ForaDoModoDeTeste`).
+
+**Fantasma de venda em `teste` (risco 103).** Chat de cliente na lista `chats_teste` por engano faria a IA conversar de verdade. **Três travas por código + uma pendente:**
+(1) `PUT /config/chats_teste` só aceita chat cuja pessoa está em `pessoas_teste` (`422 pessoa_fora_de_pessoas_teste`) e que não tem histórico de cliente: atendimento `real`/`sombra`, ou `duble` de pessoa
+fora de `pessoas_teste` (`422 chat_de_cliente`); (2) só a origem `ti` grava a lista (as outras tomam `403 origem_nao_autorizada`) e a versão guarda `publicado_por`, `motivo` e instante;
+(3) `POST /atendimentos` e `POST /agendamentos` em chat de teste só abrem com pessoa de `pessoas_teste`. **Pendente (não é código ainda):** (4) o prefixo «[TESTE]» — `texto_de_saida` existe e
+está testado, mas o `Canal` que entrega a mensagem é da B1.6/B6.8 e **ainda não o chama**; até lá nada garante que uma mensagem a chat de teste saia marcada.
+
+```bash
+K=kits/chats-teste.sh        # a cópia de ~/retomada-2809/fila-2910/ia/config/chats-teste.sh vem daqui (scripts/instalar_kit_chats_teste.sh; o teste a mantém igual)
+bash $K gerar   --par <chat 24 hex>=P13 --par <outro chat>=P01 --ensaio      # só o plano; troque por --confirmo para escrever ./pessoas_teste.json (0600)
+# `gerar` PRESERVA os pares do ./pessoas_teste.json que já existe e acrescenta os --par (a API valida a lista INTEIRA contra o arquivo do boot);
+# `--recomecar` ignora o arquivo anterior: então passe TODOS os pares vigentes, senão `aplicar` (merge) e `limpar` tomam 422 pelos chats antigos
+# entregue o arquivo à VPS no caminho de PESSOAS_TESTE_ARQUIVO e REINICIE o orquestrador (o arquivo é lido no boot)
+bash $K aplicar --par <chat 24 hex>=P13 --motivo ensaio_b --por <login da TI> --confirmo   # ACRESCENTA à lista vigente (--substituir troca tudo); guarda a lista anterior
+bash $K limpar  --motivo fim_do_ensaio --por <login da TI> --confirmo                       # restaura a lista que o último `aplicar` DESTA API guardou, se a vigente ainda é a que ele gravou (--forcar ignora; --vazio zera)
+```
+
+O kit mostra a lista vigente antes e depois, exige `--motivo` (código `[a-z0-9_]{1,40}`, sem padrão: o registro da versão guarda o motivo REAL) e só fala com a WireGuard (`10.90.0.5`) ou loopback. As listas anteriores ficam em
+`CHATS_TESTE_ESTADO` (padrão `~/ia-segredos/chats-teste`, 0700). `tests/test_kit_chats_teste.py` cobre o fluxo contra uma API falsa em processo; **o kit nunca rodou contra a API real**.
+
+O catálogo e as fixtures (`fixtures/duble/{cliente360_oferta,3rn_calcular,c6_simular}.json`) saem do corpus: `uv run python scripts/gerar_pessoas_teste.py` regrava e `--verificar` (no `check.sh`) reprova
+quando divergem. Mudou uma persona do corpus ⇒ regrave, rode `scripts/atualizar_pessoas_teste.py <este pessoas.json>` no `bancos-duble` (regrava `personas/pessoas_teste.yaml` e o `.sha256`) e rode os dois portões.
+**O `check.sh` dos dois repositórios exige a variável do irmão** (`BANCOS_DUBLE_PATH` aqui, `IA_ATENDIMENTO_PATH` lá) e falha sem ela.

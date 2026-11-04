@@ -34,7 +34,10 @@ DOMINIOS_DE_TESTE = {"exemplo.test", "x.com", "sub.exemplo.com.br", "exemplo.com
 # reservados (RFC 2606) e o domínio do provedor aprovado, que aparece em URLs de exemplo (`https://u:p@us.api.fireworks.ai`)
 SUFIXOS_DE_DOMINIO_OK = (".test", ".example", ".invalid", ".localhost", ".fireworks.ai")
 CPFS_SINTETICOS = {"52998224725", "00000000000", "12345678909", "11144477735"}
-PREFIXO_CPF_DO_CORPUS = "0000000"  # `000.000.0nn-dd`: a faixa sintética das personas do corpus da F3 (e do dublê); nenhuma pessoa real tem
+PREFIXOS_CPF_DO_CORPUS = (
+    "0000000",
+    "0000001",
+)  # `000.000.0nn-dd` e `000.000.1nn-dd`: a faixa sintética das personas da F3 e dos clones do dublê
 IGNORAR = {"uv.lock"}
 
 
@@ -77,7 +80,7 @@ def varrer(arquivo: Path) -> list[str]:
                 achados.append(f"{arquivo.relative_to(RAIZ)}:{numero}: celular brasileiro fora da lista sintética")
         for m in CPF.finditer(linha):
             onze = "".join(m.groups())
-            if onze not in CPFS_SINTETICOS and not onze.startswith(PREFIXO_CPF_DO_CORPUS) and _cpf_valido(onze):
+            if onze not in CPFS_SINTETICOS and not onze.startswith(PREFIXOS_CPF_DO_CORPUS) and _cpf_valido(onze):
                 achados.append(f"{arquivo.relative_to(RAIZ)}:{numero}: CPF com DV válido fora da lista sintética")
         for m in EMAIL.finditer(linha):
             if m.group(1).lower() not in DOMINIOS_DE_TESTE and not m.group(1).lower().endswith(SUFIXOS_DE_DOMINIO_OK):

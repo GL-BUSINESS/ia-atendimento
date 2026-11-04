@@ -33,6 +33,7 @@ jobs:
     env:
       IA_TESTE_PG_HOST: localhost
       IA_TESTE_PG_PORT: "5432"
+      # RG-128/RG-119: a consistência com o bancos-duble fica só no scripts/check.sh local até existir o PAT (B12.2); aqui o teste cruzado pula.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,4 +46,5 @@ jobs:
       - run: sha256sum -c 0001.sha256
         working-directory: migrations
       - run: uv run python scripts/gerar_0002.py --verificar
+      - run: uv run python scripts/gerar_pessoas_teste.py --verificar
       - run: uv run pytest -q

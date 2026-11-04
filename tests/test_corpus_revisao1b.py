@@ -421,7 +421,7 @@ def test_ids_unicos_e_cpf_alinhado_ramos_de_erro(bruto):
         "global_duble deveria ser",
         "CPF diferente",
         "P-M sem persona do dublê tem de declarar",
-        "repetido entre personas sem stub",
+        "repetido entre personas (um CPF por persona",
         "o dublê tem persona para ela",
     ):
         assert any(trecho in a for a in achadas), trecho

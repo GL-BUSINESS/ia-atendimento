@@ -24,7 +24,8 @@ da agenda (B5.7b)**: ainda sem agente, sem ferramentas, sem n8n e sem nada em pr
 | Migração 0004: `ia.fn_anexar_rpa` (SECURITY DEFINER) e a outbox `ia.espelho_evento` — B1.5 | `migrations/0004_anexo_rpa_e_espelho.up.sql` | `tests/test_migracao_0004.py` |
 | API de entrada: 13 rotas do contrato 08, auth por token e HMAC do gateway, erros sem eco — B1.5 | `src/ia_atendimento/api/` | `tests/test_api*.py`, `tests/test_contrato_api.py`, `tests/test_corrida.py` |
 | Mensagem recebida (uma função para webhook e RPA) e casamento webhook × RPA — B1.5 | `src/ia_atendimento/mensagens.py` | `tests/test_contrato_api.py`, `tests/test_mensagens.py` |
-| Agendamento («Vou fazer depois»), faixa de esforço, `pessoas_teste`, enfileirador e segredos em arquivo 0600 — B1.5 | `agendamento.py`, `esforco.py`, `pessoas_teste.py`, `enfileirador.py`, `segredos.py` | `tests/test_api*.py`, `tests/test_enfileirador.py`, `tests/test_segredos.py`, `tests/test_ambiente_api.py` |
+| Agendamento («Vou fazer depois»), faixa de esforço, `pessoas_teste` (arquivo `{pessoas, chats}`), enfileirador e segredos em arquivo 0600 — B1.5 | `agendamento.py`, `esforco.py`, `pessoas_teste/arquivo.py`, `enfileirador.py`, `segredos.py` | `tests/test_api*.py`, `tests/test_enfileirador.py`, `tests/test_segredos.py`, `tests/test_ambiente_api.py` |
+| `pessoas_teste`: 84 pessoas sintéticas (uma por `persona_id` da F3, um CPF cada), oferta FACTA ativa com `valid_until` relativo servida em `duble\|teste` (T1/T3), «[TESTE]», formas medidas, `fixtures/duble/` de 360, 3RN e C6 e o kit `chats-teste.sh` — B2.4 | `src/ia_atendimento/pessoas_teste/`, `fixtures/duble/`, `kits/chats-teste.sh`, `scripts/gerar_pessoas_teste.py` | `tests/test_pessoas_teste*.py`, `tests/test_fixtures_duble.py`, `tests/test_corpus_clones.py`, `tests/test_kit_chats_teste.py`, `tests/test_exige_irmao.py` |
 | Estado `pausado` (`pausar`/`sair_da_pausa`: só de E2–E6 e E8, nunca E7, com teto de pausados e de horas) e `reservado` de vida longa (`abrir_agendado`/`iniciar_agendado`) — B5.7b | `src/ia_atendimento/estado_pausa.py` | `tests/test_estado_pausa.py`, `tests/test_agenda_jobs.py` |
 | Estados da linha `agendamento` (`confirmar`/`disparar`/`cancelar`, CAS por `versao`) e o passo `agendamento` — B5.7b | `src/ia_atendimento/agenda_estado.py` | `tests/test_agenda_estado.py` |
 | Jobs `retomar` (alarme sem lock + CAS `confirmado → disparado`) e `reaper_agenda` por minuto; `POST /agendamentos` enfileira o alarme — B5.7b | `agenda_jobs.py`, `fila.py`, `api/agendamentos.py` | `tests/test_agenda_jobs.py` (EM4: restart com 3 `confirmado`) |
@@ -38,7 +39,7 @@ Requisitos: `uv`, Python 3.13 (o `uv` instala), `docker` com a imagem `postgres:
 
 ```bash
 uv sync                      # dependências pinadas (uv.lock)
-bash scripts/check.sh        # portão local: ruff, varredura, checksum da 0001, 0002 em dia, pytest com tempo medido
+BANCOS_DUBLE_PATH=<checkout do bancos-duble> bash scripts/check.sh   # portão local: ruff, varredura, checksum da 0001, 0002 em dia, pessoas_teste/fixtures em dia, pytest com tempo medido (a variável é obrigatória: a consistência com o bancos-duble é parte do portão)
 uv run pytest -q             # só os testes
 bash scripts/aplicar_migracoes_local.sh [--manter]   # aplica 0001+0002 num Postgres descartável e mostra o ledger
 ```
@@ -64,7 +65,7 @@ URL do modelo em https (http só em localhost) e **nunca** `deepseek.com` nem `a
 | `SEGREDOS_SAIDA_ARQUIVO` | arquivo **0600** montado `:ro`, JSON com `ia_orquestrador_bearer`, `chatguru_token_ia`, `c360_client_id`, `c360_client_secret` (só validados no boot; usados a partir da B1.6/B6.8) |
 | `RESPONSAVEL_IA` | e-mail do Amado no ChatGuru: `responsavel_email` diferente dele no evento marca `delegacao_externa` |
 | `IA_MIGRACOES_DIR` | (opcional) pasta das migrações que o `/readyz` confere; padrão: `migrations/` do checkout ou a que o wheel leva dentro do pacote; não achar derruba a subida |
-| `PESSOAS_TESTE_ARQUIVO` | fixtures de `pessoas_teste` (B2.4), JSON `{"pessoas": [uuid], "chats": {chat_id: uuid}}`; vazio = ninguém é de teste |
+| `PESSOAS_TESTE_ARQUIVO` | `pessoas_teste`, JSON `{"pessoas": [uuid], "chats": {chat_id: uuid}}`; vazio = ninguém é de teste. Monte-o com `python -m ia_atendimento.pessoas_teste arquivo --par CHAT=PERSONA` (kit `config/chats-teste.sh`, `docs/OPERACAO.md` §5): as 84 pessoas do catálogo mais os chats da TI |
 | `CASAMENTO_JANELA_S`, `CASAMENTO_JANELA_SEM_HORA_S` | janelas do casamento webhook × RPA (padrão 10 s e 30 s) |
 | `PRECO_IN_USD`, `PRECO_CACHE_USD`, `PRECO_OUT_USD`, `CAMBIO`, `PRECO_TEMPLATE_BRL` | preços do custo (padrão do plano: 0,45 / 0,009 / 1,80 por 1M de tokens e câmbio 5,3346; ≤ 0 recusa o boot) |
 | `PHOENIX_ENDPOINT` | traces (banco `ia_obs`); vazio = não exporta |
