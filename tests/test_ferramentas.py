@@ -171,7 +171,7 @@ async def test_retorno_que_nao_e_objeto_levanta_sem_eco_do_valor():
 
 def test_proteger_retorno_audita_o_que_a_projecao_deixou_passar(monkeypatch):
     """Terceira cerca: se a projeção falhar e algo ainda casar com a máscara, o turno não sai (`ErroDoModelo`)."""
-    from ia_atendimento import ferramentas as modulo
+    from ia_atendimento.ferramentas import projecao as modulo
 
     monkeypatch.setattr(modulo, "projetar_resultado", lambda *a, **k: json.dumps({"T3": {"status": CPF}}))
     with pytest.raises(ContextoComDadoPessoal) as erro:

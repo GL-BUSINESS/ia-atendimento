@@ -4,6 +4,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **B5.1, gateway de ferramentas** (branch `feat/b5-1`; `docs/DECISOES-B5.1-0411.md`). Pacote `ferramentas/` (o `ferramentas.py` da B1.4 vira `ferramentas/projecao.py`):
+  registro versionado (`Especificacao`, esquemas `extra=forbid` em todos os níveis, classes de efeito, pré-condições nomeadas), `catalogo_hash` amarrado ao `numero` de
+  `catalogo_versoes.json` (o portão falha se o hash mudar sem versão), o modelo só passa referências opacas, saída reconstruída pelo esquema e projetada pela allowlist (D-29),
+  `modo_efetivo` relido na hora do efeito (cache ≤ 5 s; a FACTA de produção só em `real`), orçamento por turno e por atendimento, limitador por serviço, CPF só em memória
+  (`CpfEmMemoria`) e as `Tool` do agente geradas do registro. Sem migração; ledger, batimento e executores ficam para B1.6 e B5.2–B5.4.
 - **B1.8, domingo por config (D-18; branch `feat/b1-8`; `docs/DECISOES-B1.8-0411.md`).** Fechado por padrão: nada abre sem publicar as duas chaves.
   - Migração **`0005_domingo_por_config`** (só DDL; tem `DROP CONSTRAINT`, «sim» nomeado do dono na A4.6): o `config_versao_valor_check` volta como cópia do CASE da 0001 com um termo a menos
     (o `$.dias."7"` de `janela_mensagem`); 08:00–20:00 segue para os 7 dias; seeds intactos. A 0001 não muda.

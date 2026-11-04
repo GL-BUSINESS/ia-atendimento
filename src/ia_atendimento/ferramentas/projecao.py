@@ -32,6 +32,8 @@ from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import Tool, ToolDefinition
 
 from ia_atendimento.contexto import PROJECAO_DAS_FERRAMENTAS, Apelidos, auditar_textos, projetar_resultado
+from ia_atendimento.ferramentas.erros import envelope_de_erro
+from ia_atendimento.ferramentas.orcamento import OrcamentoDoTurno
 from ia_atendimento.turno import FERRAMENTAS_DO_MODELO_POR_FASE, ErroDoModelo, FerramentaForaDaFase
 
 _CONTROLE_DO_PYDANTIC_AI: Final = (ApprovalRequired, CallDeferred, SkipToolExecution)  # sinais de fluxo, não falha da função
@@ -51,6 +53,11 @@ class Deps:
     fase: str = ""  # `executar_turno` a preenche com a fase do contexto: a ferramenta só roda e só aparece na fase que a libera (R2-03)
     nomes: tuple[str, ...] = field(default=(), repr=False)
     apelidos: Apelidos = field(default_factory=Apelidos, repr=False, compare=False)
+    # gateway (B5.1): o `atendimento.modo` (o `modo_efetivo` sai dele e do `config.modo`, relido a cada efeito; sem ele, `sombra`), a
+    # posse real do ledger (08 §6) e o orçamento do turno (`executar_turno` põe um novo a cada turno; sem ele a ferramenta não roda)
+    modo: str = "sombra"
+    posse_real: bool = False
+    orcamento: OrcamentoDoTurno | None = field(default=None, repr=False, compare=False)
 
 
 class FerramentaFalhou(ErroDoModelo):
@@ -73,6 +80,8 @@ class RetornoDeFerramentaInvalido(ErroDoModelo, TypeError):
 
 def proteger_retorno(nome: str, retorno: Any, deps: Deps) -> dict[str, Any]:
     """Projeta o retorno da ferramenta `nome` pela allowlist, audita o que sobrou e devolve só o que pode ir ao modelo."""
+    if (erro := envelope_de_erro(retorno)) is not None:  # erro tipado do gateway: só o código (e a pré-condição) do vocabulário fechado
+        return erro
     if not isinstance(retorno, Mapping):
         raise RetornoDeFerramentaInvalido(nome)
     projetado = projetar_resultado({nome: retorno}, deps.apelidos, deps.nomes)
@@ -131,9 +140,9 @@ class ProjecaoDeFerramentas(AbstractCapability[Deps]):
             raise FerramentaFalhou(tool_def.name)  # fora do `except`: sem `__context__`
 
 
-def registrar(ferramentas: Mapping[str, Callable[..., Any]]) -> tuple[list[Tool[Deps]], list[AbstractCapability[Deps]]]:
-    """`{"T3": funcao}` → as `Tool` (com o nome do catálogo) e a capability que protege o retorno. Nome sem projeção ⇒
-    `FerramentaSemProjecao`."""
+def registrar(ferramentas: Mapping[str, Callable[..., Any] | Tool[Deps]]) -> tuple[list[Tool[Deps]], list[AbstractCapability[Deps]]]:
+    """`{"T3": funcao}` (ou `{"T3": Tool}`, como `Gateway.ferramentas_do_agente` gera) → as `Tool` (com o nome do catálogo) e a capability
+    que protege o retorno. Nome sem projeção ⇒ `FerramentaSemProjecao`."""
     if not isinstance(ferramentas, Mapping):
         raise FerramentaSemProjecao("ferramentas deve ser um mapa {nome do catálogo: função}, como {'T3': oferta_ativa}")
     sem = sorted(n for n in ferramentas if n not in PROJECAO_DAS_FERRAMENTAS)
@@ -141,5 +150,8 @@ def registrar(ferramentas: Mapping[str, Callable[..., Any]]) -> tuple[list[Tool[
         raise FerramentaSemProjecao(f"ferramenta sem projeção em PROJECAO_DAS_FERRAMENTAS: {', '.join(sem)}")
     if not ferramentas:
         return [], []
-    tools = [Tool(funcao, name=nome) for nome, funcao in ferramentas.items()]
+    trocadas = sorted(nome for nome, funcao in ferramentas.items() if isinstance(funcao, Tool) and funcao.name != nome)
+    if trocadas:
+        raise FerramentaSemProjecao(f"Tool com nome diferente da chave do registro: {', '.join(trocadas)}")
+    tools = [funcao if isinstance(funcao, Tool) else Tool(funcao, name=nome) for nome, funcao in ferramentas.items()]
     return tools, [ProjecaoDeFerramentas(frozenset(ferramentas))]
