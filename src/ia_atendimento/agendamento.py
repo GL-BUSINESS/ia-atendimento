@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 from ia_atendimento.agenda_estado import passo_de_agendamento
 from ia_atendimento.agenda_extrator import VERSAO as EXTRATOR_VERSAO
 from ia_atendimento.agenda_extrator import ConfigAgenda, extrair
-from ia_atendimento.calendario import FUSO, limites_do_dia, validar_calendario_bloqueio
+from ia_atendimento.calendario import FUSO, carregar_calendario, limites_do_dia
 from ia_atendimento.estado import (
     TOLERANCIA_RELOGIO,
     ConflitoIdempotencia,
@@ -112,14 +112,18 @@ def validar_instantes(entrada: EntradaAgendamento, agora: datetime) -> None:
 
 
 def config_da_agenda(config: dict[str, Any]) -> ConfigAgenda:
-    """`ConfigAgenda` das chaves `agenda_*` e do `calendario_bloqueio` vigentes (o DDL e o registro já os validaram)."""
-    feriados, janelas = validar_calendario_bloqueio(config["calendario_bloqueio"])
+    """`ConfigAgenda` das chaves `agenda_*`, do `calendario_bloqueio` e da `janela_mensagem` vigentes (o DDL e o registro já os validaram).
+
+    O domingo só abre na agenda com as duas chaves do calendário abertas juntas (D-18), pelo mesmo `Calendario` do envio.
+    """
+    calendario = carregar_calendario(config["janela_mensagem"], config["calendario_bloqueio"])
     return ConfigAgenda.das_chaves(
         agenda_janela=config["agenda_janela"],
         agenda_periodos=config["agenda_periodos"],
         agenda_teto_horas=config["agenda_teto_horas"],
-        feriados=feriados,
-        bloqueios=tuple((j.de, j.ate) for j in janelas),
+        feriados=calendario.feriados,
+        bloqueios=tuple((j.de, j.ate) for j in calendario.janelas),
+        domingo_aberto=calendario.domingo_aberto,
     )
 
 

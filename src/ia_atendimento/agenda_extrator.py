@@ -10,9 +10,12 @@ Contrato:
   ⇒ `candidatos=()` e `motivo_recusa='sem_hora_explicita'`. Palavras de período («de tarde», «depois do almoço») só viram candidato com
   `ConfigAgenda.usa_periodos=True`, usando `agenda_periodos`, e nunca com confiança `alta`.
 - Mais de um candidato (duas horas, dois dias, «15 ou 16») ⇒ todos com confiança ≤ `media`; mais de 3 ⇒ `ambiguo_demais`.
-- Candidato que não cabe (passado, antecedência < 10 min, domingo, feriado, bloqueio DATAPREV, fora de 08:30-19:00, sábado depois de
-  12:00, acima do teto) NÃO é descartado: vem com `fora_da_janela=True` e `razoes` (para a contraproposta). `motivo_recusa` só é
+- Candidato que não cabe (passado, antecedência < 10 min, domingo fechado, feriado, bloqueio DATAPREV, fora de 08:30-19:00, sábado depois
+  de 12:00, acima do teto) NÃO é descartado: vem com `fora_da_janela=True` e `razoes` (para a contraproposta). `motivo_recusa` só é
   preenchido quando nenhum candidato serve (a razão de maior prioridade do primeiro candidato) ou quando não há candidato.
+- Domingo (D-18, B1.8): `ConfigAgenda.domingo_aberto` (padrão `False`) vem das duas chaves do calendário (`agendamento.config_da_agenda`).
+  Fechado, «domingo» é razão de recusa e o teto pula o domingo; aberto, o domingo vale como os outros dias (janela 08:30–19:00, feriado e
+  DATAPREV seguem valendo).
 - Dia não dito: «hoje» se o horário ainda está à frente; senão «amanhã» (confiança cai para `media`). O dia assumido não é texto, mas a
   `origem` continua sendo só o trecho da hora.
 - Idempotente: a mesma entrada dá sempre a mesma saída.
@@ -77,6 +80,7 @@ class ConfigAgenda:
     feriados: frozenset[date] = FERIADOS_PADRAO
     bloqueios: tuple[tuple[datetime, datetime], ...] = (DATAPREV_PADRAO,)  # [início, fim)
     usa_periodos: bool = False  # v1 = False (C2 parcial): período sem hora explícita ⇒ repasse
+    domingo_aberto: bool = False  # D-18: só com `calendario_bloqueio.domingos=false` E o dia 7 em `janela_mensagem` (fechado por padrão)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "periodos", MappingProxyType(dict(self.periodos)))
@@ -559,7 +563,7 @@ def _escanear_dias(v: _Varredura, hoje: date) -> None:
 
 # ------------------------------------------------------------------------------------------------ regras duras
 def _dia_util(d: date, cfg: ConfigAgenda) -> bool:
-    return d.weekday() != 6 and d not in cfg.feriados
+    return (cfg.domingo_aberto or d.weekday() != 6) and d not in cfg.feriados
 
 
 def _teto(agora: datetime, ultima: datetime, cfg: ConfigAgenda) -> datetime:
@@ -577,7 +581,7 @@ def _razoes(q: datetime, agora: datetime, teto: datetime, cfg: ConfigAgenda) -> 
         achadas.add("feriado")
     if any(ini <= q < fim for ini, fim in cfg.bloqueios):
         achadas.add("bloqueio_dataprev")
-    if q.weekday() == 6:
+    if q.weekday() == 6 and not cfg.domingo_aberto:
         achadas.add("domingo")
     if q <= agora:
         achadas.add("passado")
