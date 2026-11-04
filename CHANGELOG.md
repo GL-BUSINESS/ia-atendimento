@@ -12,6 +12,8 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
   - `agenda_extrator.py`: `ConfigAgenda.domingo_aberto` (padrão `False`) em `_dia_util` e `_razoes`; `agendamento.config_da_agenda` o tira do mesmo `Calendario`; `POST /agendamentos` lê `janela_mensagem`.
   - `corpus/calendario.py`: `dentro_do_horario`/`dentro_da_agenda` com `domingo_aberto` (padrão `False`); as regras da F3 seguem no padrão até a B8.1c.
   - Testes: `tests/test_migracao_0005.py`, `test_calendario.py` parametrizado, `test_domingo_so_abre_com_as_duas_chaves`, `test_defaults_seguem_sem_domingo`, integração em `test_chave.py` e `test_api_config_agenda.py`.
+  - Revisão de 04/11 (`docs/REVISAO-B1.8-0411.md`), R-01 (MÉDIO): a agenda também confere o horário de ENVIO do dia (`ConfigAgenda.janela_mensagem`, do mesmo `Calendario`):
+    fora dele ⇒ `antes_da_janela`/`depois_da_janela`, dia sem horário ⇒ razão nova `dia_sem_janela`; o teto pula dia sem envio. R-04 na `OPERACAO.md` §3; R-02 fica para a B5.7c/B6.7.
 - **Achados R-02 a R-07 da revisão da integração de D-06:** `gitleaks.sh` com `-v` (achado diz arquivo e regra; valor segue oculto); teste de achado em um só modo (`dir`/`git`);
   teste de 6 casas em `Preco`; nenhum `__pycache__` versionado; amostra de CPF de `tests/test_varredura.py` trocada para a faixa `000.000.2nn`, sem reescrever o histórico; `.gitleaksignore` deixa de chamá-la de sintética;
   exceção `111.444…` removida do `.gitleaks.toml`; `OPERACAO.md` sem duas seções 8 (Release vira §11; §8 a §10 mantêm o número); README e D15 corrigidos.

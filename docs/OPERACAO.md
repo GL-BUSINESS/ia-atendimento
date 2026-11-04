@@ -87,6 +87,9 @@ ia.config_versao where nome='ia_ativa'` = `false` e `nome='modo'` = `"duble"`; `
 A 0004 também é aditiva: `UPDATE ia.passo` direto segue falhando (`permission denied`), `SELECT ia.fn_anexar_rpa(-1, 'rpa_inexistente')` devolve `f` como `ia_app_a`, e `ia_leitura_a` não lê `ia.espelho_evento`.
 A 0005 não abre o domingo: `calendario_bloqueio` vigente segue com `domingos = true` e `janela_mensagem` sem o dia 7; um `INSERT` de `janela_mensagem` com o dia 7 das 07:00 ou até 20:30 segue
 recusado (`config_versao_valor_check`). Abrir é publicar as duas chaves juntas (kit `config/domingo.sh`, B6.7/B9.1); fechar é publicar `domingos = true` de novo (append-only, sem deploy).
+**Antes de voltar a imagem para uma versão anterior à B1.8, feche o domingo** (`domingos = true` e `janela_mensagem` sem o dia 7): a imagem antiga recusa a config aberta
+(`CalendarioInvalido`) em entrada, lembrete e agendamento. É fail-closed (D-15), mas aparece como erro interno e não como recusa (revisão R-04 da B1.8).
+Com o domingo aberto, a agenda só aceita volta dentro do horário publicado do dia 7 (`janela_mensagem`), não só da `agenda_janela` (revisão R-01).
 
 **Se der errado:** erro no meio de um arquivo (ou no INSERT do ledger) → a transação única (`-1`) desfaz tudo, inclusive o ledger; reaplicar
 a 0001 é idempotente; a 0002 a 0005 já aplicadas **não** se reaplicam (o ledger é a verdade; `ADD CONSTRAINT` não é idempotente). **Desfazer:** `DROP DATABASE … WITH (FORCE)` só com autorização nova do dono (estudo E «Desfazer tudo» 1).
