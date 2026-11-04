@@ -29,6 +29,10 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
   - `ia_ativa` relida sem cache em `encerrar_por_chave`, `iniciar` (aborta o reservado antes do `assumir`) e `retomar` do reservado agendado.
   - `espera.py` (`aguardar_cliente_com_espera`, faixa na versão de `iniciado_em`), `chave.config_em`, `expiracao.py` (`expirar_parados` injetado no worker),
     `espelho.py` (`encerrou` no outbox na transação da mudança de estado).
+  - Correção da revisão de 04/11 (`docs/REVISAO-B1.6a-0411.md`, A1 a A10): devolução sem posse real simulada também com o global `real`; T7 só com
+    confirmação `digitacao` do mesmo banco, no prazo, não vencida e não gasta; chave presa ao pedido (`ChaveDivergente`); `transitorio` real não se
+    rebaixa sob parada dura; cerca reconferida na reivindicação; simulação que falha fica `transitorio`; limite zero sem gasto é crítico;
+    `expirar_parados` em páginas com `chave.config_no_tempo`.
 
 - **Achados R-02 a R-07 da revisão da integração de D-06:** `gitleaks.sh` com `-v` (achado diz arquivo e regra; valor segue oculto); teste de achado em um só modo (`dir`/`git`);
   teste de 6 casas em `Preco`; nenhum `__pycache__` versionado; amostra de CPF de `tests/test_varredura.py` trocada para a faixa `000.000.2nn`, sem reescrever o histórico; `.gitleaksignore` deixa de chamá-la de sintética;
