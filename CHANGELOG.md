@@ -19,6 +19,17 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
   - Testes: `tests/test_migracao_0005.py`, `test_calendario.py` parametrizado, `test_domingo_so_abre_com_as_duas_chaves`, `test_defaults_seguem_sem_domingo`, integração em `test_chave.py` e `test_api_config_agenda.py`.
   - Revisão de 04/11 (`docs/REVISAO-B1.8-0411.md`), R-01 (MÉDIO): a agenda também confere o horário de ENVIO do dia (`ConfigAgenda.janela_mensagem`, do mesmo `Calendario`):
     fora dele ⇒ `antes_da_janela`/`depois_da_janela`, dia sem horário ⇒ razão nova `dia_sem_janela`; o teto pula dia sem envio. R-04 na `OPERACAO.md` §3; R-02 fica para a B5.7c/B6.7.
+- **B1.6a, ledger `t11` com cerca de `versao`, `executar_efeito`, gasto Σ, `ia_ativa` relida, lease de espera e `expirar_parados`** (roteiro v3.3 B1.6,
+  divisão RG-045; contrato 08 §6, §9, §14; branch `feat/b1-6a`; `docs/DECISOES-B1.6a-0411.md`). Sem migração nova.
+  - `ledger.py`: reserva commitada antes da chamada (`ON CONFLICT DO NOTHING`) na transação da cerca de `versao`; só quem ganha `reservada|transitorio → enviada`
+    chama; timeout/exceção/corte em efeito irreversível ⇒ `indeterminado` (nunca reenvia); `modo_efetivo` relido a cada efeito e gravado; posse real e
+    devolução real sob parada dura; T7 sem confirmação aceita ⇒ `ConfirmacaoAusente`.
+  - `gasto.py`: Σ `passo.custo_brl` em BRT (fecha R1-14; sai o `xfail` de `tests/test_gasto_pendente.py`), `custo_ausente`, 80/100/125 %, cache de 30 s;
+    soma que falha ⇒ `503 nao_pronto` na entrada.
+  - `ia_ativa` relida sem cache em `encerrar_por_chave`, `iniciar` (aborta o reservado antes do `assumir`) e `retomar` do reservado agendado.
+  - `espera.py` (`aguardar_cliente_com_espera`, faixa na versão de `iniciado_em`), `chave.config_em`, `expiracao.py` (`expirar_parados` injetado no worker),
+    `espelho.py` (`encerrou` no outbox na transação da mudança de estado).
+
 - **Achados R-02 a R-07 da revisão da integração de D-06:** `gitleaks.sh` com `-v` (achado diz arquivo e regra; valor segue oculto); teste de achado em um só modo (`dir`/`git`);
   teste de 6 casas em `Preco`; nenhum `__pycache__` versionado; amostra de CPF de `tests/test_varredura.py` trocada para a faixa `000.000.2nn`, sem reescrever o histórico; `.gitleaksignore` deixa de chamá-la de sintética;
   exceção `111.444…` removida do `.gitleaks.toml`; `OPERACAO.md` sem duas seções 8 (Release vira §11; §8 a §10 mantêm o número); README e D15 corrigidos.
