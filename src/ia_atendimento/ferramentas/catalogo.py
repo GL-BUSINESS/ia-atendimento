@@ -101,9 +101,21 @@ class Catalogo:
         return hashlib.sha256(self.json_canonico().encode("utf-8")).hexdigest()
 
 
-def carregar_versoes(caminho: Path = ARQUIVO_DE_VERSOES) -> tuple[VersaoDoCatalogo, ...]:
-    dados = json.loads(caminho.read_text(encoding="utf-8"))
+def ler_versoes(texto: str) -> tuple[VersaoDoCatalogo, ...]:
+    dados = json.loads(texto)
     return tuple(VersaoDoCatalogo(int(v["numero"]), str(v["hash"]), str(v["descricao"])) for v in dados["versoes"])
+
+
+def carregar_versoes(caminho: Path = ARQUIVO_DE_VERSOES) -> tuple[VersaoDoCatalogo, ...]:
+    return ler_versoes(caminho.read_text(encoding="utf-8"))
+
+
+def conferir_historico(base: Sequence[VersaoDoCatalogo], atual: Sequence[VersaoDoCatalogo]) -> None:
+    """O histórico só cresce no fim: cada linha da `main` continua idêntica (numero, hash e descrição). Reescrever o hash do `numero` 1
+    passaria em `conferir_versao` com o catálogo mudado e quebraria a reprodutibilidade de quem já gravou `catalogo_versao = 1` (revisão
+    B5.1, M-5). O portão (`scripts/conferir_catalogo.py`) compara com a `origin/main`."""
+    if tuple(atual[: len(base)]) != tuple(base):
+        raise CatalogoSemVersao("o histórico do catálogo foi reescrito: as linhas da main não mudam, só se acrescenta numero novo no fim")
 
 
 def conferir_versao(catalogo: Catalogo, versoes: Sequence[VersaoDoCatalogo]) -> VersaoDoCatalogo:

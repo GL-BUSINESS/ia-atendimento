@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Portão local (o CI do GitHub pode estar parado por cobrança): lock coerente, lint, varredura, checksum da 0001, 0002 em dia, pessoas_teste e
-# fixtures/duble em dia com o corpus e testes com tempo medido.
+# fixtures/duble em dia com o corpus, histórico do catálogo de ferramentas e testes com tempo medido.
 # Uso: BANCOS_DUBLE_PATH=<checkout do bancos-duble> bash scripts/check.sh
 #      (precisa de docker com a imagem postgres:18, ou IA_TESTE_PG_HOST/IA_TESTE_PG_PORT; a variável é OBRIGATÓRIA: sem o irmão o portão FALHA, não pula)
 set -euo pipefail
@@ -16,6 +16,7 @@ run bash scripts/gitleaks.sh   # estrito: sem o binário o portão FALHA (RG-119
 (cd migrations && run sha256sum -c 0001.sha256)
 run uv run python scripts/gerar_0002.py --verificar
 run uv run python scripts/gerar_pessoas_teste.py --verificar
+run uv run python scripts/conferir_catalogo.py   # histórico do catálogo só cresce (revisão B5.1, M-5)
 inicio=$(date +%s)
 run timeout 600 uv run pytest -q
 echo "== testes em $(( $(date +%s) - inicio )) s; portão local OK"

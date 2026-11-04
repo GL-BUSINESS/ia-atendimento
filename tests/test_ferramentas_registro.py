@@ -9,6 +9,9 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from pydantic import BaseModel, ConfigDict, create_model
@@ -22,6 +25,7 @@ from ia_atendimento.ferramentas.catalogo import (
     CatalogoSemVersao,
     VersaoDoCatalogo,
     carregar_versoes,
+    conferir_historico,
     conferir_versao,
     versao_vigente,
 )
@@ -111,6 +115,68 @@ def test_hash_e_canonico_independe_da_ordem():
 def test_historico_de_versoes_malformado_e_recusado(versoes):
     with pytest.raises(CatalogoSemVersao):
         conferir_versao(CATALOGO_MVP, versoes)
+
+
+# --- histórico do catálogo só cresce (revisão B5.1, M-5) ---------------------------------------------------------------------------------
+
+_V1, _V2 = VersaoDoCatalogo(1, "a" * 64, "v1"), VersaoDoCatalogo(2, "b" * 64, "v2")
+RAIZ = Path(__file__).resolve().parents[1]
+SCRIPT = RAIZ / "scripts" / "conferir_catalogo.py"
+CAMINHO_DO_JSON = "src/ia_atendimento/ferramentas/catalogo_versoes.json"
+
+
+@pytest.mark.parametrize(
+    "atual",
+    [
+        (VersaoDoCatalogo(1, "c" * 64, "v1"), _V2),  # hash da linha 1 reescrito: passaria em `conferir_versao`
+        (VersaoDoCatalogo(1, "a" * 64, "outra"), _V2),  # descrição reescrita
+        (_V2,),  # linha da main apagada
+        (),
+    ],
+)
+def test_historico_reescrito_e_recusado(atual):
+    with pytest.raises(CatalogoSemVersao, match="reescrito"):
+        conferir_historico((_V1, _V2), atual)
+
+
+def test_historico_que_so_cresce_passa():
+    conferir_historico((_V1,), (_V1, _V2))
+    conferir_historico((_V1, _V2), (_V1, _V2))
+    conferir_historico((), (_V1,))
+
+
+def _json(*versoes: VersaoDoCatalogo) -> str:
+    return json.dumps({"versoes": [{"numero": v.numero, "hash": v.hash, "descricao": v.descricao} for v in versoes]})
+
+
+def _git(raiz: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(raiz), *args], check=True, capture_output=True)
+
+
+def _rodar_script(raiz: Path, base: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "--raiz", str(raiz), "--base", base], cwd=RAIZ, capture_output=True, text=True, check=False
+    )
+
+
+def test_portao_do_historico_compara_com_a_base(tmp_path):
+    """O passo do `check.sh`: num repositório com a v1 na `main`, reescrever a linha 1 FALHA; acrescentar a v2 passa; base ausente falha."""
+    arquivo = tmp_path / CAMINHO_DO_JSON
+    arquivo.parent.mkdir(parents=True)
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _git(tmp_path, "config", "user.email", "teste@exemplo.test")
+    _git(tmp_path, "config", "user.name", "teste")
+    arquivo.write_text(_json(_V1), encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-q", "-m", "v1")
+
+    arquivo.write_text(_json(VersaoDoCatalogo(1, "c" * 64, "v1")), encoding="utf-8")
+    reescrito = _rodar_script(tmp_path, "main")
+    assert reescrito.returncode == 1 and "reescrito" in reescrito.stderr
+
+    arquivo.write_text(_json(_V1, _V2), encoding="utf-8")
+    assert _rodar_script(tmp_path, "main").returncode == 0
+    assert _rodar_script(tmp_path, "nao-existe").returncode == 1
 
 
 def test_versao_do_catalogo_tem_forma_do_artefato_versao():
