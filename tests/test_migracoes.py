@@ -25,7 +25,14 @@ RAIZ = Path(__file__).resolve().parent.parent
 MIGRACOES = RAIZ / "migrations"
 
 
-TODAS = ["0001_esquema", "0002_procrastinate", "0003_estado_aditivo", "0004_anexo_rpa_e_espelho"]  # a pasta migrations/ inteira, em ordem
+TODAS = [
+    "0001_esquema",
+    "0002_procrastinate",
+    "0003_estado_aditivo",
+    "0004_anexo_rpa_e_espelho",
+    "0005_domingo_por_config",
+]  # a pasta migrations/ inteira, em ordem
+PROXIMA = f"{len(TODAS) + 1:04d}"  # número da próxima migração (as cópias de teste acrescentam uma depois da última real)
 
 
 def _sha(caminho: Path) -> str:
@@ -154,11 +161,11 @@ def test_checksum_divergente_para_antes_de_aplicar_qualquer_coisa(vazio, tmp_pat
 def test_migracao_com_erro_desfaz_tudo_e_nao_grava_ledger(vazio, tmp_path):
     copia = tmp_path / "copia"
     shutil.copytree(MIGRACOES, copia)
-    (copia / "0005_quebrada.up.sql").write_text("CREATE TABLE ia.zz_meio (x int); SELECT 1/0;", encoding="utf-8")
+    (copia / f"{PROXIMA}_quebrada.up.sql").write_text("CREATE TABLE ia.zz_meio (x int); SELECT 1/0;", encoding="utf-8")
     with vazio.conectar(autocommit=False) as conn, pytest.raises(psycopg.errors.DivisionByZero):
         aplicar(conn, copia)
     ledger = _ledger(vazio)
-    assert set(ledger) == set(TODAS)  # as boas ficaram; a 0005 não
+    assert set(ledger) == set(TODAS)  # as boas ficaram; a quebrada não
     with vazio.sessao() as conn:
         assert conn.execute("SELECT to_regclass('ia.zz_meio')").fetchone() == (None,)
 
@@ -280,14 +287,14 @@ def test_o_sql_executado_e_exatamente_os_bytes_do_checksum(vazio, tmp_path):
     """`read_text` traduzia CR LF em LF: o ledger registrava o sha256 dos bytes, mas o banco recebia outro texto."""
     copia = tmp_path / "copia"
     shutil.copytree(MIGRACOES, copia)
-    bytes_0004 = b"CREATE TABLE ia.zz_crlf AS SELECT length('a\r\nb') AS n;\n"
-    (copia / "0005_crlf.up.sql").write_bytes(bytes_0004)
+    bytes_crlf = b"CREATE TABLE ia.zz_crlf AS SELECT length('a\r\nb') AS n;\n"
+    (copia / f"{PROXIMA}_crlf.up.sql").write_bytes(bytes_crlf)
     with vazio.conectar(autocommit=False) as conn:
         aplicar(conn, copia)
     with vazio.sessao() as conn:
         assert conn.execute("SELECT n FROM ia.zz_crlf").fetchone() == (4,)  # a\r\nb: 4 caracteres, não 3
-        assert conn.execute("SELECT checksum FROM ia.migracao WHERE migracao_id = '0005_crlf'").fetchone() == (
-            hashlib.sha256(bytes_0004).hexdigest(),
+        assert conn.execute("SELECT checksum FROM ia.migracao WHERE migracao_id = %s", (f"{PROXIMA}_crlf",)).fetchone() == (
+            hashlib.sha256(bytes_crlf).hexdigest(),
         )
 
 
@@ -300,7 +307,12 @@ def test_migracao_com_bytes_que_nao_sao_utf8_e_recusada_com_nome_do_arquivo(tmp_
 
 @pytest.mark.banco
 def test_quatro_aplicadores_ao_mesmo_tempo_aplicam_cada_migracao_uma_vez(vazio):
-    """Advisory lock + ledger na mesma transação: os outros três esperam e encontram tudo registrado."""
+    """Advisory lock + ledger na mesma transação, por migração: cada uma é aplicada por exatamente um aplicador.
+
+    A trava vale por migração (a transação de cada uma), não pela pasta inteira: entre duas migrações outro aplicador pode pegar a
+    próxima. O que o desenho garante, e o teste afirma, é que nenhuma é aplicada duas vezes e que o ledger fica completo, não que um
+    só aplicador faça tudo (com cinco migrações e a máquina carregada, o portão de 04/11 viu 0001–0004 num e a 0005 noutro).
+    """
     import threading
 
     resultados: dict[int, object] = {}
@@ -317,9 +329,10 @@ def test_quatro_aplicadores_ao_mesmo_tempo_aplicam_cada_migracao_uma_vez(vazio):
         fio.start()
     for fio in fios:
         fio.join(timeout=120)
-    aplicadas = [r for r in resultados.values() if r == TODAS]
-    vazias = [r for r in resultados.values() if r == []]
-    assert len(aplicadas) == 1 and len(vazias) == 3, resultados
+    assert len(resultados) == 4 and all(isinstance(r, list) for r in resultados.values()), resultados
+    feitas = sorted(m for r in resultados.values() for m in r)
+    assert feitas == TODAS, resultados  # cada migração exatamente uma vez, somando os quatro
+    assert all(r == [m for m in TODAS if m in r] for r in resultados.values()), resultados  # e cada um na ordem
     assert set(_ledger(vazio)) == set(TODAS)
 
 

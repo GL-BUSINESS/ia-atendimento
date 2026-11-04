@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -262,6 +262,59 @@ def test_agendamento_sem_hora_unica_valida_200_agendado_false_e_nada_gravado(amb
     r = ambiente.post("/agendamentos", corpo_de_agendamento(texto_mensagem=texto))
     assert r.status_code == 200 and r.json() == {"agendado": False, "motivo": "sem_hora"}
     assert ambiente.escalar("SELECT count(*) FROM ia.agendamento") == 0 and ambiente.escalar("SELECT count(*) FROM ia.atendimento") == 0
+
+
+@pytest.mark.parametrize("abrir", [False, True], ids=["domingo_fechado", "domingo_aberto"])
+def test_agendamento_para_domingo_segue_as_duas_chaves_do_calendario(ambiente, abrir: bool):
+    """D-18 (B1.8): sábado 10:00 pedindo «amanhã às 9h». Fechado (padrão) não agenda; com as duas chaves abertas agenda para domingo 09:00."""
+    from ia_atendimento.chave_registro import PADROES
+
+    ambiente.ligar()
+    ambiente.relogio.definir(datetime(2026, 11, 7, 13, 0, tzinfo=UTC))  # sábado 10:00 SP
+    if abrir:
+        ambiente.configurar("janela_mensagem", {"dias": {**PADROES["janela_mensagem"]["dias"], "7": {"inicio": "08:00", "fim": "20:00"}}})
+        ambiente.configurar("calendario_bloqueio", {**PADROES["calendario_bloqueio"], "domingos": False})
+    corpo = corpo_de_agendamento(texto_mensagem="pode ser amanhã às 9h", datetime_post="2026-11-07T10:00:00-03:00")
+    r = ambiente.post("/agendamentos", corpo)
+    if not abrir:
+        assert r.status_code == 200 and r.json() == {"agendado": False, "motivo": "sem_hora"}
+        assert ambiente.escalar("SELECT count(*) FROM ia.agendamento") == 0
+        return
+    assert r.status_code == 201, r.text
+    assert datetime.fromisoformat(r.json()["dispara_em"]) == datetime(2026, 11, 8, 12, 0, tzinfo=UTC)  # domingo 09:00 SP
+
+
+def test_agendamento_de_domingo_respeita_o_horario_publicado_do_dia_7(ambiente):
+    """R-01 (revisão da B1.8): domingo publicado 09:00–18:00. Sábado 10:00 pedindo «amanhã às 8:30» cabia na `agenda_janela` (08:30) mas
+    não no envio: a API não pode reservar uma volta que o `Calendario` não deixa mandar. «amanhã às 9h» segue agendando."""
+    from ia_atendimento.chave_registro import PADROES
+
+    ambiente.ligar()
+    ambiente.relogio.definir(datetime(2026, 11, 7, 13, 0, tzinfo=UTC))  # sábado 10:00 SP
+    ambiente.configurar("janela_mensagem", {"dias": {**PADROES["janela_mensagem"]["dias"], "7": {"inicio": "09:00", "fim": "18:00"}}})
+    ambiente.configurar("calendario_bloqueio", {**PADROES["calendario_bloqueio"], "domingos": False})
+    cedo = ambiente.post("/agendamentos", corpo_de_agendamento(texto_mensagem="amanhã às 8:30", datetime_post="2026-11-07T10:00:00-03:00"))
+    assert cedo.status_code == 200 and cedo.json() == {"agendado": False, "motivo": "sem_hora"}
+    assert ambiente.escalar("SELECT count(*) FROM ia.agendamento") == 0
+    certo = ambiente.post("/agendamentos", corpo_de_agendamento(texto_mensagem="amanhã às 9h", datetime_post="2026-11-07T10:00:01-03:00"))
+    assert certo.status_code == 201, certo.text
+    assert datetime.fromisoformat(certo.json()["dispara_em"]) == datetime(2026, 11, 8, 12, 0, tzinfo=UTC)  # domingo 09:00 SP
+
+
+def test_config_da_agenda_so_abre_o_domingo_com_as_duas_chaves():
+    from ia_atendimento.agendamento import config_da_agenda
+    from ia_atendimento.chave_registro import PADROES
+
+    base = {
+        nome: PADROES[nome] for nome in ("agenda_janela", "agenda_periodos", "agenda_teto_horas", "calendario_bloqueio", "janela_mensagem")
+    }
+    janela = {"dias": {**PADROES["janela_mensagem"]["dias"], "7": {"inicio": "08:00", "fim": "20:00"}}}
+    bloqueio = {**PADROES["calendario_bloqueio"], "domingos": False}
+    assert config_da_agenda(base).domingo_aberto is False
+    assert config_da_agenda({**base, "janela_mensagem": janela}).domingo_aberto is False
+    assert config_da_agenda({**base, "calendario_bloqueio": bloqueio}).domingo_aberto is False
+    aberta = config_da_agenda({**base, "janela_mensagem": janela, "calendario_bloqueio": bloqueio})
+    assert aberta.domingo_aberto is True and date(2026, 11, 20) in aberta.feriados
 
 
 def test_agendamento_so_com_token_n8n_braco_e_sem_campo_desconhecido(ambiente):

@@ -1,8 +1,11 @@
-"""Calendário de mensagem ao cliente: janela seg–sáb 08–20 em America/Sao_Paulo, feriados e janelas de bloqueio (DATAPREV).
+"""Calendário de mensagem ao cliente: janela 08–20 em America/Sao_Paulo, feriados e janelas de bloqueio (DATAPREV).
 
 - A **fonte** é a config (`janela_mensagem`, `calendario_bloqueio`); o código só **valida** (`validar_*`) e aplica. A validação é um piso:
-  a janela nunca passa de 08:00–20:00 nem inclui domingo; o calendário sempre bloqueia domingo, os feriados de 02/11 e 20/11/2026 e a
-  janela da DATAPREV (20/11 22:00 → 23/11 06:00). A config pode ACRESCENTAR feriados e janelas, nunca tirar esses.
+  a janela nunca passa de 08:00–20:00; o calendário sempre bloqueia os feriados de 02/11 e 20/11/2026 e a janela da DATAPREV
+  (20/11 22:00 → 23/11 06:00). A config pode ACRESCENTAR feriados e janelas, nunca tirar esses.
+- Domingo (D-18, B1.8; migração 0005): obedece à config e fica FECHADO por padrão (seed e `PADROES`). Só abre com as DUAS chaves juntas:
+  `calendario_bloqueio.domingos=false` E `janela_mensagem.dias."7"`. Uma só não abre: `domingos=true` bloqueia o dia 7 mesmo com horário,
+  e `domingos=false` sem o dia 7 na janela não tem horário. `domingos` precisa ser booleano: ausente ou de outro tipo é config inválida.
 - A hora local é calculada AQUI (zoneinfo), nunca pelo fuso do banco (o cluster é UTC) e nunca pelo relógio do sistema: toda função recebe o
   instante (ciente de fuso) de um `Relogio` injetado.
 - Imutável: `Calendario` é um dataclass congelado; carregar de novo = chamar `carregar_calendario` com a config vigente.
@@ -22,7 +25,8 @@ from ia_atendimento.tipos import contem_documento
 FUSO = ZoneInfo("America/Sao_Paulo")
 INICIO_MINIMO = time(8, 0)
 FIM_MAXIMO = time(20, 0)
-DIAS_ISO = frozenset(range(1, 7))  # seg..sáb; domingo (7) nunca
+DIAS_ISO = frozenset(range(1, 8))  # seg..dom; o domingo (7) só vale com `calendario_bloqueio.domingos=false` (D-18)
+DOMINGO = 7
 HORA_BLOQUEIO_ENTRADA = time(20, 15)  # B6.7: a tarefa diária grava bloqueio_entrada=true neste horário local
 FERIADOS_MINIMOS = frozenset({date(2026, 11, 2), date(2026, 11, 20)})
 DATAPREV_DE = datetime(2026, 11, 20, 22, 0, tzinfo=FUSO)
@@ -48,22 +52,35 @@ class JanelaBloqueio:
 
 @dataclass(frozen=True)
 class Calendario:
-    dias: Mapping[int, tuple[time, time]]  # dia ISO 1..6 -> (início, fim) local; fim exclusivo
+    dias: Mapping[int, tuple[time, time]]  # dia ISO 1..7 -> (início, fim) local; fim exclusivo
     feriados: frozenset[date]
     janelas: tuple[JanelaBloqueio, ...]
+    domingos: bool = True  # `calendario_bloqueio.domingos`: true (padrão) bloqueia o domingo inteiro, com ou sem o dia 7 na janela
+
+    @property
+    def domingo_aberto(self) -> bool:
+        """As duas chaves abertas juntas (D-18): `domingos=false` e o dia 7 em `janela_mensagem`."""
+        return not self.domingos and DOMINGO in self.dias
 
     def bloqueado(self, agora: datetime) -> bool:
-        """Domingo, feriado ou dentro de uma janela de bloqueio (vale mesmo com a chave ligada)."""
+        """Domingo (com `domingos=true`), feriado ou dentro de uma janela de bloqueio (vale mesmo com a chave ligada)."""
         local = _local(agora)
-        return local.isoweekday() == 7 or local.date() in self.feriados or self._janela_bloqueio_em(agora) is not None
+        domingo_fechado = self.domingos and local.isoweekday() == DOMINGO
+        return domingo_fechado or local.date() in self.feriados or self._janela_bloqueio_em(agora) is not None
 
     def dentro_da_janela(self, agora: datetime) -> bool:
         """Pode mandar mensagem ao cliente neste instante?"""
         if self.bloqueado(agora):
             return False
         local = _local(agora)
-        horario = self.dias.get(local.isoweekday())
+        horario = self._horario(local.isoweekday())
         return horario is not None and horario[0] <= local.time() < horario[1]
+
+    def _horario(self, dia_iso: int) -> tuple[time, time] | None:
+        """Horário do dia ISO; o domingo só tem horário com as duas chaves abertas."""
+        if dia_iso == DOMINGO and not self.domingo_aberto:
+            return None
+        return self.dias.get(dia_iso)
 
     def proxima_janela(self, agora: datetime) -> datetime:
         """Primeiro instante (UTC) em que se pode mandar mensagem, a partir de `agora` (o próprio `agora` se já está dentro)."""
@@ -83,7 +100,7 @@ class Calendario:
         local = _local(instante)
         for avanco in range(0, 15):
             dia = local.date() + timedelta(days=avanco)
-            horario = self.dias.get(dia.isoweekday())
+            horario = self._horario(dia.isoweekday())
             if horario is None:
                 continue
             inicio = datetime.combine(dia, horario[0], tzinfo=FUSO)
@@ -106,18 +123,18 @@ def carregar_calendario(janela_mensagem: Mapping[str, Any], calendario_bloqueio:
     """Valida as duas chaves da config e monta o `Calendario`. Levanta `CalendarioInvalido` se alguma fugir do piso."""
     dias = validar_janela_mensagem(janela_mensagem)
     feriados, janelas = validar_calendario_bloqueio(calendario_bloqueio)
-    return Calendario(dias=dias, feriados=feriados, janelas=janelas)
+    return Calendario(dias=dias, feriados=feriados, janelas=janelas, domingos=calendario_bloqueio["domingos"])
 
 
 def validar_janela_mensagem(valor: Mapping[str, Any]) -> dict[int, tuple[time, time]]:
-    """`{"dias": {"1": {"inicio": "08:00", "fim": "20:00"}, ...}}`: só seg–sáb, dentro de 08:00–20:00, início < fim."""
+    """`{"dias": {"1": {"inicio": "08:00", "fim": "20:00"}, ...}}`: dias 1..7 em 08–20, início < fim (o 7 só com `domingos=false`)."""
     dias = valor.get("dias") if isinstance(valor, Mapping) else None
     if not isinstance(dias, Mapping) or not dias:
         raise CalendarioInvalido("janela_mensagem.dias deve ser um objeto com ao menos um dia")
     resultado: dict[int, tuple[time, time]] = {}
     for chave, horario in dias.items():
         if not (isinstance(chave, str) and chave.isdigit() and int(chave) in DIAS_ISO):
-            raise CalendarioInvalido("janela_mensagem.dias aceita só os dias 1 a 6 (segunda a sábado; domingo nunca)")
+            raise CalendarioInvalido("janela_mensagem.dias aceita só os dias 1 a 7 (segunda a domingo)")
         inicio, fim = _hora(horario, "inicio"), _hora(horario, "fim")
         if not (INICIO_MINIMO <= inicio < fim <= FIM_MAXIMO):
             raise CalendarioInvalido("janela_mensagem: cada dia deve ficar entre 08:00 e 20:00, com início antes do fim")
@@ -133,9 +150,11 @@ def _hora(horario: Any, campo: str) -> time:
 
 
 def validar_calendario_bloqueio(valor: Mapping[str, Any]) -> tuple[frozenset[date], tuple[JanelaBloqueio, ...]]:
-    """`{"domingos": true, "feriados": ["AAAA-MM-DD"...], "janelas": [{"de", "ate", "motivo"}...]}` com o piso do código."""
-    if not isinstance(valor, Mapping) or valor.get("domingos") is not True:
-        raise CalendarioInvalido("calendario_bloqueio.domingos deve ser true (domingo nunca recebe mensagem)")
+    """`{"domingos": bool, "feriados": ["AAAA-MM-DD"...], "janelas": [{"de", "ate", "motivo"}...]}` com o piso do código."""
+    if not isinstance(valor, Mapping) or not isinstance(valor.get("domingos"), bool):
+        raise CalendarioInvalido(
+            "calendario_bloqueio.domingos deve ser booleano (true fecha o domingo; false só abre com o dia 7 na janela)"
+        )
     feriados = frozenset(_data(item) for item in _lista(valor, "feriados"))
     janelas = tuple(_janela(item) for item in _lista(valor, "janelas"))
     if not feriados >= FERIADOS_MINIMOS:

@@ -242,6 +242,29 @@ def test_proximo_dia_util_pula_domingo_e_feriado():
     assert _ex("quarta às 9", sabado, teto_horas=100).motivo_recusa == "acima_do_teto"
 
 
+def test_domingo_fechado_por_padrao_e_aberto_pela_config():
+    """D-18 (B1.8): «domingo» só é razão com o domingo fechado (o padrão); aberto, o domingo segue a janela 08:30–19:00 dos outros dias."""
+    sabado = datetime(2026, 11, 7, 10, 0, tzinfo=BRT)  # teto = domingo 09:00 (+23 h)
+    assert ConfigAgenda().domingo_aberto is False
+    fechado = _ex("domingo às 9", sabado)
+    assert fechado.candidatos[0].razoes == ("domingo",) and fechado.motivo_recusa == "domingo"
+    aberto = _ex("domingo às 9", sabado, domingo_aberto=True)
+    assert aberto.candidatos[0].razoes == () and aberto.motivo_recusa is None
+    assert aberto.candidatos[0].quando == datetime(2026, 11, 8, 9, 0, tzinfo=BRT)
+    assert _ex("domingo às 8", sabado, domingo_aberto=True, teto_horas=100).motivo_recusa == "antes_da_janela"
+    assert _ex("domingo às 19:30", sabado, domingo_aberto=True, teto_horas=100).motivo_recusa == "depois_da_janela"
+    # aberto não fura DATAPREV nem feriado: 22/11 é domingo dentro da janela da DATAPREV
+    agora = datetime(2026, 11, 20, 10, 0, tzinfo=BRT)
+    assert _ex("domingo 22/11 às 10", agora, domingo_aberto=True, teto_horas=100).motivo_recusa == "bloqueio_dataprev"
+
+
+def test_proximo_dia_util_do_teto_inclui_o_domingo_aberto():
+    sabado = datetime(2026, 11, 7, 16, 0, tzinfo=BRT)  # teto de 100 h: só o «próximo dia útil 19:00» limita
+    assert _ex("segunda às 9", sabado, teto_horas=100).motivo_recusa is None  # fechado: segunda 19:00
+    assert _ex("segunda às 9", sabado, teto_horas=100, domingo_aberto=True).motivo_recusa == "acima_do_teto"  # aberto: domingo 19:00
+    assert _ex("domingo às 19h", sabado, teto_horas=100, domingo_aberto=True).motivo_recusa is None
+
+
 # ------------------------------------------------------------------ feriados e DATAPREV
 @pytest.mark.parametrize(
     ("texto", "motivo"),
