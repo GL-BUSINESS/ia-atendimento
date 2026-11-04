@@ -114,7 +114,8 @@ def validar_instantes(entrada: EntradaAgendamento, agora: datetime) -> None:
 def config_da_agenda(config: dict[str, Any]) -> ConfigAgenda:
     """`ConfigAgenda` das chaves `agenda_*`, do `calendario_bloqueio` e da `janela_mensagem` vigentes (o DDL e o registro já os validaram).
 
-    O domingo só abre na agenda com as duas chaves do calendário abertas juntas (D-18), pelo mesmo `Calendario` do envio.
+    O domingo só abre na agenda com as duas chaves do calendário abertas juntas (D-18), pelo mesmo `Calendario` do envio; e a volta só é
+    aceita dentro do horário de envio de cada dia (`janela_mensagem`, R-01 da revisão da B1.8).
     """
     calendario = carregar_calendario(config["janela_mensagem"], config["calendario_bloqueio"])
     return ConfigAgenda.das_chaves(
@@ -124,6 +125,7 @@ def config_da_agenda(config: dict[str, Any]) -> ConfigAgenda:
         feriados=calendario.feriados,
         bloqueios=tuple((j.de, j.ate) for j in calendario.janelas),
         domingo_aberto=calendario.domingo_aberto,
+        janela_mensagem=calendario.dias,
     )
 
 

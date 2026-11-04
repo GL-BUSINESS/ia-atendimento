@@ -284,6 +284,23 @@ def test_agendamento_para_domingo_segue_as_duas_chaves_do_calendario(ambiente, a
     assert datetime.fromisoformat(r.json()["dispara_em"]) == datetime(2026, 11, 8, 12, 0, tzinfo=UTC)  # domingo 09:00 SP
 
 
+def test_agendamento_de_domingo_respeita_o_horario_publicado_do_dia_7(ambiente):
+    """R-01 (revisão da B1.8): domingo publicado 09:00–18:00. Sábado 10:00 pedindo «amanhã às 8:30» cabia na `agenda_janela` (08:30) mas
+    não no envio: a API não pode reservar uma volta que o `Calendario` não deixa mandar. «amanhã às 9h» segue agendando."""
+    from ia_atendimento.chave_registro import PADROES
+
+    ambiente.ligar()
+    ambiente.relogio.definir(datetime(2026, 11, 7, 13, 0, tzinfo=UTC))  # sábado 10:00 SP
+    ambiente.configurar("janela_mensagem", {"dias": {**PADROES["janela_mensagem"]["dias"], "7": {"inicio": "09:00", "fim": "18:00"}}})
+    ambiente.configurar("calendario_bloqueio", {**PADROES["calendario_bloqueio"], "domingos": False})
+    cedo = ambiente.post("/agendamentos", corpo_de_agendamento(texto_mensagem="amanhã às 8:30", datetime_post="2026-11-07T10:00:00-03:00"))
+    assert cedo.status_code == 200 and cedo.json() == {"agendado": False, "motivo": "sem_hora"}
+    assert ambiente.escalar("SELECT count(*) FROM ia.agendamento") == 0
+    certo = ambiente.post("/agendamentos", corpo_de_agendamento(texto_mensagem="amanhã às 9h", datetime_post="2026-11-07T10:00:01-03:00"))
+    assert certo.status_code == 201, certo.text
+    assert datetime.fromisoformat(certo.json()["dispara_em"]) == datetime(2026, 11, 8, 12, 0, tzinfo=UTC)  # domingo 09:00 SP
+
+
 def test_config_da_agenda_so_abre_o_domingo_com_as_duas_chaves():
     from ia_atendimento.agendamento import config_da_agenda
     from ia_atendimento.chave_registro import PADROES
