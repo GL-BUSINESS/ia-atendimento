@@ -20,22 +20,11 @@ jobs:
     concurrency:
       group: ci-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_PASSWORD: descartavel
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -h 127.0.0.1"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-    env:
-      IA_TESTE_PG_HOST: localhost
-      IA_TESTE_PG_PORT: "5432"
-      # RG-128/RG-119: a consistência com o bancos-duble fica só no scripts/check.sh local até existir o PAT (B12.2); aqui o teste cruzado pula.
+    # Sem `services:` de proposito: a VM do s3-ci monta /proc com hidepid=2 e o runner nao inicializa
+    # service containers ali ("Could not find a part of the path '/proc/1/cgroup'"). Os testes ja
+    # sobem o proprio postgres:18 descartavel por `docker run` (tests/banco.py, subir_docker), com
+    # nome unico e porta aleatoria em 127.0.0.1, sem porta fixa entre jobs.
+    # RG-128/RG-119: a consistência com o bancos-duble fica só no scripts/check.sh local até existir o PAT (B12.2); aqui o teste cruzado pula.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
