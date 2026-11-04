@@ -33,15 +33,26 @@ from typing import Final, Literal, get_args
 import psycopg
 
 from ia_atendimento import agenda_estado as ae
+from ia_atendimento import espelho, estado
+from ia_atendimento.chave import ia_ativa_agora
 from ia_atendimento.estado_erros import ConflitoVersao, EstadoErro, TransicaoInvalida
-from ia_atendimento.jobs import LIMITE_LOTE, Adiar, DesfechoDaVolta, ServicoNaoConfigurado, Servicos, Volta, configurado
+from ia_atendimento.jobs import (
+    LIMITE_LOTE,
+    MOTIVO_IA_DESLIGADA,
+    Adiar,
+    DesfechoDaVolta,
+    ServicoNaoConfigurado,
+    Servicos,
+    Volta,
+    configurado,
+)
 
 PREFIXO_ALARME: Final = "retomar:"
 PREFIXO_EXEC: Final = "retomar_exec:"
 FOLGA_REARME: Final = timedelta(
     seconds=5
 )  # o alarme `cedo` nunca volta antes de agora + 5 s (relógio da app atrasado não vira laço quente)
-Codigo = Literal["disparado", "inexistente", "nao_confirmado", "fora_do_estado", "cedo", "expirado", "perdeu"]
+Codigo = Literal["disparado", "inexistente", "nao_confirmado", "fora_do_estado", "cedo", "expirado", "perdeu", "ia_desligada"]
 
 
 class RetornoInvalidoDaVolta(EstadoErro):
@@ -78,6 +89,13 @@ def _reivindicar(servicos: Servicos, agendamento_id: uuid.UUID, agora: datetime,
             ae.expirar(conn, agendamento_id, linha.versao, agora=agora)
             ae.passo_de_agendamento(conn, atendimento_id, agendamento_id, "expirado")
             return Reivindicacao("expirado")
+        if linha.entrada == "dialogo_agendar" and not ia_ativa_agora(conn):
+            # o `reservado` agendado recusa com a IA desligada (R1-31): nunca tocou o chat, então aborta sem efeito e fecha o espelho
+            ae.cancelar(conn, agendamento_id, linha.versao, por="sistema", agora=agora)
+            ae.passo_de_agendamento(conn, atendimento_id, agendamento_id, "cancelado")
+            estado.abortar(conn, atendimento_id, dono.versao, motivo=MOTIVO_IA_DESLIGADA, relogio=lambda: agora)
+            espelho.emitir_encerrou(conn, atendimento_id, "ia_desligada", agora)
+            return Reivindicacao("ia_desligada")
         try:
             ae.disparar(conn, agendamento_id, linha.versao, agora=agora, job_id=job_id)
         except (ConflitoVersao, TransicaoInvalida):

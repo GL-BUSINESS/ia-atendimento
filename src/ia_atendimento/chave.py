@@ -51,6 +51,7 @@ __all__ = [
     "garantir_defaults",
     "gasto_dia",
     "gasto_mes",
+    "ia_ativa_agora",
     "optou_por_sair",
     "registrar_config",
 ]
@@ -201,6 +202,13 @@ def disparos_dia(conn: psycopg.Connection, agora: datetime) -> int:
         "SELECT count(*) FROM ia.atendimento WHERE gatilho <> 'agendamento' AND iniciado_em >= %s AND iniciado_em < %s", (inicio, fim)
     ).fetchone()
     return int(linha[0])
+
+
+def ia_ativa_agora(conn: psycopg.Connection) -> bool:
+    """`ia_ativa` lida do banco AGORA, sem o cache do processo: quem executa um job agendado minutos antes (parada leve, `iniciar`,
+    volta) decide pelo valor de agora, não pelo de quando o job nasceu (liga → desliga → liga em menos de 19 min)."""
+    vigente = config_vigente(conn, "ia_ativa")
+    return vigente is not None and vigente.valor is True
 
 
 def optou_por_sair(conn: psycopg.Connection, pessoa_id: uuid.UUID) -> bool:
