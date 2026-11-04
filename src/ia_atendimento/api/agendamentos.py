@@ -1,12 +1,11 @@
 """`POST /agendamentos` (contrato 08 §5.5): o n8n «IA · agendar» manda a mensagem do cliente; a hora vem do extrator determinístico (B5.7a).
 
-Ordem: forma (422) → chave recalculada (`chave_incoerente`) → **replay** (200 `repetido`, ou 409 com outro texto) → `agenda_desligada` →
-`ia_desligada` →
-`bloqueio_entrada` → `fora_de_janela` → `opt_out` → `agenda_max_dia` → `chat_ocupado` → extrator (sem hora única: `200 agendado:false`,
-nada gravado) → modo (422) →
-artefatos (503) → reserva (atendimento `reservado` + linha `pendente` + cofre do número do chat, numa transação). O replay vem ANTES das
-recusas de config de
-propósito: o retry do n8n de uma chamada que já deu certo não pode virar erro porque a agenda foi desligada no meio.
+Ordem: forma (422) → chave recalculada (`chave_incoerente`) → **replay** (200 `repetido`, ou 409 com outro texto) → `retoma_fase` (422) →
+`agenda_desligada` → `ia_desligada` → `bloqueio_entrada` → `fora_de_janela` → `opt_out` → `agenda_max_dia` → `chat_ocupado` → extrator (sem
+hora única: `200 agendado:false`, nada gravado) → modo (422) → artefatos (503) → reserva: atendimento `reservado`, linha `pendente`, passo
+`agendamento`, cofre do número do chat e alarme do `retomar` em `dispara_em`, tudo numa transação. O replay vem ANTES das recusas de config
+de propósito: o retry do n8n de uma chamada que já deu certo não pode virar erro porque a agenda foi desligada no meio. `retoma_fase`
+diferente de E8 só vale com `agenda_b_digita=true` (422 `validacao`).
 """
 
 from __future__ import annotations
@@ -26,6 +25,7 @@ from ia_atendimento.calendario import carregar_calendario
 from ia_atendimento.chave import optou_por_sair
 
 CHAVES_DA_AGENDA: Final = ("agenda_janela", "agenda_periodos", "agenda_teto_horas", "calendario_bloqueio")
+FASE_SEM_DIGITACAO: Final = "E8"  # com `agenda_b_digita=false` o caso (b) só volta na assinatura (o link já existe); E3/E5 digitariam
 
 
 def _recusa(ctx: ContextoApi, conn: psycopg.Connection, entrada: ag.EntradaAgendamento, agora: datetime) -> str | None:
@@ -87,6 +87,10 @@ def criar_agendamento(ctx: ContextoApi, origem: str, corpo: dict[str, Any]) -> t
 def _tentar_reservar(
     ctx: ContextoApi, conn: psycopg.Connection, origem: str, entrada: ag.EntradaAgendamento, chave: str, hash_do_texto: str, agora: datetime
 ) -> tuple[int, dict[str, Any]]:
+    if entrada.retoma_fase != FASE_SEM_DIGITACAO and ctx.leitor.valor(conn, "agenda_b_digita") is not True:
+        raise ErroApi(
+            "validacao", campo="retoma_fase", detalhe={"regra": "so_e8_sem_agenda_b_digita"}
+        )  # a volta em E3/E5 digitaria (B5.7c)
     if (recusa := _recusa(ctx, conn, entrada, agora)) is not None:
         raise ErroApi(recusa)
     horario = _horario(ctx, conn, entrada, agora)
@@ -128,6 +132,7 @@ def _reservar(
                 cofre.guardar(
                     conn, reservado.atendimento_id, "canal", {CHAVE_DO_CHAT_NUMBER: entrada.chat_number}, chaveiro=ctx.chaveiro, agora=agora
                 )
+            ctx.enfileirador.agendar_retomada(conn, reservado.agendamento_id, reservado.atendimento_id, entrada.chat_id, quando)
     except estado.ChatOcupado:
         raise ErroApi("chat_ocupado", campo="chat_id") from None
     return 201, reservado.corpo()

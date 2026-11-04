@@ -23,12 +23,16 @@ dependencies = [
   "tzdata==2026.6",
 ]
 
+[project.scripts]
+ia-worker = "ia_atendimento.worker:main"  # = `python -m ia_atendimento.worker` (R2-02); `--saude` é o healthcheck
+
 [dependency-groups]
 dev = [
   "pytest==9.2.0",
   "pytest-asyncio==1.4.1",
   "httpx==0.28.1",
   "ruff==0.17.3",
+  "pytest-timeout==2.4.0",
 ]
 
 [build-system]
@@ -43,6 +47,7 @@ force-include = { "migrations" = "ia_atendimento/migrations" }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+timeout = 120  # por teste (pytest-timeout, R2-07): um teste que trava FALHA em 2 min em vez de segurar a suíte até o `timeout 600` do check.sh
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [

@@ -69,6 +69,7 @@ class EspiaDeFila:
         self.turnos: list[tuple[uuid.UUID, str]] = []
         self.inicios: list[tuple[uuid.UUID, str]] = []
         self.encerramentos: list[tuple[uuid.UUID, str, float]] = []
+        self.retomadas: list[tuple[uuid.UUID, uuid.UUID, str, datetime]] = []
 
     def turno(self, conn: psycopg.Connection, atendimento_id: uuid.UUID, chat_id: str) -> None:
         self.turnos.append((atendimento_id, chat_id))
@@ -78,6 +79,12 @@ class EspiaDeFila:
 
     def encerrar_por_chave(self, conn: psycopg.Connection, atendimento_id: uuid.UUID, chat_id: str, atraso_s: float) -> bool:
         self.encerramentos.append((atendimento_id, chat_id, atraso_s))
+        return True
+
+    def agendar_retomada(
+        self, conn: psycopg.Connection, agendamento_id: uuid.UUID, atendimento_id: uuid.UUID, chat_id: str, dispara_em: datetime
+    ) -> bool:
+        self.retomadas.append((agendamento_id, atendimento_id, chat_id, dispara_em))
         return True
 
 
@@ -265,3 +272,15 @@ def corpo_de_agendamento(chat: str = CHAT, **mudar: Any) -> dict[str, Any]:
         "texto_mensagem": "pode ser hoje às 17h", "datetime_post": postado, "retoma_fase": "E8", "chave": chave,
     }  # fmt: skip
     return {**base, **mudar}
+
+
+def env_de_processo(ambiente, tmp_path: Path, dialeto: str = "") -> dict[str, str]:
+    """Ambiente de um PROCESSO real (uvicorn, worker) contra o Postgres descartável: o mesmo conjunto de variáveis que a OPERACAO manda."""
+    s = ambiente.banco.servidor
+    return {
+        "PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "PYTHONUNBUFFERED": "1",
+        "DATABASE_URL": f"postgresql{dialeto}://ia_app_a:x@{s.host}:{s.port}/{ambiente.banco.nome}",
+        "MODELO_API_KEY_1": "fw_chave-do-modelo-descartavel-123", "API_TOKENS": json.dumps(TOKENS), "CHAVE_AES_ID": "2",
+        "CHAVE_AES_ARQUIVO": str(tmp_path / "chaves-api.json"), "CHAVE_H16": H16, "CHAVE_FINGERPRINT": FINGERPRINT, "CHAT_REF_CHAVE": CHAT_REF,
+        "GATEWAY_HMAC_ARQUIVO": str(tmp_path / "gw.keys"), "SEGREDOS_SAIDA_ARQUIVO": str(tmp_path / "saida.json"), "RESPONSAVEL_IA": RESPONSAVEL_IA,
+    }  # fmt: skip
