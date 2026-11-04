@@ -437,7 +437,7 @@ def test_padroes_de_casamento_e_de_preco_do_plano(monkeypatch):
 
 
 @pytest.mark.parametrize("campo", ["PRECO_IN_USD", "PRECO_CACHE_USD", "PRECO_OUT_USD", "CAMBIO", "PRECO_TEMPLATE_BRL"])
-@pytest.mark.parametrize("valor", ["0", "-1", "abc"])
+@pytest.mark.parametrize("valor", ["0", "-1", "abc", "0.1234567"])
 def test_preco_zero_negativo_ou_invalido_recusa_o_boot(monkeypatch, campo, valor):
     _definir(monkeypatch, {**BASE, campo: valor})
     with pytest.raises(ValidationError):

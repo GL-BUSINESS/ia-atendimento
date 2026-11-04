@@ -45,10 +45,24 @@ def test_com_o_binario_o_script_repassa_o_resultado_e_varre_arvore_e_historico_d
         chamadas[0].startswith("dir ")
         and "--config .gitleaks.toml" in chamadas[0]
         and "--redact" in chamadas[0]
+        and "-v" in chamadas[0].split()
         and "--exit-code 1" in chamadas[0]
     )
     if (RAIZ / ".git").exists():
         assert chamadas[1].startswith("git ") and "--log-opts=HEAD" in chamadas[1]
+
+
+@pytest.mark.parametrize("modo", ["dir", "git"])
+def test_achado_em_um_so_modo_reprova_e_o_outro_modo_ainda_roda(tmp_path, modo):
+    """Vazamento só na árvore ou só no histórico: cada modo responde pelo seu `|| status=1`, sem o outro segurar o resultado."""
+    if not (RAIZ / ".git").exists():
+        pytest.skip("sem .git o modo git não roda")
+    falso = tmp_path / "gitleaks"
+    falso.write_text(f'#!/usr/bin/env bash\necho "$1" >> \'{tmp_path}/modos\'\n[ "$1" = {modo} ] && exit 1\nexit 0\n', encoding="utf-8")
+    falso.chmod(0o755)
+    r = _rodar({"GITLEAKS_BIN": str(falso)})
+    assert r.returncode == 1
+    assert (tmp_path / "modos").read_text(encoding="utf-8").splitlines() == ["dir", "git"]
 
 
 def test_check_sh_chama_o_gitleaks_sem_poder_pular():
@@ -83,6 +97,14 @@ def test_a_allowlist_de_cpf_e_ancorada_e_so_vale_para_a_regra_de_cpf():
 def test_nenhum_caminho_de_codigo_inteiro_fora_da_varredura():
     caminhos = [p for a in _cfg()["allowlists"] for p in a.get("paths", [])]
     assert caminhos == [r"^uv\.lock$", r"(^|/)__pycache__/"]
+
+
+def test_nenhum_pycache_versionado():
+    """A exceção de `__pycache__` só vale para o bytecode local: um `git add -f` abriria um caminho sem varredura."""
+    if not (RAIZ / ".git").exists():
+        pytest.skip("sem .git não há o que conferir")
+    versionados = subprocess.run(["git", "ls-files"], cwd=RAIZ, capture_output=True, text=True, check=True).stdout.splitlines()
+    assert not [x for x in versionados if "__pycache__/" in x]
 
 
 def test_gitleaksignore_so_tem_impressao_digital_de_commit_inteira():

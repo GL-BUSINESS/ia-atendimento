@@ -25,7 +25,7 @@ def test_varredura_acusa_o_que_deve(tmp_path, monkeypatch):
     ruim = tmp_path / "ruim.txt"
     # montado em pedaços: o próprio arquivo de teste não pode parecer segredo, CPF ou e-mail real para a varredura
     segredo = "fw" + "_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123"
-    cpf = "390.533" + ".447-05"
+    cpf = "000.000" + ".201-17"  # faixa 2nn com DV válido: fora das listas sintéticas, por construção
     email = "pessoa.real" + "@empresa" + ".com.br"
     token = "tok" + "en = 'abcdefghijklmnop1234'"
     ruim.write_text(f"a = '{segredo}'\ncpf {cpf}\ncontato {email}\n{token}\n", encoding="utf-8")
@@ -88,7 +88,7 @@ def test_arquivo_novo_ainda_sem_git_add_tambem_e_varrido(tmp_path, monkeypatch, 
 
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / ".gitignore").write_text("ignorado.txt\n", encoding="utf-8")
-    cpf = "390.533" + ".447-05"
+    cpf = "000.000" + ".201-17"  # faixa 2nn com DV válido: fora das listas sintéticas, por construção
     (tmp_path / "novo.txt").write_text(f"cpf {cpf}\n", encoding="utf-8")
     (tmp_path / "ignorado.txt").write_text(f"cpf {cpf}\n", encoding="utf-8")
     modulo = _modulo(monkeypatch, tmp_path)
