@@ -4,6 +4,12 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **B5.1, gateway de ferramentas** (branch `feat/b5-1`; `docs/DECISOES-B5.1-0411.md`). Pacote `ferramentas/` (o `ferramentas.py` da B1.4 vira `ferramentas/projecao.py`):
+  registro versionado (`Especificacao`, esquemas `extra=forbid` em todos os níveis, classes de efeito, pré-condições nomeadas), `catalogo_hash` amarrado ao `numero` de
+  `catalogo_versoes.json` (o portão falha se o hash mudar sem versão), o modelo só passa referências opacas, saída reconstruída pelo esquema e projetada pela allowlist (D-29),
+  `modo_efetivo` relido na hora do efeito (cache ≤ 5 s; a FACTA de produção só em `real`), orçamento por turno e por atendimento, limitador por serviço, CPF só em memória
+  (`CpfEmMemoria`) e as `Tool` do agente geradas do registro. Sem migração; ledger, batimento e executores ficam para B1.6 e B5.2–B5.4.
+
 - **Achados R-02 a R-07 da revisão da integração de D-06:** `gitleaks.sh` com `-v` (achado diz arquivo e regra; valor segue oculto); teste de achado em um só modo (`dir`/`git`);
   teste de 6 casas em `Preco`; nenhum `__pycache__` versionado; amostra de CPF de `tests/test_varredura.py` trocada para a faixa `000.000.2nn`, sem reescrever o histórico; `.gitleaksignore` deixa de chamá-la de sintética;
   exceção `111.444…` removida do `.gitleaks.toml`; `OPERACAO.md` sem duas seções 8 (Release vira §11; §8 a §10 mantêm o número); README e D15 corrigidos.
