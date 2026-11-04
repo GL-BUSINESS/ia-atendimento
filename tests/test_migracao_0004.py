@@ -84,7 +84,7 @@ def test_aplica_por_cima_da_0003_e_grava_o_ledger(vazio, ate_0003):
     with vazio.conectar(autocommit=False) as conn:
         assert aplicar(conn, ate_0003) == ["0001_esquema", "0002_procrastinate", "0003_estado_aditivo"]
     with vazio.conectar(autocommit=False) as conn:
-        assert aplicar(conn, MIGRACOES) == [ID_0004]
+        assert aplicar(conn, MIGRACOES)[0] == ID_0004  # as posteriores (0005+) vêm depois, na ordem
     with vazio.sessao() as conn:
         ledger = dict(conn.execute("SELECT migracao_id, checksum FROM ia.migracao").fetchall())
     assert ledger[ID_0004] == hashlib.sha256(ARQUIVO_0004.read_bytes()).hexdigest()

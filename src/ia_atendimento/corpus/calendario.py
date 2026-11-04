@@ -1,4 +1,9 @@
-"""Calendário do atendimento (J8; M §2.4; ROTEIRO «20/11 IA desligada, janela DATAPREV 20/11 22:00 a 23/11 06:00»)."""
+"""Calendário do atendimento (J8; M §2.4; ROTEIRO «20/11 IA desligada, janela DATAPREV 20/11 22:00 a 23/11 06:00»).
+
+Domingo (D-18, B1.8): `domingo_aberto` (padrão `False`) é o estado das duas chaves do `calendario.py` do orquestrador. Fechado, o domingo é
+bloqueado como antes; aberto, vale 08–20 e a agenda 08:30–19:00. Feriados (15/11 inclusive) e a DATAPREV seguem bloqueados nos dois
+estados. As regras da F3 (I3, gabarito, agenda) ainda chamam com o padrão: passar o estado a elas é da B8.1c.
+"""
 
 from __future__ import annotations
 
@@ -20,20 +25,21 @@ def _local(instante: datetime) -> datetime:
     return instante.astimezone(FUSO_SP)
 
 
-def _dia_bloqueado(local: datetime) -> bool:
-    return local.weekday() == 6 or local.date() in FERIADOS_2026 or JANELA_DATAPREV[0] <= local < JANELA_DATAPREV[1]
+def _dia_bloqueado(local: datetime, domingo_aberto: bool) -> bool:
+    domingo_fechado = local.weekday() == 6 and not domingo_aberto
+    return domingo_fechado or local.date() in FERIADOS_2026 or JANELA_DATAPREV[0] <= local < JANELA_DATAPREV[1]
 
 
-def dentro_do_horario(instante: datetime) -> bool:
-    """Seg–sáb, 08:00 ≤ hora < 20:00 em São Paulo, fora de feriado nacional e da janela DATAPREV (nada sai fora disso: I3)."""
+def dentro_do_horario(instante: datetime, *, domingo_aberto: bool = False) -> bool:
+    """08:00 ≤ hora < 20:00 em São Paulo (seg–sáb; domingo só aberto), fora de feriado e da janela DATAPREV (nada sai fora disso: I3)."""
     local = _local(instante)
-    return not _dia_bloqueado(local) and ABRE <= local.time() < FECHA
+    return not _dia_bloqueado(local, domingo_aberto) and ABRE <= local.time() < FECHA
 
 
-def dentro_da_agenda(instante: datetime) -> bool:
-    """Janela da VOLTA combinada: seg–sáb 08:30–19:00 (sábado até 12:00), fora de feriado e DATAPREV."""
+def dentro_da_agenda(instante: datetime, *, domingo_aberto: bool = False) -> bool:
+    """Janela da VOLTA combinada: 08:30–19:00 (sábado até 12:00; domingo só aberto), fora de feriado e DATAPREV."""
     local = _local(instante)
-    if _dia_bloqueado(local):
+    if _dia_bloqueado(local, domingo_aberto):
         return False
     fim = AGENDA_SABADO_FIM if local.weekday() == 5 else AGENDA_FECHA
     return AGENDA_ABRE <= local.time() <= fim

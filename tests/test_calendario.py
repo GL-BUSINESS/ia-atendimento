@@ -1,4 +1,7 @@
-"""Calendário de mensagem: janela 08–20 seg–sáb em America/Sao_Paulo, feriados e DATAPREV. Hora local calculada no código."""
+"""Calendário de mensagem: janela 08–20 em America/Sao_Paulo, feriados e DATAPREV. Hora local calculada no código.
+
+Domingo (D-18, B1.8): fechado por padrão; só abre com as DUAS chaves juntas, `calendario_bloqueio.domingos=false` e `janela_mensagem.dias."7"`.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +29,11 @@ BLOQUEIO = {
     "feriados": ["2026-11-02", "2026-11-20"],
     "janelas": [{"de": "2026-11-20T22:00:00-03:00", "ate": "2026-11-23T06:00:00-03:00", "motivo": "dataprev"}],
 }
+JANELA_COM_DOMINGO = {"dias": {**JANELA["dias"], "7": {"inicio": "09:00", "fim": "18:00"}}}
+BLOQUEIO_SEM_DOMINGO = {**BLOQUEIO, "domingos": False}
+# casos de domingo aberto usam 08/11 e 29/11: 15/11 é feriado no corpus (não no piso do código) e 22/11 cai na DATAPREV
+DOMINGO_08 = (2026, 11, 8)
+DOMINGO_29 = (2026, 11, 29)
 
 
 def utc(ano: int, mes: int, dia: int, h: int = 0, m: int = 0, s: int = 0) -> datetime:
@@ -48,11 +56,16 @@ def test_hora_local_vem_do_codigo_nao_do_banco(cal: Calendario):
     assert cal.dentro_da_janela(utc(2026, 11, 17, 23, 0)) is False
 
 
-def test_calendario_domingo_feriado_e_dataprev(cal: Calendario):
+@pytest.mark.parametrize("domingo_aberto", [False, True], ids=["domingo_fechado", "domingo_aberto"])
+def test_calendario_domingo_feriado_e_dataprev(domingo_aberto: bool):
+    cal = carregar_calendario(JANELA_COM_DOMINGO, BLOQUEIO_SEM_DOMINGO) if domingo_aberto else carregar_calendario(JANELA, BLOQUEIO)
     meio_dia = (15, 0)  # 12:00 em SP = 15:00 UTC
     assert cal.dentro_da_janela(utc(2026, 11, 14, *meio_dia)) is True  # sábado
-    assert cal.dentro_da_janela(utc(2026, 11, 15, *meio_dia)) is False  # domingo
-    assert cal.bloqueado(utc(2026, 11, 15, *meio_dia)) is True
+    for domingo in (DOMINGO_08, DOMINGO_29):
+        assert cal.dentro_da_janela(utc(*domingo, *meio_dia)) is domingo_aberto, domingo
+        assert cal.bloqueado(utc(*domingo, *meio_dia)) is not domingo_aberto, domingo
+    assert cal.dentro_da_janela(utc(2026, 11, 22, *meio_dia)) is False  # domingo dentro da DATAPREV: fechado nos dois estados
+    assert cal.bloqueado(utc(2026, 11, 22, *meio_dia)) is True
     assert cal.dentro_da_janela(utc(2026, 11, 2, *meio_dia)) is False  # segunda, feriado
     assert cal.bloqueado(utc(2026, 11, 2, *meio_dia)) is True
     assert cal.dentro_da_janela(utc(2026, 11, 20, *meio_dia)) is False  # sexta, feriado
@@ -90,7 +103,8 @@ def test_instante_sem_fuso_e_recusado(cal: Calendario):
 def test_janela_mensagem_da_config_nunca_passa_de_20h():
     validar_janela_mensagem(JANELA)
     invalidas = {
-        "domingo": {"dias": {**JANELA["dias"], "7": dict(DIA)}},
+        "domingo_07h": {"dias": {**JANELA["dias"], "7": {"inicio": "07:00", "fim": "12:00"}}},
+        "domingo_20h30": {"dias": {**JANELA["dias"], "7": {"inicio": "09:00", "fim": "20:30"}}},
         "fim_20h30": {"dias": {"1": {"inicio": "08:00", "fim": "20:30"}}},
         "inicio_07h": {"dias": {"1": {"inicio": "07:00", "fim": "18:00"}}},
         "invertida": {"dias": {"1": {"inicio": "12:00", "fim": "12:00"}}},
@@ -105,10 +119,14 @@ def test_janela_mensagem_da_config_nunca_passa_de_20h():
         assert nome  # a mensagem do teste mostra qual caso falhou
 
 
-def test_calendario_bloqueio_exige_domingo_feriados_e_dataprev_minimos():
+def test_calendario_bloqueio_exige_domingos_booleano_feriados_e_dataprev_minimos():
     validar_calendario_bloqueio(BLOQUEIO)
+    validar_calendario_bloqueio(BLOQUEIO_SEM_DOMINGO)  # D-18: `false` é válido (sozinho não abre: falta o dia 7 na janela)
     assert {date(2026, 11, 2), date(2026, 11, 20)} <= FERIADOS_MINIMOS
-    sem_domingo = {**BLOQUEIO, "domingos": False}
+    sem_campo = {k: v for k, v in BLOQUEIO.items() if k != "domingos"}
+    domingos_texto = {**BLOQUEIO, "domingos": "false"}
+    domingos_nulo = {**BLOQUEIO, "domingos": None}
+    domingos_numero = {**BLOQUEIO, "domingos": 0}
     sem_20_11 = {**BLOQUEIO, "feriados": ["2026-11-02"]}
     sem_dataprev = {**BLOQUEIO, "janelas": []}
     dataprev_curta = {
@@ -121,9 +139,49 @@ def test_calendario_bloqueio_exige_domingo_feriados_e_dataprev_minimos():
         "janelas": [*BLOQUEIO["janelas"], {"de": "2026-12-01T10:00:00-03:00", "ate": "2026-12-01T09:00:00-03:00", "motivo": "x"}],
     }
     data_ruim = {**BLOQUEIO, "feriados": [*BLOQUEIO["feriados"], "02/11/2026"]}
-    for valor in (sem_domingo, sem_20_11, sem_dataprev, dataprev_curta, sem_fuso, invertida, data_ruim, {"domingos": True}):
+    for valor in (
+        sem_campo, domingos_texto, domingos_nulo, domingos_numero,
+        sem_20_11, sem_dataprev, dataprev_curta, sem_fuso, invertida, data_ruim, {"domingos": True},
+    ):  # fmt: skip
         with pytest.raises(CalendarioInvalido):
             validar_calendario_bloqueio(valor)
+
+
+def test_janela_mensagem_aceita_o_domingo_dentro_de_08_20():
+    assert validar_janela_mensagem(JANELA_COM_DOMINGO)[7] == (time(9, 0), time(18, 0))
+    assert validar_janela_mensagem({"dias": {"7": dict(DIA)}}) == {7: (time(8, 0), time(20, 0))}
+
+
+@pytest.mark.parametrize(
+    ("janela", "bloqueio", "abre"),
+    [
+        pytest.param(JANELA, BLOQUEIO, False, id="as_duas_fechadas"),
+        pytest.param(JANELA_COM_DOMINGO, BLOQUEIO, False, id="so_a_janela_aberta"),
+        pytest.param(JANELA, BLOQUEIO_SEM_DOMINGO, False, id="so_o_bloqueio_aberto"),
+        pytest.param(JANELA_COM_DOMINGO, BLOQUEIO_SEM_DOMINGO, True, id="as_duas_abertas"),
+    ],
+)
+def test_domingo_so_abre_com_as_duas_chaves(janela, bloqueio, abre: bool):
+    cal = carregar_calendario(janela, bloqueio)
+    assert cal.domingo_aberto is abre
+    for domingo in (DOMINGO_08, DOMINGO_29):
+        assert cal.dentro_da_janela(utc(*domingo, 15, 0)) is abre  # 12:00 SP
+        assert cal.dentro_da_janela(utc(*domingo, 11, 30)) is False  # 08:30 SP: antes das 09:00 do dia 7
+        assert cal.dentro_da_janela(utc(*domingo, 21, 0)) is False  # 18:00 SP: o fim é exclusivo
+    sabado_noite = utc(2026, 11, 7, 23, 30)  # sábado 20:30 SP
+    esperado = utc(*DOMINGO_08, 12, 0) if abre else utc(2026, 11, 9, 11, 0)  # domingo 09:00 ou segunda 08:00
+    assert cal.proxima_janela(sabado_noite) == esperado
+
+
+def test_defaults_seguem_sem_domingo():
+    """Os padrões do registro (o que vale sem config publicada) e o seed da 0001 deixam o domingo fechado: abrir é publicar as 2 chaves."""
+    from ia_atendimento.chave_registro import PADROES
+
+    assert PADROES["calendario_bloqueio"]["domingos"] is True
+    assert "7" not in PADROES["janela_mensagem"]["dias"]
+    cal = carregar_calendario(PADROES["janela_mensagem"], PADROES["calendario_bloqueio"])
+    assert cal.domingo_aberto is False
+    assert cal.bloqueado(utc(*DOMINGO_29, 15, 0)) is True
 
 
 def test_feriado_ou_janela_a_mais_da_config_vale():

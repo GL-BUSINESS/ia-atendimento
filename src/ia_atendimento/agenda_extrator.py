@@ -10,9 +10,16 @@ Contrato:
   ⇒ `candidatos=()` e `motivo_recusa='sem_hora_explicita'`. Palavras de período («de tarde», «depois do almoço») só viram candidato com
   `ConfigAgenda.usa_periodos=True`, usando `agenda_periodos`, e nunca com confiança `alta`.
 - Mais de um candidato (duas horas, dois dias, «15 ou 16») ⇒ todos com confiança ≤ `media`; mais de 3 ⇒ `ambiguo_demais`.
-- Candidato que não cabe (passado, antecedência < 10 min, domingo, feriado, bloqueio DATAPREV, fora de 08:30-19:00, sábado depois de
-  12:00, acima do teto) NÃO é descartado: vem com `fora_da_janela=True` e `razoes` (para a contraproposta). `motivo_recusa` só é
+- Candidato que não cabe (passado, antecedência < 10 min, domingo fechado, feriado, bloqueio DATAPREV, fora de 08:30-19:00, sábado depois
+  de 12:00, acima do teto) NÃO é descartado: vem com `fora_da_janela=True` e `razoes` (para a contraproposta). `motivo_recusa` só é
   preenchido quando nenhum candidato serve (a razão de maior prioridade do primeiro candidato) ou quando não há candidato.
+- Domingo (D-18, B1.8): `ConfigAgenda.domingo_aberto` (padrão `False`) vem das duas chaves do calendário (`agendamento.config_da_agenda`).
+  Fechado, «domingo» é razão de recusa e o teto pula o domingo; aberto, o domingo vale como os outros dias (janela 08:30–19:00, feriado e
+  DATAPREV seguem valendo).
+- Horário de envio (R-01 da revisão da B1.8): com `ConfigAgenda.janela_mensagem` (o `Calendario.dias`, que a API sempre passa), a
+  volta também tem de caber no horário de envio do dia: antes do início ⇒ `antes_da_janela`, no fim ou depois ⇒ `depois_da_janela`
+  (fim exclusivo), dia sem horário ⇒ `dia_sem_janela`; e o teto só para em dia com horário de envio. A agenda nunca reserva uma volta
+  que o envio não cumpre.
 - Dia não dito: «hoje» se o horário ainda está à frente; senão «amanhã» (confiança cai para `media`). O dia assumido não é texto, mas a
   `origem` continua sendo só o trecho da hora.
 - Idempotente: a mesma entrada dá sempre a mesma saída.
@@ -38,7 +45,10 @@ PASSO_RELATIVO_MIN = 5  # «daqui a 1 hora» sobe para múltiplo de 5 min
 Confianca = Literal["alta", "media", "baixa"]
 _ORDEM_CONFIANCA = {"baixa": 0, "media": 1, "alta": 2}
 # prioridade das razões: a primeira da lista é o `motivo_recusa`
-RAZOES = ("feriado", "bloqueio_dataprev", "domingo", "passado", "antecedencia", "antes_da_janela", "depois_da_janela", "acima_do_teto")
+RAZOES = (
+    "feriado", "bloqueio_dataprev", "domingo", "dia_sem_janela", "passado", "antecedencia", "antes_da_janela", "depois_da_janela",
+    "acima_do_teto",
+)  # fmt: skip
 
 PERIODOS_PADRAO = MappingProxyType(
     {
@@ -63,6 +73,17 @@ def _hhmm(valor: str, nome: str) -> time:
     return time(int(valor[:2]), int(valor[3:]))
 
 
+def _validar_envio(dias: Mapping[int, tuple[time, time]]) -> dict[int, tuple[time, time]]:
+    """Cópia de `janela_mensagem` por dia ISO (1..7), cada uma `(início, fim)` com início < fim."""
+    copia = dict(dias)
+    for dia, horario in copia.items():
+        if not (isinstance(dia, int) and 1 <= dia <= 7) or not (
+            isinstance(horario, tuple) and len(horario) == 2 and all(isinstance(h, time) for h in horario) and horario[0] < horario[1]
+        ):
+            raise ValueError("janela_mensagem: dia ISO 1..7 -> (início, fim) com início antes do fim")
+    return copia
+
+
 @dataclass(frozen=True, slots=True)
 class ConfigAgenda:
     """Chaves `agenda_*` da `config_versao` (estudo I §9) mais o calendário. Imutável; `das_chaves` valida como o DDL."""
@@ -77,6 +98,10 @@ class ConfigAgenda:
     feriados: frozenset[date] = FERIADOS_PADRAO
     bloqueios: tuple[tuple[datetime, datetime], ...] = (DATAPREV_PADRAO,)  # [início, fim)
     usa_periodos: bool = False  # v1 = False (C2 parcial): período sem hora explícita ⇒ repasse
+    domingo_aberto: bool = False  # D-18: só com `calendario_bloqueio.domingos=false` E o dia 7 em `janela_mensagem` (fechado por padrão)
+    # Horário de ENVIO por dia ISO (`Calendario.dias`, fim exclusivo). A volta também tem de caber nele (R-01 da B1.8): a agenda nunca
+    # reserva uma hora que o envio não pode cumprir. `None` só no extrator puro (corpus de frases); a API sempre passa (`config_da_agenda`).
+    janela_mensagem: Mapping[int, tuple[time, time]] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "periodos", MappingProxyType(dict(self.periodos)))
@@ -90,6 +115,8 @@ class ConfigAgenda:
             raise ValueError("teto_horas >= 1 e antecedencia_min >= 0")
         for chave, valor in self.periodos.items():
             _hhmm(valor, f"periodos[{chave}]")
+        if self.janela_mensagem is not None:
+            object.__setattr__(self, "janela_mensagem", MappingProxyType(_validar_envio(self.janela_mensagem)))
 
     @classmethod
     def das_chaves(
@@ -559,7 +586,20 @@ def _escanear_dias(v: _Varredura, hoje: date) -> None:
 
 # ------------------------------------------------------------------------------------------------ regras duras
 def _dia_util(d: date, cfg: ConfigAgenda) -> bool:
-    return d.weekday() != 6 and d not in cfg.feriados
+    tem_envio = cfg.janela_mensagem is None or d.isoweekday() in cfg.janela_mensagem
+    return (cfg.domingo_aberto or d.weekday() != 6) and d not in cfg.feriados and tem_envio
+
+
+def _razoes_do_envio(q: datetime, cfg: ConfigAgenda) -> set[str]:
+    """A volta fora do horário de ENVIO do dia (`janela_mensagem`, fim exclusivo como `Calendario.dentro_da_janela`)."""
+    if cfg.janela_mensagem is None or (q.weekday() == 6 and not cfg.domingo_aberto):
+        return set()  # domingo fechado já tem a razão «domingo»
+    envio = cfg.janela_mensagem.get(q.isoweekday())
+    if envio is None:
+        return {"dia_sem_janela"}
+    if q.time() < envio[0]:
+        return {"antes_da_janela"}
+    return {"depois_da_janela"} if q.time() >= envio[1] else set()
 
 
 def _teto(agora: datetime, ultima: datetime, cfg: ConfigAgenda) -> datetime:
@@ -577,7 +617,7 @@ def _razoes(q: datetime, agora: datetime, teto: datetime, cfg: ConfigAgenda) -> 
         achadas.add("feriado")
     if any(ini <= q < fim for ini, fim in cfg.bloqueios):
         achadas.add("bloqueio_dataprev")
-    if q.weekday() == 6:
+    if q.weekday() == 6 and not cfg.domingo_aberto:
         achadas.add("domingo")
     if q <= agora:
         achadas.add("passado")
@@ -590,6 +630,7 @@ def _razoes(q: datetime, agora: datetime, teto: datetime, cfg: ConfigAgenda) -> 
         achadas.add("depois_da_janela")
     if q > teto:
         achadas.add("acima_do_teto")
+    achadas |= _razoes_do_envio(q, cfg)
     return tuple(r for r in RAZOES if r in achadas)
 
 

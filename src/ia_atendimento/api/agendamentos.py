@@ -24,7 +24,7 @@ from ia_atendimento.api.validacao import validar
 from ia_atendimento.calendario import carregar_calendario
 from ia_atendimento.chave import optou_por_sair
 
-CHAVES_DA_AGENDA: Final = ("agenda_janela", "agenda_periodos", "agenda_teto_horas", "calendario_bloqueio")
+CHAVES_DA_AGENDA: Final = ("agenda_janela", "agenda_periodos", "agenda_teto_horas", "calendario_bloqueio", "janela_mensagem")
 FASE_SEM_DIGITACAO: Final = "E8"  # com `agenda_b_digita=false` o caso (b) só volta na assinatura (o link já existe); E3/E5 digitariam
 
 

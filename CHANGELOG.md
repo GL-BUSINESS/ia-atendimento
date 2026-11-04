@@ -9,7 +9,16 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
   `catalogo_versoes.json` (o portão falha se o hash mudar sem versão), o modelo só passa referências opacas, saída reconstruída pelo esquema e projetada pela allowlist (D-29),
   `modo_efetivo` relido na hora do efeito (cache ≤ 5 s; a FACTA de produção só em `real`), orçamento por turno e por atendimento, limitador por serviço, CPF só em memória
   (`CpfEmMemoria`) e as `Tool` do agente geradas do registro. Sem migração; ledger, batimento e executores ficam para B1.6 e B5.2–B5.4.
-
+- **B1.8, domingo por config (D-18; branch `feat/b1-8`; `docs/DECISOES-B1.8-0411.md`).** Fechado por padrão: nada abre sem publicar as duas chaves.
+  - Migração **`0005_domingo_por_config`** (só DDL; tem `DROP CONSTRAINT`, «sim» nomeado do dono na A4.6): o `config_versao_valor_check` volta como cópia do CASE da 0001 com um termo a menos
+    (o `$.dias."7"` de `janela_mensagem`); 08:00–20:00 segue para os 7 dias; seeds intactos. A 0001 não muda.
+  - `calendario.py`: `DIAS_ISO` 1..7; `bloqueado()` lê `calendario_bloqueio.domingos` (booleano obrigatório); o domingo só tem horário com `domingos=false` **e** o dia 7 em `janela_mensagem`
+    (`Calendario.domingo_aberto`). Feriados mínimos e DATAPREV não mudam.
+  - `agenda_extrator.py`: `ConfigAgenda.domingo_aberto` (padrão `False`) em `_dia_util` e `_razoes`; `agendamento.config_da_agenda` o tira do mesmo `Calendario`; `POST /agendamentos` lê `janela_mensagem`.
+  - `corpus/calendario.py`: `dentro_do_horario`/`dentro_da_agenda` com `domingo_aberto` (padrão `False`); as regras da F3 seguem no padrão até a B8.1c.
+  - Testes: `tests/test_migracao_0005.py`, `test_calendario.py` parametrizado, `test_domingo_so_abre_com_as_duas_chaves`, `test_defaults_seguem_sem_domingo`, integração em `test_chave.py` e `test_api_config_agenda.py`.
+  - Revisão de 04/11 (`docs/REVISAO-B1.8-0411.md`), R-01 (MÉDIO): a agenda também confere o horário de ENVIO do dia (`ConfigAgenda.janela_mensagem`, do mesmo `Calendario`):
+    fora dele ⇒ `antes_da_janela`/`depois_da_janela`, dia sem horário ⇒ razão nova `dia_sem_janela`; o teto pula dia sem envio. R-04 na `OPERACAO.md` §3; R-02 fica para a B5.7c/B6.7.
 - **Achados R-02 a R-07 da revisão da integração de D-06:** `gitleaks.sh` com `-v` (achado diz arquivo e regra; valor segue oculto); teste de achado em um só modo (`dir`/`git`);
   teste de 6 casas em `Preco`; nenhum `__pycache__` versionado; amostra de CPF de `tests/test_varredura.py` trocada para a faixa `000.000.2nn`, sem reescrever o histórico; `.gitleaksignore` deixa de chamá-la de sintética;
   exceção `111.444…` removida do `.gitleaks.toml`; `OPERACAO.md` sem duas seções 8 (Release vira §11; §8 a §10 mantêm o número); README e D15 corrigidos.

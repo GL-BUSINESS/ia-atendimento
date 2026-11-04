@@ -72,17 +72,27 @@ SUM4=$(sha256sum migrations/0004_anexo_rpa_e_espelho.up.sql | cut -d' ' -f1)
 { cat migrations/0004_anexo_rpa_e_espelho.up.sql
   printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0004_anexo_rpa_e_espelho', '%s');\nRESET ROLE;\n" "$SUM4"; } \
   | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
+# 5. 0005 (domingo por config, D-18: só DDL, troca o CHECK de valor sem o termo do dia 7) + ledger, igual. Tem DROP CONSTRAINT: SÓ com «sim» nomeado do dono (PD-2, A4.6)
+SUM5=$(sha256sum migrations/0005_domingo_por_config.up.sql | cut -d' ' -f1)
+{ cat migrations/0005_domingo_por_config.up.sql
+  printf "SET ROLE ia_owner; INSERT INTO ia.migracao (migracao_id, checksum) VALUES ('0005_domingo_por_config', '%s');\nRESET ROLE;\n" "$SUM5"; } \
+  | $S4 'sudo -n -u s4_super psql -X -q -1 -v ON_ERROR_STOP=1 -p 5434 -d ia_atendimento -f -'
 ```
 
-**Conferir** (como `ia_app_a`, da VPS): `select migracao_id, left(checksum,8) from ia.migracao` (4 linhas); `select valor from
+**Conferir** (como `ia_app_a`, da VPS): `select migracao_id, left(checksum,8) from ia.migracao` (5 linhas); `select valor from
 ia.config_versao where nome='ia_ativa'` = `false` e `nome='modo'` = `"duble"`; `DROP TABLE ia.passo` falha; `ia_app_a` sem `DELETE`; `ia.atendimento.ultimo_cliente_em` existe e um `INSERT` de `chats_teste` com 21 ids ou id fora de 24 hex minúsculo é recusado
 (`config_versao_chats_teste_check`). Depois do fim, `ia_app` ainda grava `contrato_id`, `pii_auditoria`, `sinais_cliente`, `ultimo_cliente_em` e os contadores; `estado`, `desfecho`,
 `encerrado_em`, `estado_conversa`, `motivo_desfecho`, `contexto_codigos` e `repasse_modo`/`repasse_consultor_ref` de um encerrado ficam congelados
 (trigger `atendimento_terminal_absorvente`). A 0003 é aditiva: o código sem ela segue funcionando, e ela é inofensiva sem o código novo (desfazer = parar o app).
 A 0004 também é aditiva: `UPDATE ia.passo` direto segue falhando (`permission denied`), `SELECT ia.fn_anexar_rpa(-1, 'rpa_inexistente')` devolve `f` como `ia_app_a`, e `ia_leitura_a` não lê `ia.espelho_evento`.
+A 0005 não abre o domingo: `calendario_bloqueio` vigente segue com `domingos = true` e `janela_mensagem` sem o dia 7; um `INSERT` de `janela_mensagem` com o dia 7 das 07:00 ou até 20:30 segue
+recusado (`config_versao_valor_check`). Abrir é publicar as duas chaves juntas (kit `config/domingo.sh`, B6.7/B9.1); fechar é publicar `domingos = true` de novo (append-only, sem deploy).
+**Antes de voltar a imagem para uma versão anterior à B1.8, feche o domingo** (`domingos = true` e `janela_mensagem` sem o dia 7): a imagem antiga recusa a config aberta
+(`CalendarioInvalido`) em entrada, lembrete e agendamento. É fail-closed (D-15), mas aparece como erro interno e não como recusa (revisão R-04 da B1.8).
+Com o domingo aberto, a agenda só aceita volta dentro do horário publicado do dia 7 (`janela_mensagem`), não só da `agenda_janela` (revisão R-01).
 
 **Se der errado:** erro no meio de um arquivo (ou no INSERT do ledger) → a transação única (`-1`) desfaz tudo, inclusive o ledger; reaplicar
-a 0001 é idempotente; a 0002, a 0003 e a 0004 já aplicadas **não** se reaplicam (o ledger é a verdade; `ADD CONSTRAINT` não é idempotente). **Desfazer:** `DROP DATABASE … WITH (FORCE)` só com autorização nova do dono (estudo E «Desfazer tudo» 1).
+a 0001 é idempotente; a 0002 a 0005 já aplicadas **não** se reaplicam (o ledger é a verdade; `ADD CONSTRAINT` não é idempotente). **Desfazer:** `DROP DATABASE … WITH (FORCE)` só com autorização nova do dono (estudo E «Desfazer tudo» 1).
 
 ## 4. Conexão da fila (Procrastinate) — decisão de infra
 

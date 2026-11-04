@@ -26,6 +26,7 @@ Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este re
 
 | Extrator determinístico de horário do agendamento (B5.7a, puro) | `src/ia_atendimento/agenda_extrator.py`, `tests/corpus/` | `tests/test_agenda_extrator.py` (EM1) |
 | Migração 0004: `ia.fn_anexar_rpa` (SECURITY DEFINER) e a outbox `ia.espelho_evento` — B1.5 | `migrations/0004_anexo_rpa_e_espelho.up.sql` | `tests/test_migracao_0004.py` |
+| Domingo por config (D-18), fechado por padrão: migração 0005 (CHECK sem o termo do dia 7) e calendário, agenda e corpus que só abrem com as duas chaves — B1.8 | `migrations/0005_domingo_por_config.up.sql`, `calendario.py`, `agenda_extrator.py`, `corpus/calendario.py` | `tests/test_migracao_0005.py`, `tests/test_calendario.py` |
 | API de entrada: 13 rotas do contrato 08, auth por token e HMAC do gateway, erros sem eco — B1.5 | `src/ia_atendimento/api/` | `tests/test_api*.py`, `tests/test_contrato_api.py`, `tests/test_corrida.py` |
 | Mensagem recebida (uma função para webhook e RPA) e casamento webhook × RPA — B1.5 | `src/ia_atendimento/mensagens.py` | `tests/test_contrato_api.py`, `tests/test_mensagens.py` |
 | Agendamento («Vou fazer depois»), faixa de esforço, `pessoas_teste` (arquivo `{pessoas, chats}`), enfileirador e segredos em arquivo 0600 — B1.5 | `agendamento.py`, `esforco.py`, `pessoas_teste/arquivo.py`, `enfileirador.py`, `segredos.py` | `tests/test_api*.py`, `tests/test_enfileirador.py`, `tests/test_segredos.py`, `tests/test_ambiente_api.py` |
