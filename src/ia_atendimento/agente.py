@@ -47,6 +47,7 @@ from ia_atendimento import observabilidade
 from ia_atendimento.config import PRECOS_PADRAO, Precos, Settings
 from ia_atendimento.contexto import TETO_TOKENS, Apelidos, Contexto, ContextoNaoCabe, ler_do_prompt
 from ia_atendimento.ferramentas import Deps, registrar
+from ia_atendimento.ferramentas.orcamento import OrcamentoDoTurno
 from ia_atendimento.tokens import ESTIMADOR_PADRAO
 from ia_atendimento.turno import (
     ACOES_POR_FASE,
@@ -392,7 +393,9 @@ async def executar_turno(
         raise TypeError("executar_turno recebe o Contexto de contexto.montar_contexto, não texto solto")
     modelo, provedor = agente.modelo.modelo, agente.modelo.provedor
     # o resultado de ferramenta reusa os apelidos do contexto
-    deps = replace(deps, fase=contexto.fase, apelidos=Apelidos(contexto.referencias))
+    deps = replace(
+        deps, fase=contexto.fase, apelidos=Apelidos(contexto.referencias), orcamento=OrcamentoDoTurno()
+    )  # orçamento novo por turno
     _conferir_teto_com_as_ferramentas(agente, contexto)
     with observabilidade.span_do_turno(fase=contexto.fase, modelo=modelo, provedor=provedor) as span:
         trace_id = observabilidade.trace_id_atual()

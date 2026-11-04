@@ -75,18 +75,18 @@ class EsquemaInvalido(ValueError):
     """A especificação (ou o catálogo) não cumpre as regras do registro: o gateway não sobe."""
 
 
-def _modelos_dentro(anotacao: Any) -> Iterator[type[BaseModel]]:
+def modelos_dentro(anotacao: Any) -> Iterator[type[BaseModel]]:
     """Os `BaseModel` dentro de uma anotação (`X | None`, `tuple[X, ...]`, `list[X]`, `Annotated[X, ...]`)."""
     if isinstance(anotacao, type) and issubclass(anotacao, BaseModel):
         yield anotacao
         return
     origem = typing.get_origin(anotacao)
     if origem is typing.Annotated:
-        yield from _modelos_dentro(get_args(anotacao)[0])
+        yield from modelos_dentro(get_args(anotacao)[0])
         return
     if origem is not None or isinstance(anotacao, types.UnionType):
         for argumento in get_args(anotacao):
-            yield from _modelos_dentro(argumento)
+            yield from modelos_dentro(argumento)
 
 
 def _conferir_fechado(modelo: type[BaseModel], onde: str, vistos: set[type[BaseModel]] | None = None) -> None:
@@ -97,7 +97,7 @@ def _conferir_fechado(modelo: type[BaseModel], onde: str, vistos: set[type[BaseM
     if modelo.model_config.get("extra") != "forbid":
         raise EsquemaInvalido(f"{onde}: {modelo.__name__} precisa de extra=forbid")
     for campo in modelo.model_fields.values():
-        for filho in _modelos_dentro(campo.annotation):
+        for filho in modelos_dentro(campo.annotation):
             _conferir_fechado(filho, onde, vistos)
 
 
@@ -106,7 +106,7 @@ def _nomes_de_campo(modelo: type[BaseModel]) -> Iterator[str]:
         yield nome
         if campo.alias:
             yield campo.alias
-        for filho in _modelos_dentro(campo.annotation):
+        for filho in modelos_dentro(campo.annotation):
             yield from _nomes_de_campo(filho)
 
 
@@ -116,7 +116,7 @@ def _conferir_projecao(saida: type[BaseModel], projecao: Mapping[str, Any], onde
         if chave not in saida.model_fields:
             raise EsquemaInvalido(f"{onde}: a allowlist cita {chave}, que o esquema de saída não tem")
         if isinstance(regra, Mapping):
-            filhos = list(_modelos_dentro(saida.model_fields[chave].annotation))
+            filhos = list(modelos_dentro(saida.model_fields[chave].annotation))
             if len(filhos) != 1:
                 raise EsquemaInvalido(f"{onde}: {chave} da allowlist é objeto, o esquema de saída não")
             _conferir_projecao(filhos[0], regra, onde)

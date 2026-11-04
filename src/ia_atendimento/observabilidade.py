@@ -46,6 +46,7 @@ ALERTA_RACIOCINIO: Final = "alerta_raciocinio"
 ALERTA_USO_AUSENTE: Final = "alerta_uso_ausente"
 NOME_DO_TRACER: Final = "ia_atendimento"
 SPAN_DO_TURNO: Final = "ia.turno"
+SPAN_DA_FERRAMENTA: Final = "ia.ferramenta"
 TRACE_ID_NULO: Final = "0" * 32
 SEGREDO: Final = "[SEGREDO]"
 TAMANHO_MIN_SEGREDO: Final = 8  # abaixo disso o valor casaria com texto comum
@@ -303,6 +304,14 @@ def span_do_turno(**atributos: str | int | bool) -> Iterator[Span]:
     """Span `ia.turno` (raiz do turno; os do pydantic-ai ficam dentro). Só códigos e números: nunca texto de cliente."""
     tracer = _tracer if _tracer is not None else trace.get_tracer(NOME_DO_TRACER)
     with tracer.start_as_current_span(SPAN_DO_TURNO, attributes=_limpar_atributos(atributos)) as span:
+        yield span
+
+
+@contextmanager
+def span_da_ferramenta(**atributos: str | int | bool) -> Iterator[Span]:
+    """Span `ia.ferramenta` (uma chamada do gateway de ferramentas, B5.1). Só códigos e números: nunca argumento, CPF nem retorno."""
+    tracer = _tracer if _tracer is not None else trace.get_tracer(NOME_DO_TRACER)
+    with tracer.start_as_current_span(SPAN_DA_FERRAMENTA, attributes=_limpar_atributos(atributos)) as span:
         yield span
 
 
