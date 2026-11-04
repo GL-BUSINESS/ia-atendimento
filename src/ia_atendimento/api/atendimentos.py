@@ -21,10 +21,10 @@ import psycopg
 from pydantic import Field, StringConstraints
 
 from ia_atendimento import cofre, estado
-from ia_atendimento.api.contexto import ContextoApi, PreVooFalhou
+from ia_atendimento.api.contexto import ContextoApi, PreVooFalhou, log
 from ia_atendimento.api.erros import ErroApi
 from ia_atendimento.api.validacao import LoginOuEmail, erro_de_validacao, rejeitar_documento, rejeitar_pii, validar
-from ia_atendimento.chave import abertos_agora, bloqueio_entrada, disparos_dia
+from ia_atendimento.chave import GastoIndisponivel, abertos_agora, bloqueio_entrada, disparos_dia
 from ia_atendimento.esforco import faixa_por_comissao
 from ia_atendimento.estado import TOLERANCIA_RELOGIO, EntradaAtendimento, ModoInvalido, Resultado
 from ia_atendimento.estado_conversa import janela_24h_aberta
@@ -128,7 +128,13 @@ def _recusas_de_config(ctx: ContextoApi, conn: psycopg.Connection, entrada: Entr
         ctx.pre_voo.verificar()
     except PreVooFalhou as erro:
         raise ErroApi(erro.codigo) from None
-    recusa = bloqueio_entrada(conn, ctx.relogio, entrada.pessoa_id, leitor=ctx.leitor, abertura_possivel=_abertura_possivel(ctx, entrada))
+    try:
+        recusa = bloqueio_entrada(
+            conn, ctx.relogio, entrada.pessoa_id, leitor=ctx.leitor, abertura_possivel=_abertura_possivel(ctx, entrada)
+        )
+    except GastoIndisponivel:  # contrato 08 §9: o teto não se decide com zero
+        log.critical("alerta ti: gasto não calculável na entrada; 503 nao_pronto")
+        raise ErroApi("nao_pronto") from None
     if recusa is not None:
         raise ErroApi(recusa)
 

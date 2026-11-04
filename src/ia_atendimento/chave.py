@@ -5,6 +5,8 @@
 - `LeitorConfig` guarda cada chave por até 5 s (relógio injetado); a escrita do próprio processo invalida o cache na hora.
 - `bloqueio_entrada()` devolve o código da primeira recusa de entrada nova (ou None). A chave `bloqueio_entrada=true` recusa entrada nova e
   **não encerra ninguém**: abertos e pausados seguem as réguas deles (quem encerra por chave é só a parada leve manual `ia_ativa=false`).
+- Gasto (`teto_atingido`/`teto_diario`) é Σ `passo.custo_brl` em São Paulo (`gasto.py`, contrato 08 §9); soma que falha levanta
+  `GastoIndisponivel` (a API responde `503 nao_pronto`), nunca recusa nem aceita com zero.
 - Hora e mês/dia de negócio vêm do `Relogio` e do calendário (America/Sao_Paulo), nunca do `now()` nem do fuso do banco.
 """
 
@@ -20,7 +22,7 @@ import psycopg
 from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 
-from ia_atendimento.calendario import carregar_calendario, limites_do_dia, limites_do_mes
+from ia_atendimento.calendario import carregar_calendario, limites_do_dia
 from ia_atendimento.chave_registro import (
     PADROES,
     REGISTRO,
@@ -30,6 +32,7 @@ from ia_atendimento.chave_registro import (
     ModoTesteGlobal,
     ValorInvalido,
 )
+from ia_atendimento.gasto import GastoIndisponivel, gasto_dia, gasto_mes
 from ia_atendimento.relogio import Relogio
 
 __all__ = [
@@ -37,6 +40,7 @@ __all__ = [
     "ConfigCorrida",
     "ConfigInexistente",
     "ErroConfig",
+    "GastoIndisponivel",
     "LeitorConfig",
     "ModoTesteGlobal",
     "ValorInvalido",
@@ -188,23 +192,6 @@ class LeitorConfig:
 
 
 # --- gasto e recusas de entrada ----------------------------------------------------------------------------------------------------------
-
-
-def _gasto(conn: psycopg.Connection, inicio: datetime, fim: datetime) -> Decimal:
-    """Soma de modelo + mídia dos atendimentos iniciados no intervalo, de TODOS os modos (real, sombra, duble e teste)."""
-    linha = conn.execute(
-        "SELECT coalesce(sum(custo_modelo_brl + custo_midia_brl), 0) FROM ia.atendimento WHERE iniciado_em >= %s AND iniciado_em < %s",
-        (inicio, fim),
-    ).fetchone()
-    return Decimal(linha[0])
-
-
-def gasto_mes(conn: psycopg.Connection, agora: datetime) -> Decimal:
-    return _gasto(conn, *limites_do_mes(agora))
-
-
-def gasto_dia(conn: psycopg.Connection, agora: datetime) -> Decimal:
-    return _gasto(conn, *limites_do_dia(agora))
 
 
 def disparos_dia(conn: psycopg.Connection, agora: datetime) -> int:

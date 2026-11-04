@@ -132,6 +132,15 @@ def inserir_atendimento(
     return linha[0]
 
 
+def inserir_custo(conn: psycopg.Connection, atendimento_id: uuid.UUID, custo: float, ocorrido_em: datetime) -> None:
+    """Um passo `erro` com `custo_brl` (a fonte do gasto, contrato 08 §9) na próxima `ordem` do atendimento."""
+    conn.execute(
+        "INSERT INTO ia.passo (atendimento_id, ordem, ocorrido_em, tipo, texto, turno, fase, peca, custo_brl)"
+        " SELECT %s, coalesce(max(ordem), 0) + 1, %s, 'erro', 'Erro na peça modelo.', 1, 'E1', 'modelo', %s FROM ia.passo WHERE atendimento_id = %s",
+        (atendimento_id, ocorrido_em, custo, atendimento_id),
+    )
+
+
 def inserir_opt_out(conn: psycopg.Connection, pessoa_id: uuid.UUID, tipo: str = "opt_out") -> None:
     chave = f"t14:{pessoa_id}:{tipo}:{uuid.uuid4().hex[:8]}"
     conn.execute(
