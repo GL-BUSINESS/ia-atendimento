@@ -63,8 +63,9 @@ roda o rodízio do `zVuE` e o `restaurar` real mexe no chatbot e na delegação 
 _config(conn_app, relogio, "modo", "real")
 atd = inserir_atendimento(conn_super, estado="aberto", modo="real", iniciado_em=relogio.agora())
 await _executar(conn_app, relogio, atd, _assumir(atd), Espia(Desfecho("indeterminado")))
-espia = Espia(); await _executar(conn_app, relogio, atd, _t12(atd), espia)
-assert espia.destinos == []   # hoje: ['real']
+espia = Espia()
+await _executar(conn_app, relogio, atd, _t12(atd), espia)
+assert espia.destinos == []  # hoje: ['real']
 ```
 **O teste que existe não pega:** `test_parada_dura_sem_posse_real_simula_a_devolucao` só cobre o global `sombra`.
 **Correção sugerida:** para `pedido.devolucao`, use o modo do atendimento se houver posse real. Sem posse, grave um modo simulado (`sombra` ou
