@@ -4,6 +4,9 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **Achados R-02 a R-07 da revisão da integração de D-06:** `gitleaks.sh` com `-v` (achado diz arquivo e regra; valor segue oculto); teste de achado em um só modo (`dir`/`git`);
+  teste de 6 casas em `Preco`; nenhum `__pycache__` versionado; amostra de CPF de `tests/test_varredura.py` trocada para a faixa `000.000.2nn`, sem reescrever o histórico; `.gitleaksignore` deixa de chamá-la de sintética;
+  exceção `111.444…` removida do `.gitleaks.toml`; `OPERACAO.md` sem duas seções 8 (Release vira §11; §8 a §10 mantêm o número); README e D15 corrigidos.
 - **B1.4, contexto do turno, agente `Turno` e observabilidade** (sp01 T6; branch `feat/b1-4-agente-turno`; `docs/DECISOES-B1.4-0211.md`). Sem rede, sem
   chave de provedor: o provedor real fica atrás de `Provedor` e nos testes roda só o `ProvedorFalso` (responde pelo roteiro da F3).
   - `turno.py`: `Turno` (H §2.2 + `sinal`, `extra=forbid`, 20 intenções, texto ≤ 320 sem dígito, «R$», e-mail, link nem placeholder fora do conjunto

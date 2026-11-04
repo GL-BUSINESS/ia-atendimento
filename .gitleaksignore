@@ -1,3 +1,4 @@
-# Achados só do histórico (o commit já foi corrigido e o valor não está na árvore): amostras sintéticas do teste da varredura, antes de a7c6a50.
+# Achados só do histórico (o commit já foi corrigido e os valores não estão na árvore): amostras do teste da varredura, antes de a7c6a50.
+# A de CPF tem DV válido e fica fora das listas sintéticas: NÃO se provou que seja sintética nem que tenha dono. A árvore usa a faixa 000.000.2nn; o histórico não foi reescrito.
 88d081acb3dab59aa8e50a53133e8d205e90f7c7:tests/test_varredura.py:generic-api-key:27
 88d081acb3dab59aa8e50a53133e8d205e90f7c7:tests/test_varredura.py:cpf-formatado:27

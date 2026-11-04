@@ -1,5 +1,5 @@
-# gitleaks: segredos (chaves, tokens, JWT reais) e CPF formatado no repositório. Ficam de fora só os CPFs da
-# lista `CPFS_SINTETICOS` do `scripts/varredura.py` e a faixa `000.000.[01]nn-dd` das pessoas de teste (PD-6);
+# gitleaks: segredos (chaves, tokens, JWT reais) e CPF formatado no repositório. Ficam de fora só os CPFs de exemplo
+# públicos que a árvore usa (subconjunto de `CPFS_SINTETICOS`, `scripts/varredura.py`) e a faixa `000.000.[01]nn-dd` das pessoas de teste (PD-6);
 # qualquer outro CPF formatado é achado. Complementa a varredura (telefone, e-mail, CPF sem pontos).
 # Achados do histórico, já fora da árvore: `.gitleaksignore`, por impressão digital (commit + arquivo + regra + linha).
 title = "ia-atendimento"
@@ -24,7 +24,6 @@ regexes = [
   '''^000\.000\.[01]\d{2}-\d{2}$''',
   '''^529\.982\.247-25$''',
   '''^123\.456\.789-09$''',
-  '''^111\.444\.777-35$''',
 ]
 
 [[allowlists]]

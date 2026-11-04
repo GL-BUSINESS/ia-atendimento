@@ -12,7 +12,8 @@ if ! command -v "$BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
-OPCOES=(--config .gitleaks.toml --redact --no-banner --exit-code 1)
+# -v: o achado diz arquivo e regra; --redact segue escondendo o valor.
+OPCOES=(--config .gitleaks.toml --redact -v --no-banner --exit-code 1)
 status=0
 "$BIN" dir "${OPCOES[@]}" . || status=1
 if [ -d .git ] || [ -f .git ]; then

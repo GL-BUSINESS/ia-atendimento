@@ -72,7 +72,7 @@ URL do modelo em https (http só em localhost) e **nunca** `deepseek.com` nem `a
 | `SEGREDOS_SAIDA_ARQUIVO` | arquivo **0600** montado `:ro`, JSON com `ia_orquestrador_bearer`, `chatguru_token_ia`, `c360_client_id`, `c360_client_secret` (só validados no boot; usados a partir da B1.6/B6.8) |
 | `RESPONSAVEL_IA` | e-mail do Amado no ChatGuru: `responsavel_email` diferente dele no evento marca `delegacao_externa` |
 | `IA_MIGRACOES_DIR` | (opcional) pasta das migrações que o `/readyz` confere; padrão: `migrations/` do checkout ou a que o wheel leva dentro do pacote; não achar derruba a subida |
-| `PESSOAS_TESTE_ARQUIVO` | `pessoas_teste`, JSON `{"pessoas": [uuid], "chats": {chat_id: uuid}}`; vazio = ninguém é de teste. Monte-o com `python -m ia_atendimento.pessoas_teste arquivo --par CHAT=PERSONA` (kit `config/chats-teste.sh`, `docs/OPERACAO.md` §5): as 84 pessoas do catálogo mais os chats da TI |
+| `PESSOAS_TESTE_ARQUIVO` | `pessoas_teste`, JSON `{"pessoas": [uuid], "chats": {chat_id: uuid}}`; vazio = ninguém é de teste. Monte-o com `python -m ia_atendimento.pessoas_teste arquivo --par CHAT=PERSONA` (kit `config/chats-teste.sh`, `docs/OPERACAO.md` §10): as 84 pessoas do catálogo mais os chats da TI |
 | `CASAMENTO_JANELA_S`, `CASAMENTO_JANELA_SEM_HORA_S` | janelas do casamento webhook × RPA (padrão 10 s e 30 s) |
 | `PRECO_IN_USD`, `PRECO_CACHE_USD`, `PRECO_OUT_USD`, `CAMBIO`, `PRECO_TEMPLATE_BRL` | preços do custo (padrão do plano: 0,45 / 0,009 / 1,80 por 1M de tokens e câmbio 5,3346; ≤ 0 recusa o boot) |
 | `PHOENIX_ENDPOINT` | traces (banco `ia_obs`); vazio = não exporta |

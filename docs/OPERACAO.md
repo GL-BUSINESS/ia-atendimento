@@ -144,10 +144,6 @@ do ambiente (nomes em `.env.example`; segredos só no `.env` ou no arquivo 0600 
 Antes de aplicada: `uv add procrastinate==X`, `uv run python scripts/gerar_0002.py`, revisar o diff e commitar. Depois de aplicada: **não** regerar a 0002; o diff da pasta
 de migrações do pacote vira a migração seguinte (`0005+`).
 
-## 8. Release
-
-Tag semver e `gh release create` só depois da revisão (rodízio: quem implementa não revisa). Esta fundação é a `v0.1.0`; **a tag ainda não foi criada**.
-
 ## 8. Subir a API de entrada (B1.5) — na VPS, só com as migrações 0003 e 0004 aplicadas
 
 Pré-requisitos (ordem do contrato 08 §10): migrações 0003 e 0004 (seção 3) **antes** da imagem; os três arquivos de segredo abaixo montados `:ro`; o worker do
@@ -260,3 +256,7 @@ O kit mostra a lista vigente antes e depois, exige `--motivo` (código `[a-z0-9_
 O catálogo e as fixtures (`fixtures/duble/{cliente360_oferta,3rn_calcular,c6_simular}.json`) saem do corpus: `uv run python scripts/gerar_pessoas_teste.py` regrava e `--verificar` (no `check.sh`) reprova
 quando divergem. Mudou uma persona do corpus ⇒ regrave, rode `scripts/atualizar_pessoas_teste.py <este pessoas.json>` no `bancos-duble` (regrava `personas/pessoas_teste.yaml` e o `.sha256`) e rode os dois portões.
 **O `check.sh` dos dois repositórios exige a variável do irmão** (`BANCOS_DUBLE_PATH` aqui, `IA_ATENDIMENTO_PATH` lá) e falha sem ela.
+
+## 11. Release
+
+Tag semver e `gh release create` só depois da revisão (rodízio: quem implementa não revisa). Esta fundação é a `v0.1.0`; **a tag ainda não foi criada**.
