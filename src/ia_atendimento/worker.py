@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import logging
 import os
 import sys
@@ -29,7 +30,7 @@ from typing import Final
 import psycopg
 from psycopg_pool import ConnectionPool
 
-from ia_atendimento import fila
+from ia_atendimento import expiracao, fila
 from ia_atendimento.api.logs import configurar_logging
 from ia_atendimento.chave import LeitorConfig
 from ia_atendimento.config import ConfiguracaoInvalida, Settings, get_settings
@@ -47,9 +48,11 @@ _SQL_VIVOS: Final = "SELECT count(*) FROM procrastinate.procrastinate_workers WH
 
 
 def montar_servicos(pool: ConnectionPool) -> Servicos:
-    """`Servicos` de produção. Só o que existe (relógio, conexão, config); o resto falha alto até a B1.6 injetá-lo."""
+    """`Servicos` de produção. Só o que existe (relógio, conexão, config e, desde a B1.6a, o `expirar_parados`); o resto falha alto até a
+    B1.6b injetá-lo."""
     relogio = RelogioReal()
-    return Servicos(relogio=relogio, abrir_conexao=pool.connection, leitor_config=LeitorConfig(relogio))
+    base = Servicos(relogio=relogio, abrir_conexao=pool.connection, leitor_config=LeitorConfig(relogio))
+    return dataclasses.replace(base, expirar_parados=lambda: expiracao.executar_expirar_parados(base))
 
 
 async def executar(settings: Settings) -> None:
