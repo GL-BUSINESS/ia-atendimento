@@ -1,8 +1,8 @@
 # ia-atendimento
 
-Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este repositório tem a **fundação (A6)** e o
-**ciclo de vida do atendimento (B1.1)** e, em `feat/b1-5-api-entrada`, a **API de entrada (B1.5)** e, em `feat/b5-7b-pausado`, a **pausa combinada e os jobs
-da agenda (B5.7b)**: ainda sem agente, sem ferramentas, sem n8n e sem nada em produção. O que existe e está provado:
+Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este repositório tem a **fundação (A6)**, o
+**ciclo de vida do atendimento (B1.1)**, a **API de entrada (B1.5)**, a **pausa combinada e os jobs da agenda (B5.7b)**, as **pessoas de teste (B2.4)** e, desde a B1.4, o **agente do turno**
+(contexto, `Turno`, observabilidade): sem ferramentas de negócio, sem n8n, sem chave de provedor (o modelo real só roda atrás de `Provedor`; nos testes, o `ProvedorFalso`) e sem nada em produção. O que existe e está provado:
 
 | Peça | Onde | Prova |
 |---|---|---|
@@ -19,6 +19,10 @@ da agenda (B5.7b)**: ainda sem agente, sem ferramentas, sem n8n e sem nada em pr
 | Config versionada, registro validado e recusas de entrada | `src/ia_atendimento/chave.py`, `chave_registro.py` | `tests/test_chave.py` |
 | Fila Procrastinate (rajada de 3 s, trava por chat), jobs e bloqueio das 20:15 | `src/ia_atendimento/fila.py`, `jobs.py` | `tests/test_fila.py`, `tests/test_jobs.py` |
 | Prontidão (`readyz`, LISTEN/NOTIFY) | `src/ia_atendimento/prontidao.py` | `tests/test_prontidao.py` |
+
+| Contexto do turno: 8 blocos de H §3.1, ≤ 4 mil tokens (estimativa), corte resumo → trocas → exemplos, sem PII nem valor — B1.4 | `src/ia_atendimento/contexto.py`, `protecao.py`, `modulos_fase.py`, `tokens.py`, `ferramentas.py` | `tests/test_contexto.py`, `test_ferramentas.py`, `test_vazamento_corpo.py` |
+| Agente do turno: `Turno`, ações por fase, UM provedor (Fireworks só-EUA), custo por turno — B1.4 | `src/ia_atendimento/turno.py`, `agente.py`, `roteiro_f3.py` | `tests/test_agente.py`, `test_timeout.py` |
+| Observabilidade OTel → Phoenix com scrubber de spans e logs — B1.4 | `src/ia_atendimento/observabilidade.py` | `tests/test_observabilidade.py` |
 
 | Extrator determinístico de horário do agendamento (B5.7a, puro) | `src/ia_atendimento/agenda_extrator.py`, `tests/corpus/` | `tests/test_agenda_extrator.py` (EM1) |
 | Migração 0004: `ia.fn_anexar_rpa` (SECURITY DEFINER) e a outbox `ia.espelho_evento` — B1.5 | `migrations/0004_anexo_rpa_e_espelho.up.sql` | `tests/test_migracao_0004.py` |
@@ -60,6 +64,9 @@ URL do modelo em https (http só em localhost) e **nunca** `deepseek.com` nem `a
 | `DATABASE_URL` | banco `ia_atendimento`, login `ia_app_a`/`_b` (sem DDL, sem DELETE) |
 | `MODELO_NOME`, `MODELO_BASE_URL_1`, `MODELO_API_KEY_1` | DeepSeek V4.1 Flash 1017 no Fireworks só-EUA (estudo G §3) |
 | `API_TOKENS` | tokens da API por origem, JSON `{"n8n_braco": "…", "ti": "…", "c360_api": "…", "vigia": "…"}` (`X-IA-Token`; cada um >= 32 caracteres e diferente dos outros; `robo_esteira` é reservada e não tem token) |
+| `MODELO_ROTEADOR` | roteador só-EUA (`…/routers/deepseek-<versão>-us`, o do `MODELO_NOME`); outro valor derruba o boot |
+| `MODELO_RACIOCINIO_OFF` | como desligar o raciocínio no `extra_body`: `reasoning_effort_none` (padrão) ou `thinking_disabled`. **HIPÓTESE até a A2.9** |
+| `MODELO_TEMPERATURA`, `MODELO_MAX_TOKENS`, `MODELO_TIMEOUT_S` | chamada ao modelo (0,3 · 400 · 8 s, teto de 10 s; sem retentativa do SDK, só o `output_retries=1`) |
 | `CHAT_REF_CHAVE` | HMAC do `candidato.chat_ref` (>= 32 caracteres, diferente de `CHAVE_H16` e `CHAVE_FINGERPRINT`, permanente) |
 | `GATEWAY_HMAC_ARQUIVO` | arquivo **0600** montado `:ro` com 1 ou 2 chaves HMAC do gateway (uma por linha; duas só na virada de rotação) — contrato 01 §3.2 |
 | `SEGREDOS_SAIDA_ARQUIVO` | arquivo **0600** montado `:ro`, JSON com `ia_orquestrador_bearer`, `chatguru_token_ia`, `c360_client_id`, `c360_client_secret` (só validados no boot; usados a partir da B1.6/B6.8) |
@@ -69,6 +76,7 @@ URL do modelo em https (http só em localhost) e **nunca** `deepseek.com` nem `a
 | `CASAMENTO_JANELA_S`, `CASAMENTO_JANELA_SEM_HORA_S` | janelas do casamento webhook × RPA (padrão 10 s e 30 s) |
 | `PRECO_IN_USD`, `PRECO_CACHE_USD`, `PRECO_OUT_USD`, `CAMBIO`, `PRECO_TEMPLATE_BRL` | preços do custo (padrão do plano: 0,45 / 0,009 / 1,80 por 1M de tokens e câmbio 5,3346; ≤ 0 recusa o boot) |
 | `PHOENIX_ENDPOINT` | traces (banco `ia_obs`); vazio = não exporta |
+| `PHOENIX_PROJETO`, `PHOENIX_API_KEY` | projeto (padrão `ia-atendimento`) e chave do Phoenix, se ele exigir (`SecretStr`) |
 | `CHAVE_AES_ID`, `CHAVE_AES_ARQUIVO` | chave vigente (mensal) e arquivo 0600 `{"<id>": "<base64 de 32 bytes>"}` |
 | `CHAVE_H16`, `CHAVE_FINGERPRINT` | chaves HMAC (>= 32 caracteres, diferentes entre si, permanentes) do `msg_chave` e do `msg_fingerprint` da mensagem recebida |
 
@@ -134,7 +142,7 @@ Para aplicar na S4 (feito pelo dono, nunca por este código): `migrations/README
 ```
 migrations/      0001 (estudo I), 0002 (Procrastinate), 0003 (estado), 0004 (anexo do RPA e outbox), 0001.sha256, README.md (ordem de aplicação na S4)
 scripts/         check.sh, aplicar_migracoes_local.sh, gerar_0002.py, varredura.py
-src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py, estado*.py, fila.py, jobs.py, mensagens.py, agendamento.py, agenda_estado.py, agenda_jobs.py, estado_pausa.py, worker_vivo.py, worker.py, api/ …
+src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py, turno.py, agente.py, contexto.py, observabilidade.py (B1.4), estado*.py, fila.py, jobs.py, mensagens.py, agendamento.py, agenda_estado.py, agenda_jobs.py, estado_pausa.py, worker_vivo.py, worker.py, api/ …
 tests/           test_*.py; casos/ = os 350 casos do estudo I como dados (nome, papel, SQL, expectativa)
 docs/OPERACAO.md operação (aplicação na S4 = texto para o dono, não executar sem o «sim»)
 .github/workflows/ci.yml  ruff + pytest com serviço postgres:18, sem segredos

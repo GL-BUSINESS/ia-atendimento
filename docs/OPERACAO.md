@@ -99,17 +99,52 @@ precisa ser **direta** ao Postgres (nunca por pooler em modo transação: o LIST
 
 Não use o grupo `ia_app` no `ALTER ROLE`: configuração de papel não é herdada pelos logins membros (`tests/test_migracoes.py` prova).
 
-## 5. Quando o checksum divergir
+## 5. Agente do turno: modelo, preço e traces (B1.4)
+
+Nada disto liga sozinho: a IA nasce desligada (`ia_ativa=false`, `modo="duble"`) e **não existe chave de provedor** neste repositório. O que o orquestrador lê
+do ambiente (nomes em `.env.example`; segredos só no `.env` ou no arquivo 0600 do cofre da VPS, nunca no git, no log nem no span):
+
+| Variável | Padrão | Observação |
+|---|---|---|
+| `MODELO_NOME` | `deepseek-v4p1-flash-1017` | nome lógico; é o que a config (`modelo_por_faixa`) e o passo `decisao` gravam |
+| `MODELO_ROTEADOR` | `accounts/fireworks/routers/deepseek-v4p1-flash-1017-us` | o que vai na requisição; precisa terminar em `-us` e ser o do `MODELO_NOME` (o boot recusa o endpoint «global») |
+| `MODELO_BASE_URL_1` | `https://us.api.fireworks.ai/inference/v1` | só este host (ou loopback, para o dublê do modelo) |
+| `MODELO_API_KEY_1` | — | `SecretStr`, ≥ 16 caracteres; sai de `Settings` e vai só no cabeçalho `Authorization` da chamada; o scrubber a troca por `[SEGREDO]` em span e log |
+| `MODELO_RACIOCINIO_OFF` | `reasoning_effort_none` | **HIPÓTESE.** `reasoning_effort_none` envia `{"reasoning_effort": "none"}`; `thinking_disabled` envia `{"thinking": {"type": "disabled"}}`. A **A2.9** diz qual o V4.1 Flash no Fireworks aceita: trocar aqui, sem mexer em código |
+| `MODELO_TEMPERATURA`, `MODELO_MAX_TOKENS` | `0.3`, `400` | saída ≤ 220 tokens (H §3.1) com folga para o JSON do `Turno`; vai como `max_tokens` |
+| `MODELO_TIMEOUT_S` | `8` (máx. 10) | tempo de UMA chamada, no cliente HTTP e no turno; o turno inteiro tem esse tempo × 2 (`output_retries=1`). O SDK **não** repete 429/5xx/conexão (`max_retries=0`); não existe segundo provedor. Calibrar na A2.9 |
+| `PRECO_IN_USD`, `PRECO_CACHE_USD`, `PRECO_OUT_USD`, `CAMBIO` | `0.45`, `0.009`, `1.80`, `5.3346` | US$/1M tokens do Fireworks só-EUA (estudo G §4) e câmbio de `premissas.json`; grava `custo_brl` no passo `decisao` (contrato 08 §9). ≤ 0 derruba o boot. **Conciliar com a fatura** |
+| `PHOENIX_ENDPOINT` | vazio | vazio = nada é exportado (nem provedor de traces é criado). Com valor: OTLP/HTTP em `<endpoint>/v1/traces`, sem credencial na URL |
+| `PHOENIX_PROJETO`, `PHOENIX_API_KEY` | `ia-atendimento`, vazio | a chave, se existir, vai como `Authorization: Bearer` |
+
+- **Um provedor só.** Falha de rede, HTTP, tempo ou saída inválida vira `ErroDoModelo` (mensagem fixa, nunca o corpo da resposta) e sobe: o processador (B1.6) conta a
+  falha e, na segunda, repassa ao vendedor. **Não há `FallbackModel`.** Trocar de provedor (reserva Together só-EUA, Gemini) é mudança de código revisada.
+- **Raciocínio.** Se a resposta trouxer tokens de raciocínio o turno vale, mas sai o alerta `alerta_raciocinio` (log e evento do span `ia.turno`): custo e latência
+  subiriam calados. `raciocinio=true` em `modelo_por_faixa` é recusado (`RaciocinioNaoLiberado`) até a F3 aprovar.
+- **PII em span e log.** Todo span passa por `mascarar()` (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos) e pelo registro de segredos antes de sair do processo; o
+  `LogRecord` de todo logger também. É a segunda cerca: a primeira é o contexto, que nunca monta o prompt com esses dados. Para ver o texto do cliente no Phoenix o TI
+  usa o «ver bruto» (14 d); aqui nunca.
+- **Ferramentas.** `criar_agente(..., ferramentas={"T3": função})` é o único caminho: o nome precisa ter projeção em `PROJECAO_DAS_FERRAMENTAS` (senão o agente nem sobe) e o retorno só volta ao
+  modelo projetado, mascarado e auditado; toda folha de texto do retorno é de domínio fechado. A ferramenta só aparece no corpo HTTP, só executa e só conta tokens na fase que a libera
+  (`FERRAMENTAS_DO_MODELO_POR_FASE`; passe `tokens_das_ferramentas=agente.tokens_das_ferramentas` a `montar_contexto`). Ferramenta nova entra com a projeção dela, no mesmo PR.
+- **E5 (coleta de dados).** `montar_contexto` oculta a mensagem do cliente (`[dado:<campo>]`): ela é o valor do campo. Só chega ao modelo com `desvio_liberado=True`, e quem decide o desvio é o processador.
+- **Teto de 4 mil tokens** é **estimativa** (`tokens.EstimadorPorCaracteres`: 3 caracteres/token + 10%). O tokenizer do DeepSeek ainda não foi medido (H §3.1, HIPÓTESE):
+  a **B8.2** mede e troca o estimador (`EstimadorPorCodificador`) sem mexer no resto.
+- **Sem custo de rede nos testes.** `bash scripts/check.sh` roda o agente contra `httpx.MockTransport` e o `ProvedorFalso`; nenhum teste abre conexão externa.
+- Quando a chave existir (pendência do dono, estudo G §5): o kit grava `MODELO_API_KEY_1` fora do chat, o **teste de aceitação da §6 do estudo G** (20 chamadas sintéticas)
+  decide a forma de `MODELO_RACIOCINIO_OFF`, `NativeOutput` × Tool Output e o preço real; só depois a IA sai do dublê.
+
+## 6. Quando o checksum divergir
 
 `aplicar()`/`conferir()` levantam `ChecksumDivergente` e **param**: alguém editou uma migração já aplicada. Não corrija o DDL: restaure o arquivo
 (`git checkout`) ou, se o desenho mudou, crie a migração seguinte (`0005+`) e reabra o estudo I. Na dúvida, abra achado na Parte F do roteiro.
 
-## 6. Trocar a versão do Procrastinate
+## 7. Trocar a versão do Procrastinate
 
 Antes de aplicada: `uv add procrastinate==X`, `uv run python scripts/gerar_0002.py`, revisar o diff e commitar. Depois de aplicada: **não** regerar a 0002; o diff da pasta
 de migrações do pacote vira a migração seguinte (`0005+`).
 
-## 7. Release
+## 8. Release
 
 Tag semver e `gh release create` só depois da revisão (rodízio: quem implementa não revisa). Esta fundação é a `v0.1.0`; **a tag ainda não foi criada**.
 

@@ -4,6 +4,34 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **B1.4, contexto do turno, agente `Turno` e observabilidade** (sp01 T6; branch `feat/b1-4-agente-turno`; `docs/DECISOES-B1.4-0211.md`). Sem rede, sem
+  chave de provedor: o provedor real fica atrás de `Provedor` e nos testes roda só o `ProvedorFalso` (responde pelo roteiro da F3).
+  - `turno.py`: `Turno` (H §2.2 + `sinal`, `extra=forbid`, 20 intenções, texto ≤ 320 sem dígito, «R$», e-mail, link nem placeholder fora do conjunto
+    fechado, `motivo` padrão «(não informado)»), `ACOES_POR_FASE` (batem com o gabarito da F3), `validar_turno_na_fase` (ação, ferramenta, TX e
+    campo fora da fase ⇒ `AcaoForaDaFase` e irmãs, `acao_invalida=true`), `custo_brl` (contrato 08 §9, 6 casas) e `ResultadoTurno.como_decisao()`.
+  - `agente.py`: `ResolvedorModelo` (UM `OpenAIChatModel` em `us.api.fireworks.ai/inference/v1`, roteador `…-1017-us`, **sem `FallbackModel`**),
+    `criar_agente` (`output_retries=1`), `executar_turno` (custo, latência, `trace_id`; falha do provedor, tempo ou saída inválida ⇒ `ErroDoModelo` com
+    mensagem fixa e o gasto em `.uso`), raciocínio desligado por `extra_body` (forma em `Settings`, HIPÓTESE até a A2.9), `ProvedorFalso`.
+  - `contexto.py` + `modulos_fase.py` + `tokens.py`: os 8 blocos de H §3.1 montados do estado, `perfil` (allowlist com `ultimo_sentido`, `tipo_ultima_fala`,
+    `etapa_inapp`), conversa cifrada, resumo e exemplos da F3 (fora do hold-out); estimador de tokens plugável (HIPÓTESE, medir em B8.2); corte
+    resumo → trocas antigas → exemplos até ≤ 4.000; CPF, telefone, e-mail, nome, valores e ids reais nunca vão ao modelo (máscara de novo, `[VALOR]`/`[PRAZO]`,
+    apelidos `oferta-1`, auditoria do prompt inteiro). Oferta só a partir da E3 (Q1).
+  - `observabilidade.py`: OTel → Phoenix (desligado por padrão), exportador que mascara todo span, filtro de logs, segredos como `[SEGREDO]`, alerta de raciocínio.
+  - `config.py`: `modelo_roteador` (só `-us`), `modelo_raciocinio_off`, `modelo_temperatura`, `modelo_max_tokens`, `modelo_timeout_s`,
+    `preco_in_usd`/`preco_cache_usd`/`preco_out_usd`/`cambio` (≤ 0 derruba o boot), `phoenix_projeto`, `phoenix_api_key`.
+  - Revisão automática de segurança (2 MEDIUM em `contexto.py`, corrigidos): o `perfil` ao modelo passou a allowlist **por chave** (inteiro só em `idade_do_lead_min`/`etapas_do_robo_concluidas`, cada
+    um com seu limite; `banco` `^[A-Z0-9_]{1,32}$`; `origem`, `ultimo_sentido`, `tipo_ultima_fala` e `etapa_inapp` em enums fechados) e a folha de resultado de ferramenta voltou a só minúsculas; ambas rejeitam
+    os nomes da conversa, e `auditar_prompt` também.
+  - Testes: `tests/test_agente.py`, `tests/test_contexto.py`, `tests/test_observabilidade.py` (cobertura do código novo ≈ 98%).
+  - Revisão 2 (`docs/REVISAO-B1.4-0311-r2.md`; 1 alto, 7 médios, 4 baixos; correções em `docs/DECISOES-B1.4-0211.md` §6): `proteger_texto` linear (lookbehind em caracteres de host) e com corte da entrada em 1.000 caracteres (R2-01);
+    qualquer exceção de ferramenta é `FerramentaFalhou` (`ErroDoModelo`, texto fixo) (R2-02); a ferramenta registrada só aparece no corpo HTTP, só executa e só conta tokens na fase que a libera (R2-03); `status`/`etapa` e todas as
+    folhas de texto do resultado por domínio fechado (R2-04); host com sinal de caminho é link com qualquer TLD (R2-05); `[NUMERO:n]`, hora com `hrs`/`hs`/`min`, `dd/mm hh:mm` isento da máscara de 8 dígitos e o extrator de agenda
+    sobre o texto de `mascarar` (R2-07, R2-08). Testes novos: `test_protecao.py`; `test_ferramentas.py` e `test_contexto.py` ampliados.
+  - Revisão 1 (`docs/REVISAO-B1.4-0311.md`; 0 crítico, 1 alto, 12 médios, 11 baixos; correções em `docs/DECISOES-B1.4-0211.md` §5): retorno de ferramenta só volta ao modelo projetado e
+    auditado (`ferramentas.py`, A-1); `protecao.py` (número «nu» → `[NUMERO]`, data → `[DATA]`, link → `[LINK]`, `r$` solto → `[VALOR]`); mensagem da E5 oculta por padrão; nome colado a `_`/dígito mascarado
+    (`mascara.py`); `banco` só do catálogo e folhas por domínio fechado; placeholder fora da fase ⇒ `TextoForaDaFase`; `executar_turno` só aceita o `Contexto` montado; tempo-limite de 8 s (teto 10) e
+    `max_retries=0`; fábrica de `LogRecord` que nunca levanta; `ContextoNaoCabe`/`ContextoComDadoPessoal` são `ErroDoModelo`; estimador com não latino a 2 tokens/caractere; scrubber cobre chave,
+    nome de evento, link e JSON; link digitado até o próximo espaço e em largura inteira (`normalizar`, `ha_link` na auditoria); texto livre sem promessa; `ArgsDaFerramenta`. `MODELO_TENTATIVAS_HTTP` saiu. Testes novos: `test_ferramentas.py`, `test_timeout.py`, `test_vazamento_corpo.py`.
 - **B2.4, `pessoas_teste` (FACTA, T1/T3) e fixtures de 3RN/C6 para o modo `duble`** (`feat/b2-4-pessoas-teste`, empilhada sobre `feat/b1-5-api-entrada`; `docs/DECISOES-B2.4-0211.md`):
   - **`src/ia_atendimento/pessoas_teste/`** (o módulo `pessoas_teste.py` da B1.5 virou pacote; `arquivo.py` é o mesmo código e a API pública `PessoasTesteFixas`/`carregar` não mudou):
     `catalogo.py` + `pessoas.json` (84 pessoas sintéticas, uma por `persona_id` da F3, CPF `000.000.0nn-dd` do corpus, `pessoa_id` fixo `00000000-0000-7000-8000-…`, oferta FACTA ativa do perfil da persona,

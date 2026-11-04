@@ -43,6 +43,8 @@ _UUID = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 _ISENTO = re.compile(
     r"(?<![0-9])(?:0?[1-9]|[12][0-9]|3[01])([/.\-])(?:0?[1-9]|1[0-2])\1(?:19|20)[0-9]{2}(?![0-9])"
     r"|R\$\s*[0-9]{1,3}(?:\.[0-9]{3}){0,3},[0-9]{2}(?![0-9])"
+    # data e hora do agendamento («06/11 15:30», «dia 12/11, 9h30»): 8 dígitos que NÃO são documento (revisão 2 da B1.4, R2-07)
+    r"|(?<![0-9])(?:0?[1-9]|[12][0-9]|3[01])/(?:0?[1-9]|1[0-2])[ ,]+(?:[01]?[0-9]|2[0-3])[:h][0-5][0-9](?![0-9])"
 )
 MAX_DIGITOS_DINHEIRO = 11
 _CORRENTE = re.compile(r"[+(]?[0-9](?:[\W_]{0,6}[0-9])*")
@@ -174,7 +176,10 @@ def _mascarar_nomes(texto: str, nomes: Iterable[str]) -> str:
     if not partes:
         return texto
     dobrado = _dobrar(texto)
-    padrao = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(p).replace(r"\ ", r"\s+") for p in partes) + r")(?!\w)")
+    # borda = «não colado a LETRA» (`[^\W\d_]`): `\w` incluía `_` e dígito, e `maria1`, `maria_alvardel` e `_alvardel` escapavam
+    # (revisão B1.4, M-3)
+    letra = r"[^\W\d_]"
+    padrao = re.compile(rf"(?<!{letra})(?:" + "|".join(re.escape(p).replace(r"\ ", r"\s+") for p in partes) + rf")(?!{letra})")
     protegidos = [m.span() for m in _MARCADORES.finditer(texto)]
     trocas: list[Troca] = [
         (inicio, fim, NOME)

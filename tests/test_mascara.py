@@ -118,6 +118,30 @@ def test_nome_nao_mascara_dentro_de_outra_palavra():
     assert mascarar("a analise esta pronta", nomes=["Ana"]) == "a analise esta pronta"
 
 
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("maria1", "[NOME]1"),
+        ("MARIA1", "[NOME]1"),
+        ("maria_alvardel", "[NOME]_[NOME]"),
+        ("Maria_Alvardel", "[NOME]_[NOME]"),
+        ("alvardel2024", "[NOME]2024"),
+        ("_alvardel", "_[NOME]"),
+        ("2maria", "2[NOME]"),
+        ("maria.alvardel", "[NOME].[NOME]"),
+        ("maria-alvardel", "[NOME]-[NOME]"),
+    ],
+)
+def test_nome_colado_a_underscore_ou_digito_tambem_e_mascarado(texto, esperado):
+    """M-3: a borda era `\\w`, que inclui `_` e dígito; só LETRA vizinha impede o nome de ser nome."""
+    assert mascarar(texto, nomes=["Maria Alvardel"]) == esperado
+
+
+@pytest.mark.parametrize("texto", ["mariana", "amarelo", "alvardelx", "xmaria", "marias", "a analise"])
+def test_nome_colado_a_letra_continua_sendo_outra_palavra(texto):
+    assert mascarar(texto, nomes=["Maria Alvardel", "Ana"]) == texto
+
+
 def test_mistura_de_tudo_e_deterministica_e_idempotente():
     texto = f"Sou Fulana Teste, CPF {CPF_FORMATADO}, tel (11) 91234-5678, fulana@exemplo.test, CEP 99999-999, id 11111111-1111-7111-8111-111111111111"
     esperado = "Sou [NOME], CPF [CPF], tel [TELEFONE], [EMAIL], CEP [CEP], id [UUID]"
