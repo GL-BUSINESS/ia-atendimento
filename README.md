@@ -1,7 +1,7 @@
 # ia-atendimento
 
 Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este repositório tem a **fundação (A6)** e o
-**ciclo de vida do atendimento (B1.1)**: ainda sem agente, sem ferramentas, sem API de negócio, sem n8n e sem nada em produção. O que existe e está provado:
+**ciclo de vida do atendimento (B1.1)** e, em `feat/b1-5-api-entrada`, a **API de entrada (B1.5)**: ainda sem agente, sem ferramentas, sem n8n e sem nada em produção. O que existe e está provado:
 
 | Peça | Onde | Prova |
 |---|---|---|
@@ -20,6 +20,10 @@ Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este re
 | Prontidão (`readyz`, LISTEN/NOTIFY) | `src/ia_atendimento/prontidao.py` | `tests/test_prontidao.py` |
 
 | Extrator determinístico de horário do agendamento (B5.7a, puro) | `src/ia_atendimento/agenda_extrator.py`, `tests/corpus/` | `tests/test_agenda_extrator.py` (EM1) |
+| Migração 0004: `ia.fn_anexar_rpa` (SECURITY DEFINER) e a outbox `ia.espelho_evento` — B1.5 | `migrations/0004_anexo_rpa_e_espelho.up.sql` | `tests/test_migracao_0004.py` |
+| API de entrada: 13 rotas do contrato 08, auth por token e HMAC do gateway, erros sem eco — B1.5 | `src/ia_atendimento/api/` | `tests/test_api*.py`, `tests/test_contrato_api.py`, `tests/test_corrida.py` |
+| Mensagem recebida (uma função para webhook e RPA) e casamento webhook × RPA — B1.5 | `src/ia_atendimento/mensagens.py` | `tests/test_contrato_api.py`, `tests/test_mensagens.py` |
+| Agendamento («Vou fazer depois»), faixa de esforço, `pessoas_teste`, enfileirador e segredos em arquivo 0600 — B1.5 | `agendamento.py`, `esforco.py`, `pessoas_teste.py`, `enfileirador.py`, `segredos.py` | `tests/test_api*.py`, `tests/test_enfileirador.py`, `tests/test_segredos.py`, `tests/test_ambiente_api.py` |
 
 ## Como rodar
 
@@ -48,10 +52,39 @@ URL do modelo em https (http só em localhost) e **nunca** `deepseek.com` nem `a
 |---|---|
 | `DATABASE_URL` | banco `ia_atendimento`, login `ia_app_a`/`_b` (sem DDL, sem DELETE) |
 | `MODELO_NOME`, `MODELO_BASE_URL_1`, `MODELO_API_KEY_1` | DeepSeek V4.1 Flash 1017 no Fireworks só-EUA (estudo G §3) |
-| `API_TOKEN` | token da API de entrada |
+| `API_TOKENS` | tokens da API por origem, JSON `{"n8n_braco": "…", "ti": "…", "c360_api": "…", "vigia": "…"}` (`X-IA-Token`; cada um >= 32 caracteres e diferente dos outros; `robo_esteira` é reservada e não tem token) |
+| `CHAT_REF_CHAVE` | HMAC do `candidato.chat_ref` (>= 32 caracteres, diferente de `CHAVE_H16` e `CHAVE_FINGERPRINT`, permanente) |
+| `GATEWAY_HMAC_ARQUIVO` | arquivo **0600** montado `:ro` com 1 ou 2 chaves HMAC do gateway (uma por linha; duas só na virada de rotação) — contrato 01 §3.2 |
+| `SEGREDOS_SAIDA_ARQUIVO` | arquivo **0600** montado `:ro`, JSON com `ia_orquestrador_bearer`, `chatguru_token_ia`, `c360_client_id`, `c360_client_secret` (só validados no boot; usados a partir da B1.6/B6.8) |
+| `RESPONSAVEL_IA` | e-mail do Amado no ChatGuru: `responsavel_email` diferente dele no evento marca `delegacao_externa` |
+| `IA_MIGRACOES_DIR` | (opcional) pasta das migrações que o `/readyz` confere; padrão: `migrations/` do checkout ou a que o wheel leva dentro do pacote; não achar derruba a subida |
+| `PESSOAS_TESTE_ARQUIVO` | fixtures de `pessoas_teste` (B2.4), JSON `{"pessoas": [uuid], "chats": {chat_id: uuid}}`; vazio = ninguém é de teste |
+| `CASAMENTO_JANELA_S`, `CASAMENTO_JANELA_SEM_HORA_S` | janelas do casamento webhook × RPA (padrão 10 s e 30 s) |
+| `PRECO_IN_USD`, `PRECO_CACHE_USD`, `PRECO_OUT_USD`, `CAMBIO`, `PRECO_TEMPLATE_BRL` | preços do custo (padrão do plano: 0,45 / 0,009 / 1,80 por 1M de tokens e câmbio 5,3346; ≤ 0 recusa o boot) |
 | `PHOENIX_ENDPOINT` | traces (banco `ia_obs`); vazio = não exporta |
 | `CHAVE_AES_ID`, `CHAVE_AES_ARQUIVO` | chave vigente (mensal) e arquivo 0600 `{"<id>": "<base64 de 32 bytes>"}` |
 | `CHAVE_H16`, `CHAVE_FINGERPRINT` | chaves HMAC (>= 32 caracteres, diferentes entre si, permanentes) do `msg_chave` e do `msg_fingerprint` da mensagem recebida |
+
+## API de entrada (B1.5)
+
+Contrato: `contratos/08-orquestrador.md` v2.1/v2.2 (fora deste repo). `uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90.0.5 --port 8000 --no-access-log`
+(OPERACAO.md §8). Autenticação: `X-IA-Token` (origem = a do token que casou) em todas as rotas, menos `/eventos/chatguru`, que pede a **assinatura HMAC do
+gateway** (`x-gl-origem|rota|timestamp|assinatura`; o token `ti` vale ali só como replay manual, sem `x-gl-*`), e `/healthz`, aberta.
+
+| Rota | Origens |
+|---|---|
+| `POST /atendimentos` | `n8n_braco` (e `robo_esteira`, reservada, sem token) |
+| `GET /atendimentos/por-chave/{chave}` | `n8n_braco`, `vigia`, `ti` |
+| `POST /eventos/chatguru` | assinatura do gateway; ou `ti` (replay manual) |
+| `POST /eventos/mensagem` | `ti` |
+| `POST /agendamentos`, `POST /sessoes/{id}/candidatos` | `n8n_braco` |
+| `GET /config`, `GET /config/{nome}` | `n8n_braco`, `ti`, `c360_api`, `vigia` |
+| `PUT /config/{nome}` | `ti`; `c360_api` só `ia_ativa` e `modo` |
+| `POST /atendimentos/{id}/anotacoes` | `ti` |
+| `GET /readyz`, `GET /saude` | qualquer token válido; `GET /healthz` sem token |
+
+Erros: `{"erro":{"codigo","mensagem","campo","detalhe"},"trace_id"}`; nunca ecoam o valor recebido. Sem CPF em corpo, log ou banco. Decisões e pendências:
+`docs/DECISOES-B1.5-3010.md`.
 
 ## Contrato de dados
 
@@ -92,9 +125,9 @@ Para aplicar na S4 (feito pelo dono, nunca por este código): `migrations/README
 ## Estrutura
 
 ```
-migrations/      0001 (estudo I), 0002 (Procrastinate), 0001.sha256, README.md (ordem de aplicação na S4)
+migrations/      0001 (estudo I), 0002 (Procrastinate), 0003 (estado), 0004 (anexo do RPA e outbox), 0001.sha256, README.md (ordem de aplicação na S4)
 scripts/         check.sh, aplicar_migracoes_local.sh, gerar_0002.py, varredura.py
-src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py
+src/ia_atendimento/  config.py, cifra.py, mascara.py, migracoes.py, estado*.py, fila.py, jobs.py, mensagens.py, agendamento.py, api/ …
 tests/           test_*.py; casos/ = os 350 casos do estudo I como dados (nome, papel, SQL, expectativa)
 docs/OPERACAO.md operação (aplicação na S4 = texto para o dono, não executar sem o «sim»)
 .github/workflows/ci.yml  ruff + pytest com serviço postgres:18, sem segredos

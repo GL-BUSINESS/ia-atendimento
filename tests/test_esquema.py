@@ -131,12 +131,12 @@ def test_seeds_nao_citam_anthropic_nem_a_api_oficial_da_deepseek(banco: Banco):
 
 
 def test_contagem_de_objetos_do_estudo(banco: Banco):
-    assert banco.escalar(APP, "SELECT count(*) FROM pg_tables WHERE schemaname='ia'") == "18"
+    assert banco.escalar(APP, "SELECT count(*) FROM pg_tables WHERE schemaname='ia'") == "19"  # 18 do estudo + espelho_evento (0004)
     assert banco.escalar(APP, "SELECT count(*) FROM pg_views WHERE schemaname='ia'") == "1"
     assert banco.escalar(
         APP,
         "SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname='ia'",
-    ) == ("fn_atendimento_podar,fn_atendimento_terminal,fn_texto_podar")  # + o trigger de terminal absorvente (0003)
+    ) == ("fn_anexar_rpa,fn_atendimento_podar,fn_atendimento_terminal,fn_texto_podar")  # + terminal absorvente (0003) e anexo do RPA (0004)
     assert (
         banco.escalar(APP, "SELECT rolname FROM pg_roles r JOIN pg_database d ON d.datdba = r.oid WHERE d.datname = current_database()")
         == "ia_owner"

@@ -91,6 +91,7 @@ class Servicos:
     expirar_parados: Callable[[], Awaitable[int]] = field(default=_NaoConfigurado("expirar_parados"))
     tratar_lease_vencido: Callable[[LeaseVencido], Awaitable[None]] = field(default=_NaoConfigurado("tratar_lease_vencido"))
     auditar_pii: Callable[[Sequence[uuid.UUID]], Awaitable[int]] = field(default=_NaoConfigurado("auditar_pii"))
+    encerrar_por_chave: Callable[[uuid.UUID], Awaitable[None]] = field(default=_NaoConfigurado("encerrar_por_chave"))
 
     def leitor(self) -> LeitorConfig:
         return self.leitor_config or LeitorConfig(self.relogio, ttl_s=0)
@@ -105,6 +106,11 @@ async def executar_turno(servicos: Servicos, atendimento_id: uuid.UUID) -> None:
 
 async def executar_iniciar(servicos: Servicos, atendimento_id: uuid.UUID) -> None:
     await servicos.iniciar_atendimento(atendimento_id)
+
+
+async def executar_encerrar_por_chave(servicos: Servicos, atendimento_id: uuid.UUID) -> None:
+    """Parada leve manual (`PUT ia_ativa=false`, B1.5 agenda um job por atendimento, escalonado em ≤ 20 min). A implementação é da B1.6."""
+    await servicos.encerrar_por_chave(atendimento_id)
 
 
 async def executar_expirar(servicos: Servicos) -> int:

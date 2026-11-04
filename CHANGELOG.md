@@ -4,6 +4,37 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **B1.5, API de entrada (T7) + migração 0004** (`feat/b1-5-api-entrada`; `docs/DECISOES-B1.5-3010.md`; a versão do `pyproject` não muda, entra na v0.3.0):
+  - **Migração `0004_anexo_rpa_e_espelho`** (D5 e D6 do contrato 08 §11, aditiva): `ia.fn_anexar_rpa(bigint, text)` `SECURITY DEFINER` (dono `ia_owner`, `search_path = pg_catalog, ia`,
+    `EXECUTE` só a `ia_app`; o único jeito de anexar o `_id` do RPA ao passo, que é append-only) e a outbox `ia.espelho_evento` (`SELECT, INSERT` e `UPDATE` de 4 colunas a `ia_app`, nada a `ia_leitura`).
+    `tests/test_migracao_0004.py` prova `ia_app` executando a função e **sem** `UPDATE` direto em `passo`, `ia_leitura` sem a outbox, reaplicar recusado pelo ledger, checksum e o passo a passo da S4.
+  - **`src/ia_atendimento/api/`** (FastAPI 0.162.0, já pinado): as 13 rotas do contrato 08, autenticação por `X-IA-Token` (origem = a do token) e, em `/eventos/chatguru`, por **assinatura HMAC do gateway**
+    (`x-gl-*`, janela de ± 300 s, duas chaves na rotação); 403 por origem; envelope de erro sem eco do valor (também no 422 do Pydantic); log sem corpo; sem `/docs`.
+    `POST /atendimentos` (sem CPF; `chat_number` cifrado no cofre; replay 200/409 pelo `entrada_fingerprint` do §4; recusas de config na ordem do catálogo, com `janela_24h`; `modo` por atendimento,
+    `persona_id` só em chat de teste; faixa pela comissão), `POST /agendamentos` (chave recalculada, extrator B5.7a, `agenda_max_dia` sob a trava), eventos (uma função para webhook e RPA,
+    `descartado`/`conflito` como 200, **casamento webhook × RPA** por `fn_anexar_rpa`), `GET|PUT /config` (corrida = 409, `ia_ativa=false` agenda `encerrar_por_chave`), anotações, candidatos, `por-chave`, `/healthz`, `/readyz`, `/saude`.
+  - **Novos módulos:** `mensagens.py`, `agendamento.py`, `esforco.py`, `pessoas_teste.py`, `enfileirador.py` (defer síncrono do Procrastinate **na transação da API**), `segredos.py` (arquivos 0600), tarefa `encerrar_por_chave` (fila e `jobs`).
+  - **`Settings`:** `api_tokens` por origem substitui `api_token`; `chat_ref_chave`, `responsavel_ia`, `casamento_janela_*`, `preco_*`/`cambio`, `pessoas_teste_arquivo`, e os arquivos de segredo (`GATEWAY_HMAC_ARQUIVO`, `SEGREDOS_SAIDA_ARQUIVO`); `.env.example` e README atualizados.
+  - **Ajustes em módulos existentes:** `estado.procurar_replay` e `fingerprint_de_identidade`; `chave.bloqueio_entrada(abertura_possivel=)` e `optou_por_sair`/`abertos_agora` públicos; `linha_tempo.gravar_mensagem_recebida(fora_de_ordem=)`
+    e o reenvio do `_id` do RPA já anexado vira `repetido` (não `conflito`).
+  - **Dependências:** `psycopg-pool==3.3.3` declarado (já estava no `uv.lock` por causa do Procrastinate; a API o usa direto para o pool). `fastapi`, `uvicorn` e `httpx` (dev) já estavam pinados.
+  - **Revisão de segurança automática (2 achados MEDIUM, corrigidos):** `agenda_max_dia` conferido de novo dentro do `pg_advisory_xact_lock`; URL malformada em `url_arquivo` virava `NameError` (500), agora 422 sem eco.
+
+  - **Revisão 1 (`docs/REVISAO-B1.5-3010.md`, 31 achados; 0 crítico, 2 ALTO):**
+    - **R1-01/R1-02 (ALTO):** o replay e o gêmeo concorrente de `POST /atendimentos` e `POST /agendamentos` devolvem `200 repetido` (replay conferido DENTRO da trava, antes de `abertos_max`/`chat_ocupado`, e relido quando uma recusa estoura); `tests/test_corrida.py` com threads reais.
+    - **R1-03:** candidatos idênticos concorrentes ⇒ `ON CONFLICT DO NOTHING` + comparação (antes 500). **R1-04:** `/eventos` relê o atendimento com `FOR UPDATE` na transação do registro (encerrado ⇒ `descartado`; `repassando` ⇒ sem turno).
+      **R1-08:** `max_disparos_dia` dentro da trava. **R1-05:** `responsavel_email` vazio não marca delegação. **R1-06:** instantes de corpo só como texto RFC 3339 com fuso (epoch e texto numérico ⇒ 422 sem eco) e `datetime_post` > +5 min grava pelo recebimento com o código `relogio_futuro` (R2-02: 422 perderia a mensagem real; o contrato 08 v2.2 §5.3 precisa dizer «grava limitado»).
+    - **R1-07/R1-17:** `janelas[].motivo` do calendário é código `^[a-z0-9_]{1,40}$` sem documento (e a janela só tem `de`, `ate`, `motivo`); `por`, `operador` e `disparado_por` são login/e-mail sem sequência de documento; a leitura mascara o legado (`[mascarado]` + alerta).
+    - **R1-09:** as migrações vão no wheel (`force-include`) e a subida falha sem a pasta; `/readyz` sem pasta é 503 `migracoes_nao_conferidas`. **R1-12/R1-18:** a 0004 (ainda não aplicada em lugar nenhum) ganhou CHECKs na outbox (`chave`, `detalhe` só com as 4 chaves e valores curtos, `resultado` no enum, `tentativas >= 0`, `resultado` só com `enviado_em`) e `fn_anexar_rpa` recusa id nulo; o checksum é o dos bytes novos.
+    - **R1-11/R1-19/R1-20/R1-25/R1-30/R1-15/R1-16:** alertas dos contadores no log; access log do uvicorn desligado; cache de config limpo depois do commit; `ChaveDesconhecida` no casamento vira alerta; `InterfaceError` ⇒ 503; JSON profundo ⇒ 422; `recusa` de candidato é código de até 40 sem documento.
+    - **R1-27:** `estado.py` dividido (`estado_erros.py`, `estado_entrada.py`; 825 → 620 linhas, API pública igual), `fila._montar_tarefas` e `linha_tempo.gravar_mensagem_recebida` < 50 linhas, docstrings repetidas removidas, `tests/test_api.py` dividido em 3 arquivos.
+    - **Pendências declaradas (não corrigidas aqui):** **R1-14 gasto** (`chave._gasto` ainda soma o custo do atendimento, não Σ `passo.custo_brl` do §9: bloqueio da B1.6, **não ligar `ia_ativa` antes**; `tests/test_gasto_pendente.py` é um `xfail` estrito que vira vermelho quando a troca for feita);
+      **R1-10 anotação:** o limite fica em **240**; o contrato 08 §3/§5.6 diz 1–300, mas o CHECK é sobre o texto do passo `Anotação (categoria): nota` ≤ 300, então o máximo real é **`287 − len(categoria)`** (277 com «observacao», 247 com categoria de 40): **o contrato 08 precisa de emenda** para «≤ 287 − len(categoria)» (ou o limite vira dinâmico).
+  - **Revisão 2 (`docs/REVISAO-B1.5-3010-r2.md`; 0 crítico/alto, 3 MÉDIO, 8 BAIXO):** R2-01 parada leve como alarme sem lock (o turno do cliente não fica preso até 19 min); R2-02 `datetime_post` adiantado grava pelo recebimento com `relogio_futuro` (**o contrato 08 §5.3 precisa dizer «grava limitado»**);
+    R2-03 log da aplicação configurado na fábrica (a linha `req trace=…` e os alarmes 401/403 saem em produção); R2-04 `+dialeto` na `DATABASE_URL` derruba a subida; R2-05 anos fora de 2020–2999 ⇒ 422; R2-06 testes do `FOR UPDATE` e do boot real; R2-07 flags do uvicorn e `HEAD /healthz`;
+    R2-08 pool com `lock_timeout`/`statement_timeout`/`check`; R2-09 FIFO e JSON profundo nos segredos; R2-10 normalização antes do `descartado`; R2-11 as revisões versionadas; R1-24 parágrafo de segredos sem contradição.
+  - **Testes:** 1.891 → 2.252 (+3 xfail estritos) (`test_api`, `test_contrato_api`, `test_migracao_0004`, `test_enfileirador`, `test_ambiente_api`, `test_segredos`, `test_esforco`, `test_mensagens`, mais os de `config`).
+
 - **B8.1a, corpus da F3** (`tests/corpus/`, pacote `src/ia_atendimento/corpus/`, `tests/test_corpus*.py`): 60 personas P01-P60 (40 da F3 curta,
   C5) + 24 P-M, 60 diálogos-gabarito (40 da F3 curta + as 20 P-M críticas; 739 turnos; o texto da IA não é fixado), semente determinística
   (ordem, hold-out de 20%, 3 execuções por persona, escolha da variação do cliente) e carregador/validador Pydantic estrito (`extra='forbid'`,
