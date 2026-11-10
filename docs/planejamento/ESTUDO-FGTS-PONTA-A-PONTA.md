@@ -1,6 +1,6 @@
 # Estudo: FGTS ponta a ponta e a negociação via IA
 
-> **Atualizado em 10/11 com a estrutura dos fluxos n8n exportada pelo dono** (`fgts-estudo/n8n/fluxos-fgts-estrutura.json`; análise em `LEV/lev-n8n.md`). Mudaram §2, §4 e §7; o resto foi mantido (só o caminho literal do webhook do fluxo 2 saiu de §3.3). Os caminhos de webhook dos fluxos são segredo funcional: aqui cada um é citado só como «webhook do fluxo <nome>». Rótulo novo: **FATO-E** = está na estrutura exportada, prova `n8n:<fluxo>/<nó>`. A estrutura não traz condição de IF/Switch, corpo de HTTP nem código: o ramo «sim/não» é **HIPÓTESE pela ordem** das ligações (`LEV/lev-n8n.md` «Limite da estrutura»).
+> **Atualizado em 10/11 com a estrutura dos fluxos n8n exportada pelo dono** (`/home/danilo/fgts-estudo/n8n/fluxos-fgts-estrutura.json`; análise em `LEV/lev-n8n.md`). Mudaram §2, §4 e §7; o resto foi mantido (só o caminho literal do webhook do fluxo 2 saiu de §3.3). Os caminhos de webhook dos fluxos são segredo funcional: aqui cada um é citado só como «webhook do fluxo <nome>». Rótulo novo: **FATO-E** = está na estrutura exportada, prova `n8n:<fluxo>/<nó>`. A estrutura não traz condição de IF/Switch, corpo de HTTP nem código: o ramo «sim/não» é **HIPÓTESE pela ordem** das ligações (`LEV/lev-n8n.md` «Limite da estrutura»).
 > 10/11/2026, revisado no mesmo dia (ver «Notas da revisão», §10). Só leitura. Pedido do dono (10/11): «assim como tem o serviço do CLT, pesquisa e analogia em cima do produto FGTS, porque vamos começar por ele a negociação via IA; todas as APIs e tudo que é usado no FGTS, do início ao fim; ele tem venda automatizada com chatbot, e a IA só entra **após a falha da negociação via chatbot**».
 > Base: levantamentos `LEV/lev-novosaque.md`, `lev-chatbot.md`, `lev-analogia.md`, `lev-regras.md`, `lev-c360.md`, `lev-legado.md`, `lev-outros-bancos.md`. Os pontos decisivos foram conferidos de novo no código (marcados ✔).
 > Nada de banco, ssh, docker, n8n de produção, `.env` ou dado de cliente. Nenhum CPF, telefone, e-mail, nome de cliente ou credencial aqui. Aviso: o README do `novosaque-fgts` traz um documento de exemplo num bloco de JSON (perto de `NSR:397`); não foi copiado.
@@ -10,10 +10,10 @@
 
 | Atalho | Caminho |
 |---|---|
-| `src/` | `fgts-estudo/src/` (SHAs em `fgts-estudo/estudo/MANIFESTO.md`) |
+| `src/` | `/home/danilo/fgts-estudo/src/` (SHAs em `/home/danilo/fgts-estudo/estudo/MANIFESTO.md`) |
 | `NS` | `src/novosaque-fgts/` (`cf6efdd`) |
 | `NSR` | `src/novosaque-fgts/README.md` |
-| `LEV` | `fgts-estudo/estudo/` |
+| `LEV` | `/home/danilo/fgts-estudo/estudo/` |
 | `ENT` | `estudos/ESTUDO-NEGOCIACAO-TABELAS.md` (estudo paralelo, já escrito) |
 | `H`, `F`, `C`, `K` | `estudos/semana-1/h-roteiro-conversa-memoria.md`, `f-catalogo-ferramentas.md`, `c-braco-n8n.md`, `k-devolucao-lead-cenarios.md` |
 | `RG0911` | `estudos/REVISAO-GERAL-0911.md` |
@@ -33,6 +33,12 @@
 7. **A negociação no FGTS é escolher a tabela, não recalcular.** Prazo, taxa e total devido são iguais nas 9; só o valor liberado muda. A NS é contratada em 96,5% e nunca é a de maior liberado (`NS app/propostas.py:279-283` ✔). O que a troca de tabela tira da GL (seguro? comissão? juros?) é **HIPÓTESE** até ver a forma crua de uma oferta de cada tabela.
 8. **Onde a IA entraria:** depois da falha do chatbot, em dois gatilhos: **FG-01** pré-aprovado sem contrato (com `tardia: bool`) e **FG-03** formalizou e não assinou. Nenhum dos dois é «falha do chatbot» observável hoje: é «não converteu em N minutos». O FG-01 só fica confiável com o GET do contrato + `formalizacoes_desde`, nunca pela auditoria sozinha.
 9. **O que falta para negociar:** a lógica dos fluxos do n8n (inclusive o código de 26 linhas de «FGTS - negou ns (passa campanha)», que **já faz**, linear, o degrau NS → CAMPANHA; o que ele escolhe e quem o dispara seguem abertos, LC-14); a comissão por tabela (o fator do Go é **peso de meta**, não comissão); as 8 tabelas não escolhidas vivem 3 a 30 dias; holdout para medir.
+9b. **Atualização de 10/11, 17:37 (FF-0, §7.2):**
+    - **Volume:** FG-01 tem ~1.500 casos por dia útil e FG-03 ~150 a 200. O portão G-F1 passa.
+    - **Escada do chatbot:** NEGOU NS → CAMPANHA → NEGOU CAMPANHA, mais três lembretes depois de passar o valor. A IA entra **depois** do diálogo `NEGOU CAMPANHA` ou do lembrete «Não Respondeu», e assim a falha do chatbot fica observável.
+    - **Robô:** não cobre FG-01 nem FG-03.
+    - **Risco no F3:** ele lê o primeiro item do contrato cru, sem filtrar a tabela.
+    - **Ainda falta:** a comissão por tabela (rodada 2 do mapeamento e pergunta 1 à Novo Saque).
 10. **Recomendação:** não mexer no piloto CLT de 27–30/11. Agora, só custo zero: export completo do n8n, perguntas à Novo Saque e uma medição de funil sem PII (LC-08) que vira portão de go/no-go. Datas de FF-3/FF-4 só depois dos portões do §8.3.
 
 ---
@@ -63,7 +69,7 @@ Quem age: **C** = cliente · **CB** = chatbot (ChatGuru + n8n) · **CS** = consu
 | **P16** | Desembolso: `Registered - Pending payment` → `Awaiting disbursement` → **`Contract paid`** (dinheiro na conta) | BN | — | `Payment returned` (367 em 22 d): corrigir Pix por `PUT .../reprocess/payment`, que a casa **não usa** | `NS app/robo_evento.py:48-58` ✔; doc <https://developers.novosaque.com.br/reprocessar-pagamento-27300860e0.md> |
 | **P17** | Comissão: `pay-commission / Commission credited` | BN → GL | — | — | idem |
 | **P18** | Robô operacional manda diálogo por status (pago, cancelado, TED devolvida). O do servidor antigo estava em `real`; o novo, dentro do `novosaque-fgts`, nasceu com as regras desligadas | SI | novosaque-fgts → `chatguru-api POST /chatguru/dialogo` | duas vozes no chat; 12% dos pagos sem destino (formalizados fora do serviço); estado de hoje NÃO VERIFICADO. **Nenhum fluxo do n8n age depois do link** (FATO-E, por ausência) | `NSR:1432-1503`, `1539-1543` ✔; `NS/migrar_regras_do_servidor_antigo.sql:5-13` |
-| **P19** | Depois de falha do chatbot: diálogo «DEVOLVE CONSULTOR» (Caixa fora, «não possui contas de FGTS», ambos com `retry`; e black list sem retry) e departamento «FGTS - Consultores», sem divisão de leads. **No n8n não há follow-up, delegação nem departamento em fluxo FGTS**, e o «Followup 2 FGTS» não existe mais na S2 | CB · CS | ChatGuru | repasse de pré-aprovado parado: **não existe no n8n**; se existe, é interno do ChatGuru (LC-02) | `NS/completa_catalogo_do_antigo.sql:33-40` ✔; `src/painel-dev/app/chatguru_departamentos.py:1-12`; ausência no export, cujo filtro pega todo fluxo com «fgts» no nome (`fgts-estudo/scripts/exportar-n8n-fgts.sh:11`) |
+| **P19** | Depois de falha do chatbot: diálogo «DEVOLVE CONSULTOR» (Caixa fora, «não possui contas de FGTS», ambos com `retry`; e black list sem retry) e departamento «FGTS - Consultores», sem divisão de leads. **No n8n não há follow-up, delegação nem departamento em fluxo FGTS**, e o «Followup 2 FGTS» não existe mais na S2 | CB · CS | ChatGuru | repasse de pré-aprovado parado: **não existe no n8n**; se existe, é interno do ChatGuru (LC-02) | `NS/completa_catalogo_do_antigo.sql:33-40` ✔; `src/painel-dev/app/chatguru_departamentos.py:1-12`; ausência no export, cujo filtro pega todo fluxo com «fgts» no nome (`/home/danilo/fgts-estudo/scripts/exportar-n8n-fgts.sh:11`) |
 
 **Os fluxos FGTS do n8n na S2 (export de 10/11).** Nenhum chama outro e nenhum tem gatilho por agenda: todos começam por webhook, e o acoplamento passa pelo **ChatGuru** (um diálogo dispara a rota do gateway do próximo fluxo) e pelo **`novosaque-fgts`** (que avisa o F2). Nenhum nó Postgres: na S2 tudo é HTTP (o `mbfgts.jobs_fgts` e a leitura de `api_novosaque.simulacao` eram do S3 antigo).
 
@@ -204,7 +210,7 @@ Depois do link: nenhum fluxo do n8n. Pós-contrato = robô operacional dentro do
 | O n8n grava **dado cadastral** do lead FGTS no 360 novo (telefone, nome, nascimento; não proposta) | FATO-E | `n8n:FGTS FORM/registra telefone no 360`, `registra dados no 360 (nova vida)`; `n8n:FGTS - resultado assíncrono (fluxo 2)/registra dados no 360 (facta)` |
 | Qual tabela o chatbot mostra no campo e formaliza; o texto da oferta; o que testa cada IF | **NÃO VERIFICADO** (corpo, condição e código não vieram no export) | — |
 | Repasse de pré-aprovado parado a consultor | **não existe no n8n**; dentro do ChatGuru, NÃO VERIFICADO (LC-02) | ausência no export |
-| «Followup 2 FGTS» (`qtNPYrkVuQ5jmF2i`) | **não existe mais** na S2 (HIPÓTESE forte: apagado; medido até 28/09) | ausência; `fgts-estudo/scripts/exportar-n8n-fgts.sh:11`; `src/painel-dev/app/n8n_regras.py:68-71` ✔ |
+| «Followup 2 FGTS» (`qtNPYrkVuQ5jmF2i`) | **não existe mais** na S2 (HIPÓTESE forte: apagado; medido até 28/09) | ausência; `/home/danilo/fgts-estudo/scripts/exportar-n8n-fgts.sh:11`; `src/painel-dev/app/n8n_regras.py:68-71` ✔ |
 | `reprova-24h` no FGTS | **nenhum fluxo FGTS chama :8126**; os 3 nós que chamam o edge `reprova-24h` (:8126) estão só no F6 (CLT) e soltos | `n8n:CLT Resultado C6 (inapp)/salva reprovação fgts - reaproveitamento facio` (sem ligação) |
 | No legado, a conta-robô vendia ~10× o melhor humano (4.114 × ~400 contratos em 7 dias) | MEDIDO (~08/2026) | `src/gl-site-go/internal/domain/site/propostasfgts/types.go:76-77` (arquivado) |
 
@@ -405,7 +411,7 @@ Veredito: **igual** · **muda** · **novo** · **n/a** (não se aplica). Detalhe
 
 ### 7.0 O que fechou com a exportação de 10/11
 
-Fonte: estrutura dos 7 fluxos exportada pelo dono (`fgts-estudo/n8n/fluxos-fgts-estrutura.json`), analisada em `LEV/lev-n8n.md` §3.
+Fonte: estrutura dos 7 fluxos exportada pelo dono (`/home/danilo/fgts-estudo/n8n/fluxos-fgts-estrutura.json`), analisada em `LEV/lev-n8n.md` §3.
 
 | Lacuna / afirmação | Fechou? | O que a estrutura diz | Prova |
 |---|---|---|---|
@@ -427,6 +433,73 @@ Fonte: estrutura dos 7 fluxos exportada pelo dono (`fgts-estudo/n8n/fluxos-fgts-
 | LC-09 duas vozes | **em parte** | o n8n não é voz do pós-contrato; vozes no chat FGTS: diálogos do ChatGuru, F2, F3, F4, F5 e o robô operacional | §4.1 |
 
 **Continua aberto:** condição de cada IF/Switch, corpo de cada HTTP, código dos nós Code, destino real das rotas do gateway, contagem de execuções por fluxo e por saída. Tudo sai do §7.1.
+
+### 7.2 O que fechou com o mapeamento FF-0 de 10/11 (17:37)
+
+Fonte: `scripts/mapear-fgts.sh`, rodado pelo dono (só leitura, com teto de tempo; saída local em `~/fgts-estudo/mapeamento/`, fora do git). Dois arquivos caíram no portão: os números com cara de CPF e de telefone eram trechos de UUID. Foram redigidos por script, sem abrir o conteúdo, e o portão voltou limpo. O efeito colateral é que a proteção também apagou as expressões longas do n8n (`$('nó').item.json…`). Por isso o campo exato que alguns nós leem continua aberto.
+
+**LC-12, fechada.** O esquema `novosaque` (15 tabelas) está no mesmo banco do n8n (`n8n-db` da S2, banco `postgres`), ao lado de `n8n`, `gateway`, `chatguru` e `inappclt`. DD-01 (`novosaque.proposta_oferta`) ficaria ali.
+
+**LC-03/LC-04: as 9 tabelas já são guardadas, e só uma coisa muda entre elas.**
+- A resposta crua de cada simulação, com as 9 ofertas, fica em `novosaque.simulacoes.resposta`. O mapa `simulation_id → disbursed_amount` das 9 ofertas fica em `novosaque.esteira_guru.ofertas`, guardado por 3 dias.
+- Medido pelo próprio serviço em 13.871 contratos: prazo, taxa e `total_loan_amount` são **iguais** nas 9 tabelas. Só o **valor liberado** muda (`init_propostas.sql:186-196`, `README.md:994-1001`).
+- Logo, no FGTS a negociação entre tabelas é uma única troca: mais dinheiro para o cliente contra menos comissão para a GL. O cliente paga a mesma dívida em qualquer tabela.
+- A `TABELA NS` é a referência da casa. Aparece em 100% dos contratos com oferta, é a contratada em 96,5% deles e **nunca** é a de maior valor. A de maior valor é a `ZERO`, que quase ninguém fecha.
+- `propostas.valor_liberado` é o valor da NS. `propostas.valor_financiado` é o valor da tabela contratada. A diferença entre os dois já mede o que a negociação ganhou ou perdeu.
+- **Continua aberto:** quanto a GL recebe em cada tabela. A rodada 1 leu a coluna errada (`esteira_guru.ofertas`, que é só o mapa de valores). A rodada 2 (`scripts/mapear-fgts-2.sh`) mede, nas últimas 24 h, as chaves de cada oferta, a comissão por tabela e a razão do valor de cada tabela sobre o da NS. Se `commission` vier vazia, a resposta depende da pergunta 1 à Novo Saque.
+
+**LC-08: o funil, fechado** (agregado por dia, transações, `proposta_evento_dia`).
+
+| Etapa (dia útil típico, 20–31/10) | Transações/dia | Taxa |
+|---|---|---|
+| Oferta disponível (`simulation / Offer available`) | ~2.800 | — |
+| Contrato gerado (`create-contract`) | ~1.250 | ~45% das ofertas |
+| Assinado (`Signed contract`) | ~1.100 | ~88% dos contratos |
+| Pago (`Contract paid`) | ~950 | ~86% dos assinados |
+
+- **FG-01 (pré-aprovado sem contrato): ~1.500 por dia útil.** Em `propostas`, que já tira repetição de CPF em 24 h: 22/10 teve 2.862 pré-aprovações e 1.267 formalizadas. O portão G-F1 (≥ 50 por dia) passa com folga de 30×.
+- **FG-03 (formalizou e não assinou): ~150 a 200 por dia.** Confirma a hipótese de ~170.
+- Entre 03 e 05/11 o funil ficou quase zerado: 0 a 12 ofertas por dia, enquanto os cancelamentos continuaram. O motivo não está nos dados (provável troca de credencial ou migração). Não usar esses dias como base.
+- Recusas antes da oferta, de 03 a 09/11: saldo negado 67 mil, sem oferta 38 mil, timeout 11 mil, simuladas 10 mil. O principal motivo de «sem oferta» é `parcela_abaixo_minimo` (34 mil eventos), que é saldo pequeno e não dá para negociar. `falta_autorizacao_trabalhador` soma 32 mil eventos, o que confirma a perda na autorização do app.
+
+**LC-14 (degrau NS → CAMPANHA): fechada na forma; resta um risco.**
+- A escada do chatbot já existe na árvore do ChatGuru (`chatguru.dialogos`, grupo «MB URA - FGTS»):
+  1. `1.1.6 - Não - NEGOU NS (depois de passar valor)` dispara o F3.
+  2. O F3 lê o contrato cru no :8104, pega `[0].disbursed_amount`, grava o valor num campo, espera 45 s e dispara o diálogo.
+  3. Se o lead recusa de novo, `1.1.6.1 - Não - NEGOU CAMPANHA`.
+- **Risco (HIPÓTESE forte):** o F3 lê o **primeiro item** de um array do contrato cru, sem filtrar por `table_name` nem por `success`. O serviço avisa que esse array mistura ofertas e itens de falha (`NS app/novosaque.py:228-233`). Assim, o valor «da campanha» pode ser o de outra tabela, ou vir vazio. O caminho exato foi redigido pela proteção. Para confirmar, ver o nó `Code in JavaScript` do F3 no editor do n8n (leitura).
+
+**Ponto de entrada da IA: agora é observável.** A falha da negociação pelo chatbot passa a ser um destes dois sinais:
+- o lead chegou ao diálogo `1.1.6.1 - Não - NEGOU CAMPANHA`;
+- o lead passou por `Follow Up - Depois de Passar Valor FGTS - Não Respondeu` (a sequência de lembretes 1, 2 e 3 já existe no grupo «Acompanhamento»).
+
+Isso substitui a definição indireta do §4.3 para FG-01. A IA entra depois que **as duas tabelas do chatbot e os três lembretes** já foram tentados, nunca antes. O sinal vem do ChatGuru; contar quantos leads chegam a ele por dia é o próximo agregado (execuções do diálogo, sem conteúdo).
+
+**LC-09 (robô e duas vozes): fechada.**
+- `novosaque.robo_config` está em modo `real`, dispara nas etapas `sign-contract`, `registry` e `disbursement`, com teto de 200 envios por hora e janela de 24 h, 7 dias por semana.
+- Das 88 regras, 13 estão ativas, todas de pós-contrato: averbação negada, limite excedido, TED devolvida, «não autorizou Novo Saque», reprovado na formalização.
+- **Nenhuma regra ativa** cobre `simulation / Offer available` (FG-01) nem `sign-contract / Awaiting formalization` (FG-03). O robô não fala com quem a IA atenderia, então não há duas vozes nesses pontos.
+- Em `mapeamento_dialogos`, 5 textos do banco ficam sem diálogo, entre eles `Aguardando autorização no app do FGTS` e `Temporary block…`. Hoje esses leads não recebem nada.
+
+**LC-02 (árvore do ChatGuru): fechada na forma.** São 127 diálogos em 2 chatbots. Os do FGTS estão nos grupos «MB URA - FGTS» (pedir CPF, autorizar, dados corretos, Pix, NEGOU NS, NEGOU CAMPANHA), «MBURA - FGTS - NIVER» (mês de aniversário), «TIMERS URA FGTS» (lembretes de autorização e da URA inicial), «Acompanhamento» (lembretes depois de passar o valor), «ROBO OPERACIONAL» e «UTILIDADES» (delegar a consultores). Só nome, grupo e tipo; nenhum texto foi lido.
+
+**LC-01/LC-15: avançaram, mas não fecharam.**
+- O FORM formaliza com o `simulation_id` que vem do lead (`recebe lead`). Ou seja, a tabela formalizada é a que o chatbot gravou no campo, não uma escolha do n8n.
+- Vendedor e digitador vão fixos como robô (`origem: 'ROBO'`). Os dados enviados à formalização são nome, nascimento, sexo, DDD, telefone e Pix.
+- Os tempos de espera também foram mapeados: o FORM espera 3 min pelo link e depois 2 min por tentativa; o F2 espera 60 s e 10 min; o F3 espera 45 s.
+- O campo exato que cada nó lê foi apagado pela proteção. Para fechar, basta abrir os nós no editor do n8n.
+
+**Execuções em 7 dias.**
+
+| Fluxo | Execuções | Erros |
+|---|---|---|
+| Consulta inicial | 139 mil | 920 |
+| Resultado assíncrono | 132 mil | 2.082 |
+| FORM | 3.887 | 7 |
+| «Negou ns» | 2.881 (~410 por dia; recusas da NS que viram CAMPANHA) | — |
+| Pix | 4.807 | — |
+
+**Gateway.** As rotas `fgts`, `fgts-campanha` e `fgts-form` levam ao n8n local. Os caminhos foram redigidos. `fn-validador-cpf-timer-fgts` leva à edge function :8126.
 
 ### 7.1 Comando só-leitura para exportar os fluxos FGTS do n8n (versão única)
 
@@ -598,7 +671,7 @@ Riscos próprios do FGTS: formalização dupla sem chave (NF-09, NF-09b, PF-12);
 
 ## 10. Notas da revisão
 
-Revisão crítica de 10/11/2026 conferida item a item na fonte. Cópia da versão anterior: `(rascunho local)` (temporária).
+Revisão crítica de 10/11/2026 conferida item a item na fonte. Cópia da versão anterior: `/tmp/claude-1001/-opt-claude/4c346449-3b97-4843-b75a-28e60cb6e04a/scratchpad/ESTUDO-FGTS-antes-revisao.md` (temporária).
 
 **Aplicadas (sustentam-se na fonte):**
 
@@ -637,6 +710,6 @@ Revisão crítica de 10/11/2026 conferida item a item na fonte. Cópia da versã
 
 **Rejeitadas:** nenhuma no todo. Fica de fora só a leitura literal de que a conversão «pode chegar perto de 100%» (ver ressalva acima).
 
-**Crítica final (10/11, olhos limpos).** Nenhum caminho de webhook nos dois estudos (`fgts-estudo/scripts/checa-segredo-dois-estudos.sh`: os únicos trechos que batem são palavras do próprio nome do fluxo; nenhum segmento com dígito). Corrigido: nós do F2 = 48 e do F5 = 32 (o `LEV/lev-n8n.md` §0 diz 50 e 31; contagem refeita no export por `fgts-estudo/scripts/checa-metadados-fluxos.sh`); nome do nó de `reprova-24h` do F6; §5.2, NF-01, AN-36, AN-43, Q-FG-02, §8.1 e G-F3b alinhados ao `ENT` §0.3 (o F3 existe; o aberto é só o que ele escolhe). No `ENT`, as citações `EFG:<linha>` viraram citações por seção (os números tinham ficado velhos depois da atualização do n8n).
+**Crítica final (10/11, olhos limpos).** Nenhum caminho de webhook nos dois estudos (`/home/danilo/fgts-estudo/scripts/checa-segredo-dois-estudos.sh`: os únicos trechos que batem são palavras do próprio nome do fluxo; nenhum segmento com dígito). Corrigido: nós do F2 = 48 e do F5 = 32 (o `LEV/lev-n8n.md` §0 diz 50 e 31; contagem refeita no export por `/home/danilo/fgts-estudo/scripts/checa-metadados-fluxos.sh`); nome do nó de `reprova-24h` do F6; §5.2, NF-01, AN-36, AN-43, Q-FG-02, §8.1 e G-F3b alinhados ao `ENT` §0.3 (o F3 existe; o aberto é só o que ele escolhe). No `ENT`, as citações `EFG:<linha>` viraram citações por seção (os números tinham ficado velhos depois da atualização do n8n).
 
 **Não foi possível conferir:** a existência de `isArchived` por versão do n8n (a coluna foi retirada do comando por precaução); o conteúdo de `lev-chatbot.md` C9 além da linha citada; a data da medição de 4,1% de tardias.
