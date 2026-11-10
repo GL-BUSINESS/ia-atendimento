@@ -16,14 +16,14 @@ q() {
 }
 # Ofertas com success=true, de qualquer profundidade da resposta, nas últimas 24 h.
 OF="
-WITH s AS (SELECT id, resposta FROM novosaque.simulacoes
-           WHERE enviada_em >= now()-interval '24 hours' AND resposta IS NOT NULL
-             AND jsonb_path_exists(resposta, 'strict \$.**.simulation_results'))
-, o AS (SELECT s.id AS sim, x AS of FROM s,
-          LATERAL jsonb_path_query(s.resposta, 'strict \$.**.simulation_results[*] ? (@.success == true)') x)
-, n AS (SELECT sim, of, of->>'table_name' AS tabela,
+WITH o AS (SELECT s.id AS sim, e.key AS slug, e.value AS of
+           FROM novosaque.simulacoes s, jsonb_each(s.resposta_enviada->'ofertas') e
+           WHERE s.enviada_em >= now()-interval '24 hours' AND s.acao='esteira'
+             AND jsonb_typeof(s.resposta_enviada->'ofertas')='object' AND jsonb_typeof(e.value)='object')
+, n AS (SELECT sim, of, coalesce(of->>'table_name', slug) AS tabela,
           CASE WHEN jsonb_typeof(of->'disbursed_amount')='number' THEN (of->>'disbursed_amount')::numeric
-               WHEN of->>'disbursed_amount' ~ '^[0-9.,]+\$' THEN replace(replace(of->>'disbursed_amount','.',''),',','.')::numeric END AS liberado
+               WHEN of->>'disbursed_amount' ~ '^[0-9.]+,[0-9]+\$' THEN replace(replace(of->>'disbursed_amount','.',''),',','.')::numeric
+               WHEN of->>'disbursed_amount' ~ '^[0-9]+(\\.[0-9]+)?\$' THEN (of->>'disbursed_amount')::numeric END AS liberado
         FROM o)"
 echo "== novosaque: as 9 ofertas por tabela (24 h)"
 TETO=90s q 41-ns-ofertas-tabela "$OF

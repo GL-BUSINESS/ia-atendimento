@@ -448,6 +448,14 @@ Fonte: `scripts/mapear-fgts.sh`, rodado pelo dono (só leitura, com teto de temp
 - `propostas.valor_liberado` é o valor da NS. `propostas.valor_financiado` é o valor da tabela contratada. A diferença entre os dois já mede o que a negociação ganhou ou perdeu.
 - **Continua aberto:** quanto a GL recebe em cada tabela. A rodada 1 leu a coluna errada (`esteira_guru.ofertas`, que é só o mapa de valores). A rodada 2 (`scripts/mapear-fgts-2.sh`) mede, nas últimas 24 h, as chaves de cada oferta, a comissão por tabela e a razão do valor de cada tabela sobre o da NS. Se `commission` vier vazia, a resposta depende da pergunta 1 à Novo Saque.
 
+**O que se contrata hoje** (rodada 2, `propostas` de 30 dias):
+- Das 49.161 pré-aprovações, 17.868 formalizaram.
+- **991 (5,5%) fecharam uma tabela com valor maior que a NS** (é o degrau da CAMPANHA do F3).
+- 8 fecharam com valor menor; o resto ficou na NS.
+- A diferença média é de R$ 0,29 por proposta formalizada, porque quase todas ficam na NS.
+
+A primeira versão da consulta das ofertas voltou vazia: no caminho assíncrono, as ofertas ficam em `simulacoes.resposta_enviada->'ofertas'`, separadas por slug e sem o cronograma (`NS app/acompanhamento.py:539-549`). A consulta foi corrigida, testada num Postgres descartável e precisa rodar de novo.
+
 **LC-08: o funil, fechado** (agregado por dia, transações, `proposta_evento_dia`).
 
 | Etapa (dia útil típico, 20–31/10) | Transações/dia | Taxa |
