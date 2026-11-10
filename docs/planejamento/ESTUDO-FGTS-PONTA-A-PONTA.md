@@ -718,6 +718,44 @@ Riscos próprios do FGTS: formalização dupla sem chave (NF-09, NF-09b, PF-12);
     - Ela libera 1,29× o valor da NS e fica entre DIAMANTE e MONEY.
     - Se algum dia a GOLD faltar, a IA não oferece outra tabela e repassa o lead.
   - **Ainda aberto:** quanto a GL deixa de ganhar na GOLD em relação à NS, para a conta do piso (Q-FG-03).
+- **O dono confirmou «é a gold mesmo»**: a escada pula a DIAMANTE de propósito.
+
+### 9.2 Escada e parâmetros configuráveis (pedido do dono, 10/11)
+
+Literal: «isso deve ser configurável de fácil acesso e manutenção também. mesmo que não vá ajustar toda hora.» Nada da negociação fica fixo no código nem no n8n.
+
+**Molde: o que já existe para o robô operacional do FGTS.**
+- A aba `/roboopfgts` do `painel-dev` (`src/painel-dev/app/roboopfgts_edicao.py`) edita `novosaque.robo_config` (linha única) e `novosaque.robo_regra`.
+- Só ADMIN da Authelia acessa.
+- Antes de gravar, a tela mostra a revisão «antes → depois», com o que passa a falar com o cliente em vermelho.
+- A gravação usa `SELECT … FOR UPDATE` com assinatura da linha.
+- O serviço relê a configuração a cada 15 s, sem deploy.
+
+A negociação usa o mesmo molde, numa aba nova («Negociação FGTS») ao lado dessa.
+
+**Desenho (DD-04, papel; nada em produção antes de 01/12):**
+
+| Peça | Onde | O que guarda |
+|---|---|---|
+| `novosaque.negociacao_degrau` | n8n-db da S2, junto do resto do `novosaque` | Uma linha por degrau: `ordem`, `table_name`, `quem` (`chatbot` ou `ia`), `ativo`, `texto_id`. Valor inicial: 1 = TABELA NS (chatbot), 2 = CAMPANHA (chatbot), 3 = GOLD (ia) |
+| `novosaque.negociacao_config` (linha única) | idem | `ligada`, `modo` (`sombra` ou `real`), `holdout_pct` (15), `piso_comissao` (nulo enquanto não houver fonte), `teto_ia_dia`, `janela` (horários e dias), `destino_falha` (departamento), `historico`, `atualizado_por`, `atualizado_em` |
+| Aba «Negociação FGTS» no `painel-dev` | mesmo processo do `/roboopfgts` | Editar a ordem, trocar a tabela de um degrau, desligar degrau ou IA, mudar holdout e janela. A tabela se escolhe de uma lista com as que **apareceram nas ofertas das últimas 24 h** (hoje, as 10), e não por texto livre. Revisão antes de gravar; só ADMIN |
+| Rota de leitura no `novosaque-fgts` (:8104) | ex.: `GET /novosaque/fgts/contrato/{id}/degrau/{n}` | Devolve a oferta do degrau `n` **pelo `table_name` configurado**, filtrando `success`. Se a tabela não veio, responde «sem oferta» em vez de outro valor |
+
+**Por que isso também corrige o risco do F3:**
+- Hoje o fluxo «negou ns» lê `[0].disbursed_amount`, que é o primeiro item do contrato cru.
+- Passando a chamar a rota do degrau 2, ele mostra sempre a tabela configurada, e nunca o primeiro item da lista.
+- A troca da CAMPANHA, se um dia acontecer, vira um ajuste na tela e não uma edição no n8n.
+- A IA chama a mesma rota para o degrau 3.
+- Chatbot e IA passam a ler a escada **de um só lugar**.
+
+**Travas:**
+- **Tabela válida:** gravar um degrau com uma tabela que não apareceu em 24 h é recusado.
+- **Ordem crescente:** um degrau com valor ao cliente menor que o anterior é recusado. A razão sobre a NS sai das ofertas medidas e evita, por exemplo, colocar a IMBATIVEL depois da NS.
+- **Sem degrau vazio:** se a GOLD (ou o degrau da IA) faltar numa simulação, o lead vai para `destino_falha`, sem trocar de tabela por conta própria.
+- **Histórico:** toda mudança fica em `historico`, com quem e quando. O rastro também vai para o log do painel (`[negociacaofgts]`).
+
+**Custo (estimativa):** cerca de 1,5 a 2 dias-agente, dentro da FF-1. São 2 tabelas, a aba (cópia do molde do `/roboopfgts`), a rota do degrau e a troca do nó do F3. A troca do F3 é a única mudança no fluxo em produção e precisa do «sim» do dono por kit.
 
 ---
 
