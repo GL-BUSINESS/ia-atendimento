@@ -548,5 +548,5 @@ Revisão de completude e consistência em 10/11/2026. Recalculei os números dir
   - **Só para venda.** A GOLD é usada apenas no degrau de negociação. Não vale para atendimento nem para outras mensagens.
   - **Piso de comissão.** A IA nunca oferece tabela com comissão menor que a da GOLD. Na prática: MONEY, LIGHT, SOFT, SMART e ZERO ficam proibidas, e DIAMANTE é pulada. Isso vale como regra fixa da escada (DD-04: degrau máximo = GOLD).
   - Isso resolve o risco 2 do §6.7. A frase de «valor maior» é verdadeira porque a GOLD libera de fato mais que a CAMPANHA (razão 1,29 × NS contra 1,10).
-- **Q-CF-09: sim, o dono libera o corpus de não aprovados e desistentes.** O tratamento segue as mesmas regras: arquivo cru em `~/ia-corpus/entrada/fgts/`, base anonimizada com k ≥ 20 e só números agregados.
+- **Q-CF-09: dispensado.** A IA só atende cliente aprovado pelo banco, então reprovado não interessa. O tamanho da fatia vem do banco do novosaque: FG-01 ≈ 1.500 pré-aprovados sem contrato por dia útil (FF-0), mais a contagem de NEGOU CAMPANHA por dia que vem com a correção do F3. Conversas de aprovados que desistiram ficam opcionais, para o piloto.
 - As perguntas Q-CF-03 a 08, 10 e 11 seguem com o padrão recomendado até o dono dizer o contrário.
