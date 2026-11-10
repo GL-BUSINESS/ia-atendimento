@@ -538,3 +538,15 @@ Revisão de completude e consistência em 10/11/2026. Recalculei os números dir
 3. Quanto o GOLD precisa subir para virar o «não». `<valor>` está mascarado. Precisa de dado cru ou da tabela do banco (Q-CF-02).
 4. Quantos «não» viram «sim» só pelo tempo, sem nova oferta. Exige grupo de controle (Q-CF-09).
 5. Conteúdo do áudio do 3º degrau: segue em Q-CF-03.
+
+---
+
+## §9 Decisões do dono (10/11, noite)
+
+- **Q-CF-01: sim, a IA substitui o 3º degrau.** O áudio «APROVEITE!» sai do ar quando a IA entrar. A IA entra logo depois do NEGOU CAMPANHA.
+- **Q-CF-02: a GOLD é uma tabela maior para o cliente e menor em comissão para a GL.** Ela serve para chamar a atenção. A frase é «Conseguimos um valor maior!».
+  - **Só para venda.** A GOLD é usada apenas no degrau de negociação. Não vale para atendimento nem para outras mensagens.
+  - **Piso de comissão.** A IA nunca oferece tabela com comissão menor que a da GOLD. Na prática: MONEY, LIGHT, SOFT, SMART e ZERO ficam proibidas, e DIAMANTE é pulada. Isso vale como regra fixa da escada (DD-04: degrau máximo = GOLD).
+  - Isso resolve o risco 2 do §6.7. A frase de «valor maior» é verdadeira porque a GOLD libera de fato mais que a CAMPANHA (razão 1,29 × NS contra 1,10).
+- **Q-CF-09: sim, o dono libera o corpus de não aprovados e desistentes.** O tratamento segue as mesmas regras: arquivo cru em `~/ia-corpus/entrada/fgts/`, base anonimizada com k ≥ 20 e só números agregados.
+- As perguntas Q-CF-03 a 08, 10 e 11 seguem com o padrão recomendado até o dono dizer o contrário.
