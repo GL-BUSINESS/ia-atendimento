@@ -667,6 +667,25 @@ Riscos próprios do FGTS: formalização dupla sem chave (NF-09, NF-09b, PF-12);
 | **Q-FG-17** | Holdout de 10–20% dos elegíveis sem IA e `origem='ia'` obrigatório na API-17? | **Sim**, 15%, desde o 1º dia do FF-4 |
 | **Q-FG-18** | Portão G-F1: volume mínimo de FG-01 elegível por dia para seguir? | **N = 50/dia** depois das exclusões; abaixo disso, só FG-03 e os robôs do FF-2 |
 
+### 9.1 Decisões do dono (10/11, noite)
+
+- **Q-FG-12, Q-FG-08, Q-FG-14, Q-FG-13: o dono respondeu «recomendações», ou seja, aceitou o padrão das quatro.**
+  - **Q-FG-12:** o piloto CLT fica como está. O FGTS só vai à produção depois de 01/12.
+  - **Q-FG-08:** as 9 ofertas por transação serão guardadas no `novosaque-fgts` (DD-01), por 13 meses e sem PII. A IA só entra depois da escada do chatbot.
+  - **Q-FG-14:** a parte deste item que já rodou é o FF-0 de 10/11 (§7.2). Falta a rodada 2 (`mapear-fgts-2.sh`), que o dono roda fora do pico, antes de 19/11.
+  - **Q-FG-13:** as perguntas à Novo Saque vão nesta semana. Quem envia é o dono (texto em `~/fgts-estudo/estudo/perguntas-novo-saque.md`).
+- **Q-FG-02, decidida pelo dono e diferente do padrão:**
+  - A IA oferece **uma única tabela, a GOLD**, e só quando o lead recusou as duas primeiras tabelas do chatbot (NS e CAMPANHA).
+  - **As outras seis tabelas não são oferecidas**, nem pela IA nem por outra via.
+  - Na prática, a escada fica assim: NS (chatbot) → CAMPANHA (chatbot, fluxo F3) → GOLD (IA) → repasse (Q-FG-06).
+  - O que muda no desenho:
+    - O motor v0 deixa de escolher entre as 9 tabelas e passa a fazer uma única troca, sempre para a GOLD.
+    - O piso de comissão (Q-FG-03) e o ganho mínimo (Q-FG-04) só valem para conferir se a GOLD existe e é válida naquela simulação.
+    - A ZERO e as demais ficam fora de vez.
+  - **Ainda aberto:**
+    - O nome exato da GOLD no `table_name` e se ela vem em toda simulação. A rodada 2 mostra isso, pela contagem por tabela.
+    - O que fazer quando a GOLD não vier. Padrão: a IA não inventa outra tabela e repassa o lead.
+
 ---
 
 ## 10. Notas da revisão
