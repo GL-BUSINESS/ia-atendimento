@@ -4,24 +4,148 @@
 > Base: os levantamentos `estudo/lev-c360.md`, `lev-facta.md`, `lev-c6-3rn.md`, `lev-ia.md`, `lev-ml.md`, `lev-web.md`, `lev-pedido-2.md`. Os pontos decisivos foram conferidos de novo nas fontes (scripts `ia-negociacao/scripts/conferir-negociacao-{1,2,3}.sh` e `revisao-final-{1,2}.sh`). Versão anterior guardada em `ia-negociacao/estudo/ESTUDO-NEGOCIACAO-TABELAS.antes-revisao-final.md`.
 > **HIPÓTESE** marca o que não se prova com papel ou código. Esforço em **d-agente** é chute, como no ROT («1 d» = um dia de relógio de um agente com revisão, `ROTEIRO-DE-ACAO.md:34`). **Prazo de relógio** é outra conta (§6.6).
 
-**Atalhos.** `src/` = `ia-negociacao/src/`. `H` = `estudos/semana-1/h-roteiro-conversa-memoria.md`. `F` = `estudos/semana-1/f-catalogo-ferramentas.md`. `ROT` = `ROTEIRO-DE-ACAO.md`. `RG0911` = `estudos/REVISAO-GERAL-0911.md`. `MEM:` = `~/.claude/projects/-opt-claude/memory/`.
+**Atalhos.** `src/` = `ia-negociacao/src/`. `H` = `estudos/semana-1/h-roteiro-conversa-memoria.md`. `F` = `estudos/semana-1/f-catalogo-ferramentas.md`. `ROT` = `ROTEIRO-DE-ACAO.md`. `RG0911` = `estudos/REVISAO-GERAL-0911.md`. `MEM:` = `~/.claude/projects/-opt-claude/memory/`. **FGTS (§0):** `EFG` = `estudos/ESTUDO-FGTS-PONTA-A-PONTA.md`; `LFG` = `fgts-estudo/estudo/` (levantamentos `lev-*.md`); `LN8` = `LFG/lev-n8n.md`; `NS` = `fgts-estudo/src/novosaque-fgts/`; `n8n:<fluxo>/<nó>` = estrutura exportada pelo dono em 10/11 (`fgts-estudo/n8n/fluxos-fgts-estrutura.json`, sem parâmetros). Caminhos de webhook não são escritos aqui.
 
 **Pedido do dono (10/11).** Tabelas que não são cadastradas no 360; volta só uma. Quer negociar: quando o cliente recusa por valor baixo ou juros altos, oferecer outra tabela de coeficiente um pouco menor, que pode converter mais. Caso a caso, com aprendizado de máquina. Com roteiro, sem fechar com tabela ruim demais e sem gastar à toa. Primeiro passo: **salvar as outras tabelas no 360, por lead (N tabelas), para reciclar na IA.** Pedido complementar no mesmo dia: rotacionar entre bancos quando outro banco paga parecido e dá mais ao cliente (`estudo/lev-pedido-2.md:3`).
 
+**Decisão do dono, também em 10/11: a negociação via IA começa pelo FGTS**, e a IA só entra **depois da falha da negociação via chatbot** (`EFG`, cabeçalho, pedido do dono). O desenho dos §1–§8 foi feito para o CLT (FACTA/C6/3RN) e continua valendo para ele, **depois**. O §0 diz o que muda no FGTS e passa na frente.
+
 ---
 
-## 0. Resumo em 10 linhas
+## Resposta direta (resumo em 14 linhas)
 
-1. **Negociação entre tabelas não está no planejamento da IA.** Só existe a contraproposta dentro da mesma oferta (E4 + T5, R3/R4, até 3). Prova no §1.
-2. **O «comece a salvar» já está atendido em forma crua desde 09/11:** o 360 grava N opções por consulta positiva em `core.observacao.ofertas` (jsonb, 1 a 20), e o que está lá se recupera depois por backfill. Faltam comissão, código de catálogo, leitura por lead e desfecho. **O que ainda se perde hoje:** a grade de prazos do C6, os outros prazos da FACTA quando a consulta pede 1 prazo (HIPÓTESE de que o n8n pede assim), os recálculos e as alternativas 3RN (§2.1).
-3. **«Tabela não cadastrada» tem causa no código:** a fila de Pendências só lê a opção escolhida. Quando a tabela sem comissão **convive** com uma catalogada, ela perde a escolha e nunca vira pendência: o ciclo se fecha. Sozinha, sem nenhuma candidata com comissão, ela **é** escolhida e entra em Pendências. A negociação vive exatamente no primeiro caso (§2.2).
-4. FACTA e C6 devolvem N tabelas numa consulta. O 3RN devolve 1 por vínculo; as outras regras são catálogo da conta, não do lead, e o recálculo nelas tem 2 defeitos (§2.1).
-5. **Desenho:** tabela-filha nova `core.oferta_opcao` na S4, escrita só pelo ISKRA na mesma transação da observação, só no INSERT novo com desfecho `aplicada`, com comissão congelada pela mesma função da OP-CF-03; leitura nova por lead na API; web atrás de flag, web antes da API (§3).
-6. **Roteiro:** escada por regra fixa. Só depois de objeção e de o T5 **falhar de fato** na tabela atual. Piso em **comissão em R$**, teto de comissão cedida por atendimento já na v0, nova confirmação ligada à opção a cada degrau. O modelo nunca vê tabela nem comissão (§4).
-7. **Três buracos que travam a F2:** a confirmação da IA exige `oferta_versao` (precisa emenda); a fórmula de comissão em R$ só existe no web (precisa ir ao servidor com teste de paridade); o gatilho é um rótulo do modelo (precisa de defesa por código) (§4.5, §3.5, §4.2).
-8. **Aprendizado de máquina só depois:** hoje não há dado de exposição nem variação. O Credit Intelligence prevê aprovação do banco, não aceite do cliente, e está parado. Registrar a exposição desde já (§5).
-9. **Fases:** F0 salvar N tabelas (~11 d-agente, **≥ 2 semanas de relógio**) · F1 web + fórmula no servidor (~5–6 d) · F2 IA por regra (~7–9 d) · F3 aprendizado (meses de dado) (§6). **Nada disso entra na IA do piloto;** F0 vai à produção só depois do relatório do piloto (01/12 21:00, `ROT:25`) (§6.5).
-10. Rotação entre bancos com banco oculto: **não recomendada**. O banco aparece no texto de oferta, no link e na assinatura; só a FACTA digita no MVP (§4.8).
+**A. FGTS primeiro (§0).**
+1. **FGTS = 1 banco (Novo Saque), 9 tabelas por simulação**, com prazo, taxa e total devido iguais e só o valor liberado diferente; **só a TABELA NS é guardada**; o campo `commission` existe na doc e a casa não o lê; não há parcela nem prazo mensal, e a autorização é do cliente no app do FGTS (§0.1).
+2. **O chatbot já negocia um degrau:** o fluxo ativo «FGTS - negou ns (passa campanha)» oferece a CAMPANHA, linear, sem nó de decisão (`n8n:FGTS - negou ns (passa campanha)/*`, `LN8:116-127`). A IA começa **depois** dele, no degrau seguinte (§0.3).
+3. **Onde guardar as 9 tabelas:** **fora do gl360**, em `novosaque.proposta_oferta` dentro do `novosaque-fgts`. Guardar no gl360 **fere** a decisão do dono de 28/09 («NÃO trazer propostas FGTS para o gl360 agora») (§0.2). Fases: F0-FG ~4,5–6 d-agente num repositório só, contra ~11 d e 5 repositórios do CLT.
+4. **Sem fonte de comissão, a escada FGTS não liga:** `commission` por oferta (se vier) ou coeficiente cadastrado pelo dono no editor FGTS (0–3, bloqueado). O fator de meta do Go não é comissão (§0.4).
+
+**B. CLT depois (§1–§8, desenho original).**
+5. **Negociação entre tabelas não está no planejamento da IA.** Só existe a contraproposta dentro da mesma oferta (E4 + T5, R3/R4, até 3). Prova no §1.
+6. **O «comece a salvar» já está atendido em forma crua desde 09/11 (no CLT):** o 360 grava N opções por consulta positiva em `core.observacao.ofertas` (jsonb, 1 a 20), e o que está lá se recupera depois por backfill. Faltam comissão, código de catálogo, leitura por lead e desfecho. **O que ainda se perde hoje:** a grade de prazos do C6, os outros prazos da FACTA quando a consulta pede 1 prazo (HIPÓTESE de que o n8n pede assim), os recálculos e as alternativas 3RN (§2.1).
+7. **«Tabela não cadastrada» tem causa no código:** a fila de Pendências só lê a opção escolhida. Quando a tabela sem comissão **convive** com uma catalogada, ela perde a escolha e nunca vira pendência: o ciclo se fecha. Sozinha, sem nenhuma candidata com comissão, ela **é** escolhida e entra em Pendências. A negociação vive exatamente no primeiro caso (§2.2).
+8. FACTA e C6 devolvem N tabelas numa consulta. O 3RN devolve 1 por vínculo; as outras regras são catálogo da conta, não do lead, e o recálculo nelas tem 2 defeitos (§2.1).
+9. **Desenho CLT:** tabela-filha nova `core.oferta_opcao` na S4, escrita só pelo ISKRA na mesma transação da observação, só no INSERT novo com desfecho `aplicada`, com comissão congelada pela mesma função da OP-CF-03; leitura nova por lead na API; web atrás de flag, web antes da API (§3).
+10. **Roteiro:** escada por regra fixa (vale para os dois produtos, com as emendas FGTS do §0.3). Só depois de objeção e de o T5 **falhar de fato** na tabela atual. Piso em **comissão em R$**, teto de comissão cedida por atendimento já na v0, nova confirmação ligada à opção a cada degrau. O modelo nunca vê tabela nem comissão (§4).
+11. **Três buracos que travam a F2:** a confirmação da IA exige `oferta_versao` (precisa emenda; no FGTS, que não tem `oferta_versao`, trava ainda mais, Q-FG-22); a fórmula de comissão em R$ só existe no web (precisa ir ao servidor com teste de paridade); o gatilho é um rótulo do modelo (precisa de defesa por código) (§4.5, §3.5, §4.2).
+12. **Aprendizado de máquina só depois:** hoje não há dado de exposição nem variação. O Credit Intelligence prevê aprovação do banco, não aceite do cliente, e está parado. Registrar a exposição desde já (§5).
+13. **Fases, na ordem nova:** **FGTS primeiro** — F0-FG salvar as 9 tabelas no `novosaque-fgts`, com o custo zero antes (~4,5–6 d) · F1-FG fonte de comissão (0,5 d se a Novo Saque mandar `commission`; 2–3 d se for pelo editor) · F2-FG IA em sombra depois do chatbot (~8–10 d, = `EFG` FF-3) · F3-FG aprendizado com holdout (§0.5). **CLT depois** — F0 salvar N tabelas (~11 d-agente, **≥ 2 semanas de relógio**) · F1 web + fórmula no servidor (~5–6 d) · F2 IA por regra (~7–9 d) · F3 aprendizado (meses de dado) (§6). **Nada disso entra na IA do piloto CLT;** nenhuma das duas trilhas vai à produção antes do relatório do piloto (01/12 21:00, `ROT:25`) (§6.5).
+14. Rotação entre bancos com banco oculto: **não recomendada**. O banco aparece no texto de oferta, no link e na assinatura; só a FACTA digita no MVP (§4.8).
+
+---
+
+## 0. FGTS primeiro (decisão do dono, 10/11)
+
+> Base: `EFG` (estudo FGTS ponta a ponta, revisado em 10/11), `LFG/lev-novosaque.md`, `lev-n8n.md`, `lev-c360.md`, `lev-chatbot.md`, `lev-analogia.md`, `lev-regras.md`, e a estrutura dos 7 fluxos FGTS do n8n de produção exportada pelo dono em 10/11 (5 são FGTS e ativos, `LN8:16-24`). A estrutura não traz condição de IF, corpo de HTTP nem código: o que depende disso fica **NÃO VERIFICADO**.
+> Portas citadas (loopback da S2): `127.0.0.1:8104` = `novosaque-fgts` (`NS/Dockerfile:127`, `--port 8104`); `:8102` = `chatguru-api`; `:8114` = `cliente360-api`; mapa completo com prova em `LN8:32-47`. A memória `gl-infra-topology.md` não lista as portas 81xx (`LN8:47`): a prova é de código.
+
+### 0.1 O que muda do CLT para o FGTS
+
+| Ponto | CLT (§1–§8) | FGTS | Prova |
+|---|---|---|---|
+| Bancos | 3 (FACTA, C6, 3RN) | **1: Novo Saque**, pelo `novosaque-fgts` (:8104). Nenhum outro serviço da casa faz FGTS | `EFG` §1 item 2; `LFG/lev-outros-bancos.md` §1 |
+| Quantas opções por consulta | FACTA e C6: N; 3RN: 1 por vínculo | **9 tabelas por simulação**, sempre as nove, na mesma transação: CAMPANHA, DIAMANTE, GOLD, LIGHT, MONEY, SMART, SOFT, TABELA NS, ZERO. O array mistura falhas (`success: false`) | `LFG/lev-novosaque.md:115-116`; `NS app/propostas.py:272`; nomes do Go **arquivado** (`gl-site-go/internal/domain/site/propostasfgts/override.go:48-49`), confirmar numa consulta real (`lev-novosaque.md:313`) |
+| O que muda entre as opções | tabela, prazo, parcela, taxa, comissão | **Só o valor liberado.** «`prazo` e `taxa` … são IDÊNTICOS nas nove, junto do total devido. `disbursed_amount` é o único que varia (13.871 de 13.871 contratos)» | `NS app/propostas.py:307-310` ✔ |
+| O que se guarda | `core.observacao.ofertas` (jsonb, 1 a 20) desde 09/11 | **Só a TABELA NS** em `novosaque.propostas`. As 9 ficam só como mapa `{simulation_id: liberado}` na ponte `esteira_guru`, **apagada em 3 dias**, e no resumo da auditoria (7–30 d), que **não guarda `insurance_amount` nem `commission`** | `NS app/propostas.py:265-282`, `:319-321`; ponte `:203-212`, expurgo `:247`; resumo `NS app/novosaque.py:307-309` ✔ |
+| Qual a operação contrata | a de maior `coef_valor` (P13) | **TABELA NS em 96,5 %** (CAMPANHA 3,5 %), e a NS **nunca** é a de maior liberado (a maior é a ZERO, «que quase ninguém fecha») | `NS app/propostas.py:266-270` ✔ |
+| Comissão por opção | catálogo `ref.catalogo_tabela` + snapshot `coef_valor` | **Nenhuma fonte hoje (campo `commission` não lido).** A doc da Novo Saque tem `commission` (`commission_corban_value`…) no schema da oferta, mas **a casa não lê o campo**, e nos exemplos ele só aparece na oferta contratada. Nenhum coeficiente FGTS cadastrado; editor bloqueado (D19-11) | `NS app/novosaque.py:307-309` ✔; `EFG` §3.1 «Comissão na doc», §5.1 «Comissão por tabela»; `LFG/lev-novosaque.md:117`, `:127` |
+| Autorização | CLT: DATAPREV, liveness C6 | **O cliente autoriza a instituição no app do FGTS** (sem API). Sem isso não há oferta: 24 % das consultas param aí | `EFG` §2 P03, §4.2 PF-02 |
+| Prazo e parcela | prazo em meses, parcela mensal | **Não existem.** «Prazo» = nº de aniversários antecipados (lista `installments`, até 5; queda para 3 adiada a 31/03/2027); a Caixa paga o banco a cada aniversário | `LFG/lev-novosaque.md:119`; `EFG` §1 item 1; `MEM:decisoes-fgts-coeficientes.md` item 1 |
+| Quem negocia antes da IA | o vendedor humano no web | **o chatbot** (ChatGuru + n8n). O degrau NS → CAMPANHA já está no fluxo «FGTS - negou ns (passa campanha)» | `LN8:116-127`; `n8n:FGTS - negou ns (passa campanha)/Code in JavaScript` |
+| Volume | ~400 positivas/dia (contradição, §3.2) | **≈ 1.780 `simulada`/dia** (12.457 em 7 dias); a perda pré-aprovado → formalizado é desconhecida (0–65 %) | `EFG` §2 «Funil medido» (`NSR:435-444` ✔) |
+| Recálculo antes de mostrar | T5 (FACTA grátis; C6 pago) | **Não há recálculo**: as 9 já vieram, e só vale enquanto a transação está viva (TTL ~3 d). Re-simular = abrir transação nova (API-13) | `EFG` NF-02, AN-10, AN-20, AN-22 |
+
+**O que vale igual:** o código decide o degrau, o modelo nunca vê tabela nem comissão (§4.6); piso, teto cedido e orçamento (NT-24, NT-26b); um degrau por turno e nunca na 1ª apresentação (NT-27, NT-28); nova confirmação a cada degrau (NT-29); exposição registrada desde o 1º dia (§5.3).
+
+### 0.2 Fases F0–F3 para o FGTS, e onde guardar as 9 tabelas por lead
+
+**A decisão de 28/09.** O dono decidiu: «NÃO trazer propostas FGTS para o gl360 agora (ingestão atual pesada/não otimizada)», com «separação estrita: CLT é CLT, FGTS é FGTS (tabelas, coeficientes e propostas)» (`MEM:decisoes-fgts-coeficientes.md` itens 6 e 8). Hoje o gl360 não tem oferta, proposta nem contrato FGTS; o `payload_fgts_v1` só tem nome (RD-202) (`LFG/lev-c360.md:16-20`, `:63`).
+
+**Guardar as opções FGTS no gl360 fere essa decisão? Sim.** `core.oferta_opcao` (NT-02) é filha de `core.observacao` (§3.2). Para ter opção FGTS lá, a observação FGTS precisaria entrar antes, com `payload_fgts_v1` definido, ingestão pelo ISKRA e ~1.780 positivas/dia × 9 linhas: é exatamente a ingestão FGTS que o dono adiou, só que maior. O que **não** fere: o **catálogo** de tabelas e coeficientes FGTS no gl360 (itens 1–5 e 7 da mesma decisão; rev. 37 e escritas FGTS do ISKRA já existem, desligadas, `lev-c360.md:48-50`), e o dado cadastral do lead que o n8n já grava no 360 por `pessoas:ingestoes` (`LN8:235`, X6), que não é proposta.
+
+**Proposta: guardar no `novosaque-fgts`, schema `novosaque`**, em `novosaque.proposta_oferta` (= `EFG` DD-01), uma linha por tabela por transação. Colunas de propósito iguais às de `core.oferta_opcao` onde fizer sentido, para migrar quando o RD-202 abrir (`EFG` DD-01; §8.2, último parágrafo).
+
+| Id | Decisão | Por quê / prova |
+|---|---|---|
+| **FG-NT-01** | Escritor único: o `novosaque-fgts`, no mesmo ponto em que hoje grava a ponte `esteira_guru` (desfecho `simulada`, na esteira, no acompanhamento e na leitura da oferta tardia) | `NS app/propostas.py:203-212`; `LFG/lev-novosaque.md:200` |
+| **FG-NT-02** | Mora no **Postgres do n8n** da S2 (onde já vive o schema `novosaque`), **nunca** no Supabase `gl_novosaque` | o próprio serviço recusa gravar o contrato inteiro no Supabase («500 MB compartilhados», `NS app/novosaque.py:299-303`); buffer `novosaque.*` no Postgres do n8n, `lev-novosaque.md:199`. Onde mora exatamente segue `EFG` LC-12 |
+| **FG-NT-03** | Colunas: `tx_origem` (chave estável, DD-06), `transaction_id`, `simulation_id`, `table_id`, `table_name`, liberado, total devido, IOF, TAC, `insurance_amount`, taxa, CET, nº de anos, **`commission` cru como veio** (nulo se não vier), `coef_valor` + `coef_versao_ref` (congelados no INSERT, quando o catálogo FGTS existir), `escolhida`, `contratada`, `exposta_por` (`chatbot_f2`, `chatbot_f3`, `ia`), instante. **Sem CPF**: a ligação ao lead é pela linha de `novosaque.propostas` | `EFG` DD-01, DD-06; DD-06 por causa da rotação do `transaction_id` (`NS init_propostas.sql:73`) |
+| **FG-NT-04** | `coef_versao_ref` aponta ao catálogo FGTS do gl360 **sem FK** (outro banco): referência lógica declarada, como o `opcao_id` da IA (§4.7) | §4.7 |
+| **FG-NT-05** | Retenção 13 meses (`EFG` Q-FG-08). Volume (HIPÓTESE, sem largura medida): ~1.780 × 9 ≈ 16 mil linhas/dia, ~6 milhões em 13 meses | `EFG` §2 «Funil medido» |
+| **FG-NT-06** | **Marca do F3:** quando o fluxo «negou ns» lê a transação, o serviço grava `exposta_por='chatbot_f3'` na linha da CAMPANHA. Precisa de rota ou parâmetro novo no :8104 (o F3 só lê, `LN8:123`). Sem a marca, a IA não sabe que a CAMPANHA já foi mostrada | `LN8:288` |
+
+| Fase | CLT (§6) | **FGTS (primeiro)** | Repositório | d-agente |
+|---|---|---|---|---|
+| **F0** salvar N tabelas | `core.oferta_opcao` no gl360, 5 repositórios, 1 DDL, ~6 deploys, ~11 d | **F0-FG**: FF-0 de custo zero (export com lógica do n8n, perguntas à Novo Saque, medição LC-08) + FG-NT-01…06 + chave DD-06 + rota sem PII de oportunidade + view de candidatos (`EFG` FF-0, FF-1) | só `novosaque-fgts` (1 DDL no schema `novosaque`, com «sim») | **≈ 4,5–6** |
+| **F1** mostrar / fórmula | tela «Opções por lead» + fórmula de comissão em R$ no servidor (NT-15) | **F1-FG**: só a **fonte de comissão**. (a) `commission` por oferta, se LC-03 confirmar: lê e grava, sem fórmula; (b) senão, destravar o editor FGTS (D19-11, rev. 37/41) para o dono cadastrar o coeficiente das 9 e definir a base (Q-FG-23). **Sem tela de vendedor:** o FGTS não está no Cliente360 novo, e quem vem antes da IA é o chatbot | `novosaque-fgts`; se (b): iskra + cliente360-api (`GET /coeficientes/fgts/tabelas`, `EFG` API-42) | (a) 0,5 · (b) 2–3 |
+| **F2** IA por regra | R9, T3/T5, hash, contratos 03/05/08 | **F2-FG** = `EFG` FF-3: contrato 05-NS, emendas 04/08, adaptadores T2/T3/T7/T8/T9, E2b, motor NF-01…NF-12 com as emendas do §0.3, **confirmação sem `oferta_versao`** (Q-FG-22), holdout, sombra | `ia-atendimento`, `novosaque-fgts`, braço n8n | **≈ 8–10** |
+| **F3** aprendizado | Thompson após meses de dado | **F3-FG**: o mesmo método (§5.4), mas com volume para semanas e não anos (**se** LC-08 mostrar FG-01 em centenas/dia, `EFG` §5.2 «Vantagem do FGTS para aprender»), com holdout de 10–20 % e rótulo `pay-commission/Commission credited` (evento que já existe, `NS app/robo_evento.py:52`, `:71`) | `ia-atendimento` | 4–6, depois do piloto FGTS |
+
+**Ordem e portões:** os do `EFG` §8.3 (G-F1 volume de FG-01; G-F3a go do piloto CLT em 01/12; G-F3b lógica do n8n; G-F3c fonte de comissão; G-F3d prazo do link; G-F3e transporte). Os robôs sem IA do `EFG` FF-2 (re-simular quem não autorizou no app; lembrar de assinar) podem vir antes da F2-FG e talvez rendam mais (`EFG` §8.1 item 3). **O CLT segue o §6 depois:** a F0 do CLT só começa quando a F0-FG estiver no ar ou quando houver agente ocioso (as duas disputam os mesmos agentes e a mesma janela pós-piloto).
+
+### 0.3 A escada de negociação FGTS
+
+Emendas ao motor NF-01…NF-12 do `EFG` §5.2, com o que o n8n mostrou depois dele (`LN8` §3.3, §4):
+
+| Id | Regra |
+|---|---|
+| **FG-NT-10** | **Degrau 0 = a última tabela que o chatbot mostrou:** TABELA NS (fim do F2, `n8n:FGTS - resultado assíncrono (fluxo 2)/disparar mensagem pre aprovado guru`) ou CAMPANHA, se o lead passou pelo F3 (`n8n:FGTS - negou ns (passa campanha)/disparar mensagem guru2`). A IA **nunca** reapresenta a CAMPANHA como novidade a quem já a viu (marca FG-NT-06). Gatilhos: FG-01 (NS sem contrato) e FG-01c (CAMPANHA sem contrato, `LN8:272`) |
+| **FG-NT-11** | **Candidatas** = as outras tabelas da **mesma transação viva** (`success: true`, TTL folgado), com comissão em R$ conhecida (§0.4). Ordem de candidatura (HIPÓTESE, até ver comissão): DIAMANTE, GOLD, LIGHT, MONEY, SMART, SOFT. **ZERO nunca no v0** (maior liberado, quase ninguém fecha; HIPÓTESE de comissão nula pelo nome). Sem re-simular |
+| **FG-NT-12** | **Ganho ao cliente só em liberado:** Δ liberado ≥ 5 % e ≥ R$ 20 contra o degrau atual (`EFG` NF-04). Não existe objeção de parcela, prazo ou juros no FGTS: só `valor_baixo` dispara (`EFG` NF-03); `taxa_juros` e `parcela_alta` caem |
+| **FG-NT-13** | **Ordem** = NT-23 com Δliberado no lugar da dimensão da objeção: menor Δcomissão ÷ Δliberado (`EFG` NF-05) |
+| **FG-NT-14** | **Anos antecipados** como 2º eixo (`installments`, 1 a 5): **fora do v0.** A re-simulação por anos (`PUT .../simulation/{tx}`) nunca foi usada nem testada para FGTS (`EFG` API-03, LC-05; `lev-novosaque.md:168`). Menos anos **baixa** o liberado: é alavanca para «valor maior que o disponível» (código 17 da Caixa), não para objeção de valor baixo. HIPÓTESE: a simulação já vem no máximo de anos permitido |
+| **FG-NT-15** | **Fato de código no gatilho** (NT-26) vira: o lead recusou a oferta no diálogo do chatbot (F3 disparado, ou FG-01 sem formalização na janela) **e** disse `valor_baixo` à IA. Sem objeção dita à IA, a IA reapresenta o degrau 0 e não desce |
+| **FG-NT-16** | **Degraus por faixa:** pela tabela do §4.3 todo ticket FGTS cai em «baixa» e teria 0 degraus. Faixas próprias (`EFG` Q-FG-05): **1 degrau da IA** no v0 em todas as faixas (o chatbot já gastou o seu com a CAMPANHA). O degrau **não** conta como contraproposta T5 (não há T5 no FGTS, `EFG` AN-22); conta no teto de degraus |
+| **FG-NT-17** | **Antes de formalizar:** a trava NF-09 (GET do contrato com `Offer available`, `formalizacoes_desde` sem contrato vivo, ledger sem formalização aberta). 424 nunca se repete |
+
+### 0.4 Piso de comissão (depende do campo `commission`)
+
+| Caso | Piso | Estado |
+|---|---|---|
+| (a) `commission` vem **por oferta, antes da escolha** (LC-03) | NT-24 direto em R$: `commission_corban_value` da candidata ≥ max(**p % do degrau 0**, **R$ X**). Sem fórmula, sem catálogo. Gravar o valor cru em FG-NT-03 | **não provado**: a doc só mostra o campo na oferta contratada; o tipo diverge (string no schema, número no exemplo) (`EFG` §3.1) |
+| (b) não vem por oferta | coeficiente das 9 tabelas cadastrado pelo dono (faixa 0–3, `MEM:decisoes-fgts-coeficientes.md` item 2) × **base a definir** (liberado? total devido?), congelado no INSERT (FG-NT-03) | editor bloqueado (D19-11); % empresa «ainda não sabe» (item 5) |
+| (c) nenhuma das duas | **motor desligado**; a IA FGTS só reapresenta o degrau 0, reenvia link (FG-03) e repassa | `EFG` NF-02 |
+| Fator de meta do Go (NS 1,95 · CAMPANHA 1,50 · GOLD 1,15 · demais 1,00) | **não é piso**: é peso de meta de vendedor | `gl-site-go/internal/domain/site/propostasfgts/types.go:356-385` (arquivado); `EFG` Q-FG-09 |
+
+O teto de comissão cedida por atendimento e o orçamento mensal (NT-26b) valem igual. **Risco próprio:** o total devido é igual nas 9; se a diferença de liberado sair do «seguro» embutido (`insurance_amount`, HIPÓTESE AL-02), descer de degrau pode mexer num produto, não só na comissão. Proibido falar em «seguro» ao cliente até LC-04 (`EFG` AL-02).
+
+### 0.5 Perguntas: o que vale igual, muda ou cai no FGTS
+
+| Q | No FGTS | Como fica |
+|---|---|---|
+| Q-01 tabelas não cadastradas | **muda** | as duas leituras valem e pioram: (a) 8 das 9 não são guardadas de forma durável; (b) **nenhuma** tabela FGTS tem coeficiente |
+| Q-02 piso | **muda** → Q-FG-03 | piso em R$ de `commission` ou do coeficiente cadastrado (§0.4) |
+| Q-03 ganho mínimo | **muda** → Q-FG-04 | só no liberado (≥ 5 % e ≥ R$ 20) |
+| Q-04 degraus por faixa | **muda** → Q-FG-05 | 1 degrau da IA em todas as faixas; não conta como contraproposta T5 (FG-NT-16) |
+| Q-05 «sem seguro» FACTA | **cai** | só FACTA. Análogo FGTS: «seguro» embutido é HIPÓTESE (AL-02, LC-04) |
+| Q-06 tabela nova × jsonb | **muda** → Q-FG-08 | tabela nova `novosaque.proposta_oferta`, **fora do gl360** (§0.2) |
+| Q-07 retenção | **muda** | 13 meses no Postgres do n8n (Q-FG-08), não «sem expurgo» |
+| Q-08 Pendências lê opções | **muda** → Q-FG-20 | não há Pendências FGTS; o equivalente é o dono cadastrar as 9 no editor FGTS |
+| Q-09 FACTA modo grade | **cai** | FACTA |
+| Q-10 vendedor antes da IA | **cai** (respondida pelo dono) | no FGTS quem vem antes é o chatbot; a IA entra depois da falha dele |
+| Q-11 exploração ≤ 10 % na v1 | **vale igual** | só na v1, dentro do piso |
+| Q-12 recompensa | **vale, com rótulo melhor** | comissão realizada pelo evento `pay-commission/Commission credited`; métrica do holdout: pago em 7 dias (`EFG` §5.2 «Medição (holdout)») |
+| Q-13 rotação entre bancos | **cai** | um banco só (AL-06) |
+| Q-14 dumps `jobs_clt` | **cai** → Q-FG-21 | o histórico FGTS das 9 está no resumo da auditoria (7–30 d), sem seguro nem comissão |
+| Q-15 fora do piloto, produção depois de 01/12 | **vale igual** (= Q-FG-12) | |
+| Q-16 confirmação `oferta_versao` + `opcao_id` | **muda** → Q-FG-22 | FGTS não tem `oferta_versao`; hash com `transaction_id` + `simulation_id` (NF-08) |
+| Q-17 C6 «mesmo vínculo» | **cai** | substituída por «mesma transação viva» (FG-NT-11) |
+| Q-18 3RN na escada | **cai** | |
+| Q-19 onde mora a fórmula em R$ | **muda** → Q-FG-23 | (a) sem fórmula, se `commission` vier; (b) base do coeficiente FGTS a definir |
+| Q-20 registro do vendedor e jurídico | **cai** na fase FGTS | não há tela de vendedor FGTS no 360 |
+| Q-21 teto cedido, orçamento, canibalização | **vale, métrica muda** | canibalização = queda do aceite da NS **no chatbot** (F2 → formalização) depois de ligar a IA; o risco já existe hoje com o F3 |
+
+Perguntas novas (continuam a numeração do `EFG` §9, Q-FG-01…18, que valem como estão; Q-FG-02 deixa de estar suspensa quanto à existência do F3, mas segue suspensa até ver o código de 26 linhas e o diálogo que o dispara):
+
+| Id | Pergunta | Padrão recomendado |
+|---|---|---|
+| **Q-FG-19** | A IA começa no degrau depois do que o chatbot mostrou (NS, ou CAMPANHA se passou pelo F3), e nunca reapresenta a CAMPANHA? | **Sim**, com a marca FG-NT-06 no `novosaque-fgts` |
+| **Q-FG-20** | Se a Novo Saque não mandar `commission` por oferta, o dono cadastra o coeficiente das 9 tabelas FGTS (destravar D19-11, rev. 37/41)? | **Sim**, antes da F2-FG; sem isso o motor fica desligado |
+| **Q-FG-21** | Fazer backfill de `novosaque.proposta_oferta` a partir do resumo da auditoria (só liberado, taxa e CET; sem seguro nem comissão)? | **Sim**, uma vez, com `origem` própria; nunca usar como piso |
+| **Q-FG-22** | A confirmação da IA (`ia.confirmacao.oferta_versao integer NOT NULL`, CHECK ≥ 1, `0001_esquema.up.sql:174-177`, `:191`) ganha um caminho FGTS sem `oferta_versao` (coluna `produto` + `transaction_id`/`simulation_id` no hash)? | **Sim**, na mesma migração da NT-29b, para pagar uma vez só |
+| **Q-FG-23** | Se for por coeficiente: qual a base da comissão FGTS em R$ (liberado, total devido ou valor do contrato) e o % empresa? | **Dono decide**; até lá, caso (c) do §0.4 |
+| **Q-FG-24** | Anos antecipados podem ser degrau, depois do teste do `PUT` em sandbox? | **Não no v0** (FG-NT-14) |
+| **Q-FG-25** | A F0 do CLT espera a F0-FG no ar? | **Sim**, salvo agente ocioso; as duas só vão à produção depois de 01/12 |
 
 ---
 
@@ -382,7 +506,7 @@ Dependências: B5.6 (motor v0) feito; B5.4 com a tabela no hash; F0.4 e NT-15 no
 1. **Não pôr a negociação na IA do piloto** (F2 fora). Não cabe e mexe no caminho crítico (motor, T3, T7, hash, confirmação, contratos).
 2. **F0 vai à produção só depois do relatório do piloto** (01/12 21:00, `ROT:25`; marco, não data solta): ela toca API, ISKRA e facta-on, que estão no caminho do piloto. Só codar localmente se houver agente ocioso, sem tirar ninguém do pacote ALTO.
 3. **Custo zero, já:** (a) no B5.4 em curso, pôr `tabela_identificador` no hash (o papel já manda) e **deixar espaço para `opcao_id`** na mesma conta (NT-29b), para não pagar a migração duas vezes; (b) gravar `objecao` e desfecho por passo (já existe); (c) **manter `observacao.ofertas` ligado** (já está desde 09/11: os dados se acumulam sem código novo, e o backfill NT-08 os recupera); (d) o dono rodar a medição de volume (F0.0), só leitura.
-4. **Ordem depois do piloto:** F0.0 → F0.1 → F0.2 → F0.3/F0.4 → F1 (com NT-15) → (descritivos) → F2 → F3.
+4. **Ordem depois do piloto (revista em 10/11, FGTS primeiro):** **FGTS:** FF-0 (custo zero, já) → G-F1 → F0-FG → F1-FG (fonte de comissão) → robôs sem IA (`EFG` FF-2) → F2-FG em sombra → piloto FGTS → F3-FG (§0.2). **CLT, depois:** F0.0 → F0.1 → F0.2 → F0.3/F0.4 → F1 (com NT-15) → (descritivos) → F2 → F3. Os itens de custo zero do CLT (3 acima) seguem valendo agora.
 
 ### 6.6 Esforço × prazo de relógio
 
@@ -391,6 +515,8 @@ O d-agente mede esforço, não calendário. A F0 tem **~6 deploys em ordem** (IS
 ---
 
 ## 7. Perguntas fechadas ao dono
+
+Perguntas do CLT. O que vale igual, muda ou cai no FGTS, e as Q-FG-19…25 novas, estão no §0.5.
 
 | Id | Pergunta | Padrão recomendado |
 |---|---|---|
@@ -474,3 +600,11 @@ Crítica independente conferida na fonte (scripts `revisao-final-1.sh` e `revisa
 - **C8 escopo `comissao:ler`:** não conferido nesta revisão; NT-11 passou a dizer «quem já lê comissão» com HIPÓTESE sobre o nome do escopo.
 
 **Achado próprio desta revisão:** o vocabulário de `objecao` em `H:64` não tem `taxa_juros`, mas o R3 (`H:198`) e NT-26 o usam. Alinhar antes da F2 (§6.3).
+
+## Notas da reconciliação com o FGTS (10/11)
+
+- Decisão do dono de 10/11 (FGTS primeiro; IA só depois da falha do chatbot): novo §0, resumo reescrito em duas partes (FGTS, depois CLT), §6.5 item 4 com a ordem nova, nota no §7.
+- Fontes: `EFG` (revisado em 10/11), `LFG/lev-*.md` (inclusive `lev-n8n.md`) e a estrutura dos fluxos FGTS do n8n de produção exportada pelo dono em 10/11. Conferidos de novo no código: `NS app/propostas.py:265-282`, `:302-337` (só a NS gravada; prazo, taxa e total iguais nas nove) e `NS app/novosaque.py:299-319` (resumo sem `commission` nem `insurance_amount`).
+- Mudança de conclusão em relação ao `EFG`: «negou ns (passa campanha)» **existe e está ativo** na S2 (era NÃO VERIFICADO, LC-14). Por isso o degrau 0 da IA passa a ser a última tabela mostrada pelo chatbot (FG-NT-10) e a CAMPANHA sai da escada da IA para quem passou pelo F3.
+- Guardar opções FGTS no gl360: julgado **contrário** à decisão de 28/09 (item 6); proposta fora do gl360, no `novosaque-fgts`, com colunas compatíveis para migrar no RD-202.
+- Nenhum caminho de webhook foi escrito; fluxos citados por nome.
