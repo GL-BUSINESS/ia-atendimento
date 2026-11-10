@@ -448,6 +448,29 @@ Fonte: `scripts/mapear-fgts.sh`, rodado pelo dono (só leitura, com teto de temp
 - `propostas.valor_liberado` é o valor da NS. `propostas.valor_financiado` é o valor da tabela contratada. A diferença entre os dois já mede o que a negociação ganhou ou perdeu.
 - **Continua aberto:** quanto a GL recebe em cada tabela. A rodada 1 leu a coluna errada (`esteira_guru.ofertas`, que é só o mapa de valores). A rodada 2 (`scripts/mapear-fgts-2.sh`) mede, nas últimas 24 h, as chaves de cada oferta, a comissão por tabela e a razão do valor de cada tabela sobre o da NS. Se `commission` vier vazia, a resposta depende da pergunta 1 à Novo Saque.
 
+**As tabelas por simulação** (rodada 2 corrigida, 24 h, 1.689 simulações com oferta; LC-04 fechada):
+- **São 10 tabelas, não 9.** As 10 vêm em **100%** das simulações com oferta.
+- Ordem pelo valor liberado ao cliente (razão sobre a NS, mediana):
+
+  | Tabela | Razão sobre a NS | Liberado médio |
+  |---|---|---|
+  | IMBATIVEL | 0,90 | R$ 72 |
+  | **TABELA NS** | 1,00 | R$ 80 |
+  | **CAMPANHA** | 1,10 | R$ 88 |
+  | DIAMANTE | 1,19 | R$ 95 |
+  | **GOLD** | **1,29** | **R$ 103** |
+  | MONEY | 1,39 | R$ 111 |
+  | LIGHT | 1,48 | R$ 118 |
+  | SOFT | 1,58 | R$ 126 |
+  | SMART | 1,68 | R$ 134 |
+  | ZERO | 1,87 | R$ 149 |
+
+- Os degraus são regulares, de cerca de 9,7% do valor da NS cada. A escada decidida pelo dono (NS → CAMPANHA → GOLD) **pula a DIAMANTE**. Ela entrega ao cliente +29% sobre a NS e +18% sobre a CAMPANHA.
+- **O que é igual entre as tabelas:** taxa de juros mensal, parcelas, total devido, IOF e TAC (sempre nula).
+- **O que muda:** valor liberado, `insurance_amount` e o CET.
+- **HIPÓTESE:** a parte da GL está em `insurance_amount`. É uma conta: com o total devido igual, o que o cliente deixa de receber tem de ir para algum lugar. Confirmar na pergunta 1 à Novo Saque ou com uma conta de fechamento (total = liberado + `insurance_amount` + IOF).
+- **A comissão não vem na oferta guardada.** Nenhum campo `commission` aparece nas 16.890 ofertas. Ou o envelope da casa corta esse campo, ou a Novo Saque não o manda no webhook. A comissão por tabela continua dependendo da Novo Saque (pergunta 1).
+
 **O que se contrata hoje** (rodada 2, `propostas` de 30 dias):
 - Das 49.161 pré-aprovações, 17.868 formalizaram.
 - **991 (5,5%) fecharam uma tabela com valor maior que a NS** (é o degrau da CAMPANHA do F3).
@@ -690,9 +713,11 @@ Riscos próprios do FGTS: formalização dupla sem chave (NF-09, NF-09b, PF-12);
     - O motor v0 deixa de escolher entre as 9 tabelas e passa a fazer uma única troca, sempre para a GOLD.
     - O piso de comissão (Q-FG-03) e o ganho mínimo (Q-FG-04) só valem para conferir se a GOLD existe e é válida naquela simulação.
     - A ZERO e as demais ficam fora de vez.
-  - **Ainda aberto:**
-    - O nome exato da GOLD no `table_name` e se ela vem em toda simulação. A rodada 2 mostra isso, pela contagem por tabela.
-    - O que fazer quando a GOLD não vier. Padrão: a IA não inventa outra tabela e repassa o lead.
+  - **Fechado pela rodada 2:**
+    - O nome da tabela é `GOLD` e ela vem em 100% das simulações com oferta.
+    - Ela libera 1,29× o valor da NS e fica entre DIAMANTE e MONEY.
+    - Se algum dia a GOLD faltar, a IA não oferece outra tabela e repassa o lead.
+  - **Ainda aberto:** quanto a GL deixa de ganhar na GOLD em relação à NS, para a conta do piso (Q-FG-03).
 
 ---
 
