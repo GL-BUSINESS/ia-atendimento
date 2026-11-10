@@ -720,6 +720,16 @@ Riscos próprios do FGTS: formalização dupla sem chave (NF-09, NF-09b, PF-12);
   - **Ainda aberto:** quanto a GL deixa de ganhar na GOLD em relação à NS, para a conta do piso (Q-FG-03).
 - **O dono confirmou «é a gold mesmo»**: a escada pula a DIAMANTE de propósito.
 
+- **Q-FG-07, decidida pelo dono:**
+  - Na trilha FGTS, a IA fala como **Fabio Junior**, o mesmo nome do chatbot do FGTS (a formalização já vai como `FABIO JUNIOR - MB`).
+  - O CLT continua com Amado Batista.
+  - Corpus anunciado pelo dono: conversas dos APROVADOS do FGTS com o chatbot, cobrindo quem formalizou com o Fabio e quem foi repassado ao consultor. Pode incluir leads que passaram pela URA do CLT.
+  - Tratamento do corpus:
+    - fica em pasta local, fora do git;
+    - a PII é redigida por script antes de qualquer leitura;
+    - a análise sai só em agregados;
+    - nenhuma fala de cliente é publicada.
+
 ### 9.2 Escada e parâmetros configuráveis (pedido do dono, 10/11)
 
 Literal: «isso deve ser configurável de fácil acesso e manutenção também. mesmo que não vá ajustar toda hora.» Nada da negociação fica fixo no código nem no n8n.
