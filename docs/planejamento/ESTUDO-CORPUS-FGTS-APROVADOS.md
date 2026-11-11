@@ -550,3 +550,11 @@ Revisão de completude e consistência em 10/11/2026. Recalculei os números dir
   - Isso resolve o risco 2 do §6.7. A frase de «valor maior» é verdadeira porque a GOLD libera de fato mais que a CAMPANHA (razão 1,29 × NS contra 1,10).
 - **Q-CF-09: dispensado.** A IA só atende cliente aprovado pelo banco, então reprovado não interessa. O tamanho da fatia vem do banco do novosaque: FG-01 ≈ 1.500 pré-aprovados sem contrato por dia útil (FF-0), mais a contagem de NEGOU CAMPANHA por dia que vem com a correção do F3. Conversas de aprovados que desistiram ficam opcionais, para o piloto.
 - As perguntas Q-CF-03 a 08, 10 e 11 seguem com o padrão recomendado até o dono dizer o contrário.
+
+## §10 Estado em 11/11
+
+- **DD-04 (escada configurável) em PR rascunho, sem merge:** novosaque-fgts#11 (tabelas `negociacao_degrau`/`negociacao_config`, rota `/degrau/{n}`, GOLD como teto em banco + serviço; 903 testes) e painel-dev#53 (aba «Negociação FGTS», só ADMIN, dois passos, histórico; 6.276 testes, 17 falhas pré-existentes na main). Revisão Codex pendente (limite até 15/11).
+- **F3 lido:** usa `simulation_results[0]` para valor e `simulation_id` — não escolhe a CAMPANHA. Kit de troca (sombra → troca, com desvio para consultores sem oferta, backup e volta) pronto, local (contém fluxo n8n).
+- **Volume:** F3 roda 441–928 por dia útil (mediana ~630) → IA ≈ 400/dia (280–590). Buraco 03–05/11 a investigar.
+- **Padrões aceitos pelo dono («sim»):** Q-FG-03/06/10/11/15/16/17, Q-CF-03..08/10/11; sem GOLD → repasse.
+- **Bloqueios para produção (nada antes de 01/12):** «sim» à DDL na S2, merge e deploy do #11, «sim» ao kit do F3.
