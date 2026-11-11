@@ -558,3 +558,4 @@ Revisão de completude e consistência em 10/11/2026. Recalculei os números dir
 - **Volume:** F3 roda 441–928 por dia útil (mediana ~630) → IA ≈ 400/dia (280–590). Buraco 03–05/11 a investigar.
 - **Padrões aceitos pelo dono («sim»):** Q-FG-03/06/10/11/15/16/17, Q-CF-03..08/10/11; sem GOLD → repasse.
 - **Bloqueios para produção (nada antes de 01/12):** «sim» à DDL na S2, merge e deploy do #11, «sim» ao kit do F3.
+- **Buraco de 03–05/11 explicado (dono):** manutenção na CAIXA deixou o FGTS fora do ar (consultas caíram de ~2.500/h para ~15/h às 11h de 03/11; volta às 08h de 06/11). Regra: em queda do banco/Caixa, desligar a IA à mão na chave «IA ligada» do painel e manter só o chatbot. Sem disjuntor automático por ora.
