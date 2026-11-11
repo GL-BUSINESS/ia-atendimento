@@ -57,13 +57,47 @@ Reaproveita o orquestrador da IA CLT (`ia-atendimento`) com um gatilho novo, com
 
 Quando a IA entra, o 3º degrau do chatbot (áudio) sai para aquele cliente, e o robô operacional só age depois do contrato. Falta provar que nenhum outro fluxo (lembretes «Não Respondeu») fala no mesmo chat enquanto a IA está ativa; isso é critério de aceite da fase P3.
 
+### 3.5 Ferramentas
+
+Regra geral: **o modelo não chama nenhuma ferramenta.** No FGTS ele só devolve a classificação da mensagem (§3.2, F2). Toda ferramenta é chamada pelo código, no estado certo, pelo gateway de ferramentas que o CLT já tem (`ferramentas/gateway.py`): timeout, idempotência, pré-condições rodadas por código antes do efeito, registro de cada chamada. As FGTS entram como especificações novas do catálogo versionado (`ferramentas/catalogo.py`), com número novo em `catalogo_versoes.json`. O catálogo ordena por `int(nome[1:])`, então os nomes seguem `T<n>` a partir de T17.
+
+**Novas (FGTS)**
+
+| Id | Função | Classe | Quando | Entrada → saída | Se falhar | Base |
+|---|---|---|---|---|---|---|
+| T17 | `oferta_gold` | leitura | F0 (decidir se abre) e de novo logo antes da T19 | `transaction_id` do episódio (nunca do modelo) → `tem_oferta`, `motivo`, `liberado`, `liberado_brl`, `simulation_id`, `table_id` | `motivo ≠ ok` ou timeout no F0: a IA não abre e o chatbot segue com o áudio. Antes da T19: valor ou `simulation_id` diferente do da abertura → repasse com nota | Rota `GET :8104 …/degrau/3`, PR novosaque-fgts#11 |
+| T18 | `formalizacao_aberta` | leitura (usa CPF só no código) | F0 e antes da T19 | chave do episódio → `aberta: sim/não`, `desde` | Sem resposta: trata como «aberta» e não segue (falha fechada) | `novosaque.simulacoes` (`acao` contrato/formalizacao) por CPF, leitura |
+| T19 | `voltar_ao_chatbot` | efeito (não digita contrato, mas dispara a formalização) | F3, só depois da confirmação explícita | `transaction_id`, `simulation_id` e `liberado` lidos da T17 → `ok` / `indeterminado` | `indeterminado` nunca repete às cegas: lê o estado do chat e, sem certeza, repassa com nota | Os mesmos 3 passos do F3 com a CAMPANHA: grava `valor_liberado` e `ns_simulacao_negociada` (GOLD) no ChatGuru e dispara o diálogo de formalização |
+| T20 | `config_negociacao` | ação interna (só código) | F0 | nada → `ligada`, `modo`, `holdout_pct`, `teto_ia_dia`, contagem do dia, `destino_falha` | Sem leitura → trata como desligada | Tabela de config do PR painel-dev#53 |
+| T21 | `marcar_ia_no_chat` (só se a prova da §3.4 pedir) | efeito reversível | Ao abrir (F1) e ao sair (F3/F5) | `chat_id`, `ligar/desligar` → `ok` | Falhou ao ligar → não abre. Falhou ao desligar → repasse com nota para o humano conferir | Campo no ChatGuru que os lembretes «Não Respondeu» leem para não falar junto |
+
+Pré-condições da T19, todas por código e na ordem: `ligada` e `modo=real`; atendimento ainda com a IA (humano não assumiu); sem opt-out; confirmação de aceite registrada; T18 `aberta=não`; T17 de novo com `motivo=ok` e o mesmo `simulation_id` e `liberado` da abertura; nenhuma T19 anterior no episódio (idempotência por chave do episódio).
+
+**Reaproveitadas do CLT**
+
+| Id | Função | Uso no FGTS | O que muda |
+|---|---|---|---|
+| T11 | `Canal` (enviar mensagem) | Abertura F1, respostas do catálogo F2, lembretes F4. Dentro da janela de 24 h, texto livre; fora, só template aprovado | Nada; textos TX-F novos |
+| T12 | `repassar` | F5: leva o chat a «FGTS - Consultores» com nota curta (motivo, valor oferecido, o que o cliente disse em resumo sem PII); fora do expediente agenda para as 8h | Destino vem da T20 (`destino_falha`) |
+| T14 | `registrar_opt_out` | Cliente pede para parar: registra e encerra sem repasse | Nada |
+
+**Fora do piloto**
+
+| Id | Função | Quando entra |
+|---|---|---|
+| T16 | Serviço de mídia (transcrever áudio do cliente) | Fase 2 (Q-PF-03). No piloto, áudio do cliente vira repasse |
+| — | Cobrar assinatura pendente (FG-03) | Fase 2 |
+| T1–T10 do CLT (identificar, simular, digitar FACTA, conferir, link) | Não se aplicam: a IA do FGTS não simula outra tabela nem digita | Nunca, neste produto |
+
+O que o modelo devolve no F2 (saída estruturada, não ferramenta): `intencao` ∈ {aceita, recusa, duvida, quer_humano, opt_out, sem_sentido} e, se `duvida`, o `duvida_id` do catálogo. Duas saídas inválidas seguidas → repasse (regra P7 do CLT).
+
 ## 4. Fases
 
 | Fase | Quando | O que entra | Produção? |
 |---|---|---|---|
 | P1 Preparar | Até 19/11, custo baixo, sem disputar a S3 com o CLT | Revisão Codex dos PRs #11 e #53 (a partir de 15/11); textos TX-F em rascunho para o dono; catálogo de dúvidas tirado do corpus; emenda do contrato 04 (gatilho, chave do episódio) | Não |
 | P2 Escada no ar | 01 a 05/12 | DDL na S2 + deploy do #11 + painel #53; F3 fase A (sombra, 3–5 dias) e fase B (troca) | Sim, 3 «sim» |
-| P3 Construir a IA | Depois do relatório do piloto CLT (01/12) | Gatilho `fgts_pos_campanha`, estados F0–F5, ferramentas `oferta_gold`, `voltar_ao_chatbot`, `repassar`; testes; ensaio com o dublê | Não |
+| P3 Construir a IA | Depois do relatório do piloto CLT (01/12) | Gatilho `fgts_pos_campanha`, estados F0–F5, ferramentas T17–T20 (e T21 se a prova das duas vozes pedir), T11/T12/T14 ajustadas (§3.5); testes; ensaio com o dublê | Não |
 | P4 Sombra | ~1 semana | Com `modo=sombra`: a IA recebe o gatilho, decide e registra o que diria, sem enviar; o chatbot segue com o áudio | Leitura só |
 | P5 Piloto | ~1 semana | `modo=real`, holdout 15%, teto inicial de 50 por dia, 24/7 com repasse agendado para as 8h (Q-CF-06) | Sim, «sim» do dono |
 | P6 Rampa e fase 2 | Depois | Sobe o teto até cobrir os ~400 por dia; fase 2: cobrar assinatura (FG-03), transcrever áudio | Sim |
