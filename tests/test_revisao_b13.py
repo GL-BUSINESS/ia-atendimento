@@ -357,8 +357,11 @@ def test_n3_lembrete_antes_do_intervalo_adia_para_4h_depois_da_ultima_fala_da_ia
     )
 
 
-async def test_n3_alarme_velho_e_reprogramado_pela_fila_real(conninfo_app, conn_super, banco, relogio):
-    """IA falou às 12:00Z (09:00 locais) e de novo às 12:00Z... o alarme do 1º fala (T0+4 h) acorda cedo: o lembrete reagenda um novo alarme."""
+async def test_n3_alarme_velho_e_reprogramado_pela_fila_real(conninfo_app, conn_super, banco):
+    """IA falou às 12:00Z (09:00 locais) e de novo às 12:00Z... o alarme do 1º fala (T0+4 h) acorda cedo: o lembrete reagenda um novo alarme.
+    O relógio falso fica no futuro do banco: o alarme reprogramado (relógio falso + 1 h) não pode vencer no `now()` real, senão o worker o
+    roda de novo em laço (travou o teste em 20/11/2026, com o relógio fixo em 17/11)."""
+    relogio = RelogioFalso(ff.terca_futura_utc() + timedelta(hours=15))  # terça 12:00 locais, dentro da janela
     chamadas, app, chat, aid = Chamadas(), criar(conninfo_app), hex24(), uuid.uuid4()
     chamadas.instantaneos[aid] = snapshot(
         ultima_ia_em=relogio.agora() - timedelta(hours=3), ultimo_cliente_em=relogio.agora() - timedelta(hours=4)
@@ -376,7 +379,8 @@ async def test_n3_alarme_velho_e_reprogramado_pela_fila_real(conninfo_app, conn_
 
 
 async def test_n3_cadeia_adiar_pela_fila_real(conninfo_app, conn_super, banco):
-    noite = RelogioFalso(U(2026, 11, 17, 23, 30))  # 20:30 locais, fora da janela; a IA falou há 4 h e o cliente há 5 h
+    terca = ff.terca_futura_utc()  # no futuro do banco: o alarme adiado (relógio falso) não pode vencer no `now()` real (ver o teste acima)
+    noite = RelogioFalso(terca + timedelta(hours=23, minutes=30))  # 20:30 locais, fora da janela; a IA falou há 4 h e o cliente há 5 h
     chamadas, app, chat, aid = Chamadas(), criar(conninfo_app), hex24(), uuid.uuid4()
     chamadas.instantaneos[aid] = snapshot(
         ultima_ia_em=noite.agora() - timedelta(hours=4), ultimo_cliente_em=noite.agora() - timedelta(hours=5)
@@ -387,9 +391,9 @@ async def test_n3_cadeia_adiar_pela_fila_real(conninfo_app, conn_super, banco):
         await rodar(app, montar_servicos(banco, noite, chamadas))
         assert chamadas.lembretes == []
         todo = conn_super.execute("SELECT task_name, scheduled_at FROM procrastinate.procrastinate_jobs WHERE status = 'todo'").fetchall()
-        assert todo == [("ia:alarme_lembrete", U(2026, 11, 18, 11))]  # adiado para 08:00 locais
+        assert todo == [("ia:alarme_lembrete", terca + timedelta(days=1, hours=11))]  # adiado para 08:00 locais de quarta
         conn_super.execute("UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second' WHERE status = 'todo'")
-        await rodar(app, montar_servicos(banco, RelogioFalso(U(2026, 11, 18, 11)), chamadas))
+        await rodar(app, montar_servicos(banco, RelogioFalso(terca + timedelta(days=1, hours=11)), chamadas))
     assert chamadas.lembretes == [(aid, 1, True)]  # enviado uma vez, às 08:00, com o cliente a 16 h30
 
 

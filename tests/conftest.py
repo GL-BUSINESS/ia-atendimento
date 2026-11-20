@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
@@ -24,6 +25,7 @@ from tests.banco import (
 RAIZ = Path(__file__).resolve().parent.parent
 MIGRACOES = RAIZ / "migrations"
 IMAGEM = os.environ.get("IA_TESTE_PG_IMAGEM", "postgres:18")
+SEED_PUBLICADO_EM = datetime(2026, 1, 1, tzinfo=UTC)  # antes de todo instante dos testes
 ESTUDO_I = Path(os.environ.get("ESTUDO_I_PATH", "/opt/claude/docs/planejamento-ia/estudos/semana-1/i-esquema-reconciliado.md"))
 
 
@@ -55,6 +57,11 @@ def modelo(servidor: Servidor, papeis: None) -> Iterator[str]:
     criar_banco(servidor, nome)
     with servidor.conectar(nome, autocommit=False) as conn:
         aplicar(conn, MIGRACOES)
+        # o seed grava `publicado_em = now()` (relógio REAL); os testes vivem num `RelogioFalso` em nov/2026. Sem recuar o seed, a regra
+        # «quem abriu depois do tick não é desfeito» (`jobs._deve_fechar`) passa a valer contra o próprio seed assim que o relógio de parede
+        # passa do tick do teste (falhou em 20/11/2026). Em produção o seed é sempre anterior a qualquer tick; aqui fixamos isso.
+        conn.execute("UPDATE ia.config_versao SET publicado_em = %s WHERE publicado_por LIKE 'migracao:%%'", (SEED_PUBLICADO_EM,))
+        conn.commit()
     yield nome
     apagar_banco(servidor, nome)
 
