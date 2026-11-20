@@ -32,7 +32,7 @@ A10: Final = frozenset(
 def post_real(texto: str = "quero saber da proposta", hora: str = "2026-11-17T08:59:30-03:00", **mudar: Any) -> dict[str, Any]:
     """As 22 chaves nomeadas no estudo, com os TIPOS medidos e valores sintéticos (nenhum dado de cliente)."""
     base: dict[str, Any] = {
-        "chat_id": CHAT, "phone_id": PHONE, "email": "5500000000000@c.us", "celular": "5500000000000", "nome": "Pessoa Sintetica",
+        "chat_id": CHAT, "phone_id": PHONE, "email": "5500000000000@exemplo.invalid",  # na forma real é «55…@c.us» "celular": "5500000000000", "nome": "Pessoa Sintetica",
         "link_chat": f"https://chatguru.invalid/chats#{CHAT}", "chat_created": "2026-11-17T08:00:00-03:00", "datetime_post": hora,
         "tipo_mensagem": "chat", "texto_mensagem": texto, "executado_por": "", "tags": ["Pre-aprovado"],
         "campos_personalizados": {"CPF": "000.000." + "201-00"}, "bot_context": {"MBURA": "INAAP-1"}, "responsavel_email": RESPONSAVEL_IA,
