@@ -180,6 +180,8 @@ uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90
   --no-access-log --no-server-header --limit-concurrency 64 --timeout-keep-alive 5
 ```
 
+- **Na S5 (esteira, 20/11):** os segredos que o bloco acima chama de VARIÁVEL SECRETA da plataforma passam a ser arquivos 0600 do uid 10001 em
+  `${IA_SEGREDOS_DIR}/env/<NOME>`, carregados pelo ponto de entrada da imagem (`docker/ia-entrada.sh`); o compose não cita nenhum. Regra e tabela: `docs/DEPLOY.md` §4.
 - **Limites do processo:** `--limit-concurrency 64` e `--timeout-keep-alive 5` seguram uma inundação vinda da S2 (única origem permitida); o pool tem 8 conexões, cada uma com
   `lock_timeout=2s`, `statement_timeout=5s` e `idle_in_transaction_session_timeout=10s` (espera por lock vencida = 503 `nao_pronto`, o n8n repete) e `check` de conexão. `HEAD /healthz` responde 200 (sonda).
 - **Falha de subida (de propósito):** segredo obrigatório ausente, arquivo de segredo aberto (diferente de 0600), link simbólico, chave HMAC curta ou repetida,
@@ -195,7 +197,7 @@ uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente --host 10.90
 - **Parada leve:** `PUT /config/ia_ativa` com `false` agenda um alarme (`alarme_encerrar_por_chave`, sem lock do chat) por atendimento aberto, aguardando ou pausado (até 19 min); ao disparar ele enfileira o `encerrar_por_chave` com o lock do chat, então o cliente que responde nesse intervalo não fica preso. O serviço que executa o job
   é da B1.6: até lá o job falha alto (`ServicoNaoConfigurado`) e a vigia alerta; a chave desligada já recusa entrada nova.
 
-## 9. Subir o worker da fila (B5.7b) — gate de deploy: o compose da esteira ainda NÃO faz isto
+## 9. Subir o worker da fila (B5.7b) — o compose da esteira (`docker-compose.yml`) já usa este ponto de entrada
 
 O ponto de entrada é `python -m ia_atendimento.worker` (o mesmo que o script `ia-worker` do pacote). Ele monta `Settings`, o pool, os `Servicos` e chama
 `fila.rodar_worker`: reconciliação do bloqueio das 20:15 na subida, `stalled_worker_timeout` de 60 s, `shutdown_graceful_timeout` de 30 s, a **vigia do

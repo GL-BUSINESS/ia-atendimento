@@ -1,0 +1,153 @@
+# Compose do ia-atendimento para a S5 (servidor da IA; substitui a «VPS» do planejamento). Consumido pelo Coolify da S2 como servidor
+# remoto (build pack: dockercompose) ou por `docker compose` na própria S5. Dois serviços, UMA imagem: `orquestrador` (API) e `worker`
+# (fila Procrastinate). Estudo E §3.4; docs/DEPLOY.md; OPERACAO §8 e §9.
+#
+# NENHUM host, IP ou registro fixo neste arquivo: tudo vem de variável (nomes em kits/s5/s5.env.exemplo e docs/DEPLOY.md §4). Faltou
+# variável obrigatória (`:?`) ⇒ o `docker compose` recusa subir, em vez de subir no lugar errado.
+#
+# POR QUE network_mode: host (e não `ports:`)
+# Porta publicada pelo Docker passa por NAT/FORWARD e NÃO é filtrada pelo INPUT do nftables da S5; em host mode o uvicorn escuta direto
+# em ${IA_BIND_IP} (o IP da S5 no WireGuard) e a regra «porta da API só da S2 por wg0» vale de verdade. Sem porta pública.
+#
+# SEGREDOS NUNCA AQUI: DATABASE_URL, MODELO_API_KEY_1 (Fireworks), API_TOKENS, CHAVE_H16, CHAVE_FINGERPRINT, CHAT_REF_CHAVE e
+# PHOENIX_API_KEY moram em arquivos 0600 do uid do contêiner em ${IA_SEGREDOS_DIR}/env/<NOME>; o ponto de entrada da imagem
+# (docker/ia-entrada.sh) os carrega e recusa arquivo aberto, link ou origem dupla. O que aparece abaixo é só configuração e caminho.
+#
+# O mount de ${IA_SEGREDOS_DIR} TEM que estar neste arquivo: com build pack dockercompose o Coolify ignora a aba Storages (memória
+# coolify-dockercompose-storages). É DIRETÓRIO (sobrevive à troca de inode), montado no MESMO caminho dentro do contêiner, e :ro.
+
+services:
+  orquestrador:
+    # Construída no builder da S3 pelo workflow imagem.yml (tag `v*`). Nunca `latest`.
+    image: ${IA_REGISTRO_IMAGEM:?defina IA_REGISTRO_IMAGEM (host:porta do registro)}/gl-business/ia-atendimento:${IMAGE_TAG:?defina IMAGE_TAG (vX.Y.Z)}
+    network_mode: host
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    # `coolify.managed=true`: o CleanupDocker do Coolify apaga imagem sem uso e sem esse rótulo (memória coolify-cleanup-imagens)
+    labels:
+      coolify.managed: "true"
+    volumes:
+      - ${IA_SEGREDOS_DIR:?defina IA_SEGREDOS_DIR}:${IA_SEGREDOS_DIR}:ro
+    # drenar o turno em curso antes do SIGKILL (o padrão do Docker é 10 s)
+    stop_grace_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - IA_SEGREDOS_DIR=${IA_SEGREDOS_DIR:?defina IA_SEGREDOS_DIR}
+      - MODELO_NOME=${MODELO_NOME:-deepseek-v4p1-flash-1017}
+      - MODELO_BASE_URL_1=${MODELO_BASE_URL_1:-https://us.api.fireworks.ai/inference/v1}
+      - MODELO_ROTEADOR=${MODELO_ROTEADOR:-accounts/fireworks/routers/deepseek-v4p1-flash-1017-us}
+      - MODELO_RACIOCINIO_OFF=${MODELO_RACIOCINIO_OFF:-reasoning_effort_none}
+      - MODELO_TEMPERATURA=${MODELO_TEMPERATURA:-0.3}
+      - MODELO_MAX_TOKENS=${MODELO_MAX_TOKENS:-400}
+      - MODELO_TIMEOUT_S=${MODELO_TIMEOUT_S:-8.0}
+      - PHOENIX_ENDPOINT=${PHOENIX_ENDPOINT:-}
+      - PHOENIX_PROJETO=${PHOENIX_PROJETO:-ia-atendimento}
+      - CHAVE_AES_ID=${CHAVE_AES_ID:?defina CHAVE_AES_ID}
+      - CHAVE_AES_ARQUIVO=${CHAVE_AES_ARQUIVO:?defina CHAVE_AES_ARQUIVO}
+      - GATEWAY_HMAC_ARQUIVO=${GATEWAY_HMAC_ARQUIVO:?defina GATEWAY_HMAC_ARQUIVO}
+      - SEGREDOS_SAIDA_ARQUIVO=${SEGREDOS_SAIDA_ARQUIVO:?defina SEGREDOS_SAIDA_ARQUIVO}
+      - RESPONSAVEL_IA=${RESPONSAVEL_IA:?defina RESPONSAVEL_IA}
+      - PESSOAS_TESTE_ARQUIVO=${PESSOAS_TESTE_ARQUIVO:-}
+      - CASAMENTO_JANELA_S=${CASAMENTO_JANELA_S:-}
+      - CASAMENTO_JANELA_SEM_HORA_S=${CASAMENTO_JANELA_SEM_HORA_S:-}
+      - PRECO_IN_USD=${PRECO_IN_USD:-}
+      - PRECO_CACHE_USD=${PRECO_CACHE_USD:-}
+      - PRECO_OUT_USD=${PRECO_OUT_USD:-}
+      - CAMBIO=${CAMBIO:-}
+      - PRECO_TEMPLATE_BRL=${PRECO_TEMPLATE_BRL:-}
+    # OPERACAO §8: fábrica de ambiente (`--factory`), sem access log (grava caminho e query), sem cabeçalho de servidor, limites contra inundação
+    command:
+      - uvicorn
+      - --factory
+      - ia_atendimento.api.ambiente:criar_app_de_ambiente
+      - --host
+      - ${IA_BIND_IP:?defina IA_BIND_IP (IP da S5 no wg0)}
+      - --port
+      - ${IA_PORTA:-8000}
+      - --no-access-log
+      - --no-server-header
+      - --no-proxy-headers
+      - --limit-concurrency
+      - "64"
+      - --timeout-keep-alive
+      - "5"
+    mem_limit: ${IA_MEM_ORQUESTRADOR:-1g}
+    # /healthz não toca no banco e não pede token (contrato 08 §5.6): prova que a API respondeu no IP do WireGuard
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://${IA_BIND_IP}:${IA_PORTA:-8000}/healthz', timeout=3).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    image: ${IA_REGISTRO_IMAGEM:?defina IA_REGISTRO_IMAGEM (host:porta do registro)}/gl-business/ia-atendimento:${IMAGE_TAG:?defina IMAGE_TAG (vX.Y.Z)}
+    network_mode: host
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    labels:
+      coolify.managed: "true"
+    volumes:
+      - ${IA_SEGREDOS_DIR:?defina IA_SEGREDOS_DIR}:${IA_SEGREDOS_DIR}:ro
+    # MAIOR que o shutdown_graceful_timeout (30 s) do worker: a drenagem termina antes do SIGKILL (OPERACAO §9)
+    stop_grace_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - IA_SEGREDOS_DIR=${IA_SEGREDOS_DIR:?defina IA_SEGREDOS_DIR}
+      - MODELO_NOME=${MODELO_NOME:-deepseek-v4p1-flash-1017}
+      - MODELO_BASE_URL_1=${MODELO_BASE_URL_1:-https://us.api.fireworks.ai/inference/v1}
+      - MODELO_ROTEADOR=${MODELO_ROTEADOR:-accounts/fireworks/routers/deepseek-v4p1-flash-1017-us}
+      - MODELO_RACIOCINIO_OFF=${MODELO_RACIOCINIO_OFF:-reasoning_effort_none}
+      - MODELO_TEMPERATURA=${MODELO_TEMPERATURA:-0.3}
+      - MODELO_MAX_TOKENS=${MODELO_MAX_TOKENS:-400}
+      - MODELO_TIMEOUT_S=${MODELO_TIMEOUT_S:-8.0}
+      - PHOENIX_ENDPOINT=${PHOENIX_ENDPOINT:-}
+      - PHOENIX_PROJETO=${PHOENIX_PROJETO:-ia-atendimento}
+      - CHAVE_AES_ID=${CHAVE_AES_ID:?defina CHAVE_AES_ID}
+      - CHAVE_AES_ARQUIVO=${CHAVE_AES_ARQUIVO:?defina CHAVE_AES_ARQUIVO}
+      - GATEWAY_HMAC_ARQUIVO=${GATEWAY_HMAC_ARQUIVO:?defina GATEWAY_HMAC_ARQUIVO}
+      - SEGREDOS_SAIDA_ARQUIVO=${SEGREDOS_SAIDA_ARQUIVO:?defina SEGREDOS_SAIDA_ARQUIVO}
+      - RESPONSAVEL_IA=${RESPONSAVEL_IA:?defina RESPONSAVEL_IA}
+      - PESSOAS_TESTE_ARQUIVO=${PESSOAS_TESTE_ARQUIVO:-}
+      - CASAMENTO_JANELA_S=${CASAMENTO_JANELA_S:-}
+      - CASAMENTO_JANELA_SEM_HORA_S=${CASAMENTO_JANELA_SEM_HORA_S:-}
+      - PRECO_IN_USD=${PRECO_IN_USD:-}
+      - PRECO_CACHE_USD=${PRECO_CACHE_USD:-}
+      - PRECO_OUT_USD=${PRECO_OUT_USD:-}
+      - CAMBIO=${CAMBIO:-}
+      - PRECO_TEMPLATE_BRL=${PRECO_TEMPLATE_BRL:-}
+    # OPERACAO §9: o ponto de entrada da main (Settings, pool, Servicos, vigia do batimento e periódicas). UMA réplica, sem porta.
+    command: ["python", "-m", "ia_atendimento.worker"]
+    mem_limit: ${IA_MEM_WORKER:-768m}
+    # prova BATIMENTO no banco (import não prova nada). O healthcheck NÃO passa pelo ENTRYPOINT: chama o ia-entrada explicitamente
+    # para ler a DATABASE_URL do arquivo.
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ia-entrada", "python", "-m", "ia_atendimento.worker", "--saude"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s

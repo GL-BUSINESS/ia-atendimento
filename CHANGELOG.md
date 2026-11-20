@@ -303,6 +303,19 @@ B1.1 estado + migração 0003 (PR #3), B1.3 fila/calendário/chave (PR #2), B1.2
 ### Notas
 - `ultimo_cliente_em` chega na migração 0003 da B1.1; até lá `texto_livre_permitido` recebe o valor por parâmetro e um teste `xfail` nomeado
   (`test_coluna_ultimo_cliente_em_existe_no_atendimento`) guarda a coluna. `registrar()` (passo + contadores no mesmo CAS) depende do `aplicar` da B1.1.
+### Esteira de build e deploy (A6.6) e kit da S5 · `docs/DEPLOY.md`, `kits/s5/`
+Adicionado: `Dockerfile` multi-stage com `uv` (usuário 10001), `docker/ia-entrada.sh` (segredos de arquivo 0600, falha fechado),
+`docker-compose.yml` (orquestrador + worker na rede host, sem host/IP/registro fixo), `.github/workflows/imagem.yml` (só tag `v*`,
+builder da S3, registro por variável), `scripts/release.sh`, `scripts/deploy-s5.sh`, `config/dias-piloto.txt`, `tests/test_esteira.py`
+e o kit `kits/s5/` (ensaiado em contêiner descartável). Corrige os achados da revisão de 10/11:
+- F4-016: o orquestrador sobe pela fábrica da main (`uvicorn --factory ia_atendimento.api.ambiente:criar_app_de_ambiente`, flags da
+  OPERACAO §8) e o env usa os nomes atuais do `Settings` (obrigatórios com `:?`).
+- G-0016: o worker é `python -m ia_atendimento.worker`, com healthcheck `--saude` (batimento) e `stop_grace_period` 40 s.
+- G-0094: o Dockerfile copia `migrations/` e `fixtures/` antes do `uv sync` e confere que a pasta entrou no pacote.
+- G-0095: `deploy-s5.sh` usa `curl --fail-with-body`, relê a `IMAGE_TAG` e exige `/healthz` com `version` e `git_sha` da tag.
+- G-0096: sem `config/dias-piloto.txt` ou sem data, o deploy é recusado.
+- G-0097: regra única de permissão (diretório `root:10001 0750`, arquivos `10001 0600`) no DEPLOY.md e no kit.
+- G-0012: `kits/s5/migrar.sh` aplica 0001–0005 por ledger na mesma transação, na S5 ou na S4 (`--alvo`).
 
 ### Revisão de contexto limpo (29/10) · `docs/REVISAO-FUNDACAO-2910.md`
 Corrigido (cada item com teste que reprova no código anterior): `config` com lista **positiva** de hosts do modelo (ponto final, ponto
