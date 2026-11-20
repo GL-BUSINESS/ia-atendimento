@@ -286,8 +286,8 @@ def test_copia_limpa_preserva_o_vocabulario():
 @pytest.mark.parametrize(
     ("nome", "bruto"),
     [
-        ("T1", {"encontrado": True, "primeiro_nome": CPF}),
-        ("T1", {"encontrado": True, "primeiro_nome": "fulano@exemplo.test"}),
+        ("T1", {"encontrado": True, "primeiro_nome": CPF, "nao_perturbe": False, "limite_contratos": False}),
+        ("T1", {"encontrado": True, "primeiro_nome": "fulano@exemplo.test", "nao_perturbe": False, "limite_contratos": False}),
         ("T3", {**RETORNO_T3_CRU, "oferta_ref": CPF_DIGITOS}),  # cabe no `IdOpaco`: 11 dígitos com forma de CPF
         ("T7", {"classe": "criada", "ref_externa": "11912345678"}),  # telefone
     ],
@@ -309,7 +309,8 @@ def test_saida_sem_pii_passa_na_chegada():
     assert isinstance(t3, SaidaT3) and t3.oferta_ref == OFERTA_REAL
     for ref in ("AF-0001", "12345678", f"t7:{OFERTA_REAL}:FACTA:2"):
         assert reconstruir(CATALOGO_MVP["T7"], {"classe": "criada", "ref_externa": ref}).ref_externa == ref
-    assert reconstruir(CATALOGO_MVP["T1"], {"encontrado": True, "primeiro_nome": "Fulano"}).primeiro_nome == "Fulano"
+    t1 = {"encontrado": True, "primeiro_nome": "Fulano", "nao_perturbe": False, "limite_contratos": False}
+    assert reconstruir(CATALOGO_MVP["T1"], t1).primeiro_nome == "Fulano"
 
 
 # --- M-7: leitura da FACTA com posse real sob parada dura ----------------------------------------------------------------------------------
@@ -342,8 +343,8 @@ def test_campo_proibido_e_recusado_tambem_em_ferramenta_so_do_codigo(nome):
 
 def test_texto_com_pii_em_campo_permitido_nao_vai_a_projecao():
     """B-2: a segunda cerca (`para_projetar`) apaga o texto que a máscara troca, mesmo num campo que a allowlist deixaria passar."""
-    corpo = para_projetar(SaidaT1(encontrado=True, primeiro_nome=CPF))
-    assert corpo == {"encontrado": True}
+    corpo = para_projetar(SaidaT1(encontrado=True, primeiro_nome=CPF, nao_perturbe=False, limite_contratos=False))
+    assert corpo == {"encontrado": True, "nao_perturbe": False, "limite_contratos": False}
 
 
 async def test_precondicao_assincrona_verdadeira_deixa_a_t7_rodar():

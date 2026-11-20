@@ -11,9 +11,10 @@ esquema muda o `catalogo_hash` e pede `numero` novo (`catalogo_versoes.json`).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints
 
@@ -105,12 +106,34 @@ class ArgsOptOut(Fechado):
 
 
 class SaidaT1(Fechado):
-    """T1 (`pessoas:resumos`, D-29): ao código só isto. O CPF fica na memória do gateway, nunca aqui."""
+    """T1 (`pessoas:resumos`, D-29): ao código só isto. O CPF fica na memória do gateway, nunca aqui.
+
+    `nao_perturbe` e `limite_contratos` são OBRIGATÓRIOS (G-0125): sem padrão `False`, uma saída sem a chave é erro, nunca «sem bloqueio».
+    Do resumo cru do 360, use `saida_t1_do_resumo`, que é fail-closed."""
 
     encontrado: bool
     primeiro_nome: Annotated[str, StringConstraints(min_length=1, max_length=40)] | None = None
-    nao_perturbe: bool = False
-    limite_contratos: bool = False
+    nao_perturbe: bool
+    limite_contratos: bool
+
+
+def _bloqueado(item: Mapping[str, Any], chave: str) -> bool:
+    """Tri-estado do 360: `null` = a pessoa não está na lista (livre); objeto = bloqueado; AUSENTE (flag desligada no 360) ou forma
+    inesperada = não sei, e «não sei» bloqueia (G-0125)."""
+    if chave not in item:
+        return True
+    valor = item[chave]
+    return valor is not None
+
+
+def saida_t1_do_resumo(resumos: Mapping[str, Any]) -> SaidaT1:
+    """`pessoas:resumos` cru (`{"itens": [...]}`) → `SaidaT1`, fail-closed: pessoa não encontrada também sai bloqueada. O nome e o CPF do
+    resumo NÃO entram (o `primeiro_nome` depende da decisão sobre nome no prompt, G-0114; fica `None` até lá)."""
+    itens = resumos.get("itens") if isinstance(resumos, Mapping) else None
+    item = itens[0] if isinstance(itens, list) and itens and isinstance(itens[0], Mapping) else None
+    if item is None:
+        return SaidaT1(encontrado=False, nao_perturbe=True, limite_contratos=True)
+    return SaidaT1(encontrado=True, nao_perturbe=_bloqueado(item, "nao_perturbe"), limite_contratos=_bloqueado(item, "limite_contratos"))
 
 
 class SaidaT2(Fechado):
