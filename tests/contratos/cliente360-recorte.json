@@ -1,6 +1,6 @@
 {
- "fonte": "cliente360-api@a265fa5 src/c360api/contrato/cliente360.json",
- "sha256_do_contrato_completo": "3ca03d495c634ca296e51bfafc8156a21c6b45a8d451fc5b19a8b87beb5deced",
+ "fonte": "cliente360-api@f97ceae src/c360api/contrato/cliente360.json",
+ "sha256_do_contrato_completo": "e6ce7ab60ee338d4621a311c0890c8044ac19d6ed582dbec03da7a63292811dd",
  "raizes": [
   "Oferta",
   "PayloadEconomicoCltV1",
@@ -1276,14 +1276,21 @@
    }
   },
   "PayloadEconomico": {
-   "description": "um tipo por forma registrada (OF-V-22); FGTS (payload_fgts_v1) entra quando RD-202 confirmar (a) — [LACUNA] declarada",
+   "description": "um tipo por forma registrada (OF-V-22): payload_clt_v1 e payload_fgts_v1 (RD-202 a, 18/11/2026)",
    "oneOf": [
     {
      "$ref": "#/components/schemas/PayloadEconomicoCltV1"
+    },
+    {
+     "$ref": "#/components/schemas/PayloadEconomicoFgtsV1"
     }
    ],
    "discriminator": {
-    "propertyName": "forma"
+    "propertyName": "forma",
+    "mapping": {
+     "payload_clt_v1": "#/components/schemas/PayloadEconomicoCltV1",
+     "payload_fgts_v1": "#/components/schemas/PayloadEconomicoFgtsV1"
+    }
    }
   },
   "PayloadEconomicoCltV1": {
@@ -1337,6 +1344,38 @@
       }
      ],
      "description": "grandeza financeira (parcela/contrato) — nunca o coeficiente de comissão (CF-R-03)"
+    }
+   },
+   "unevaluatedProperties": false
+  },
+  "PayloadEconomicoFgtsV1": {
+   "type": "object",
+   "description": "forma payload_fgts_v1 (RD-202 a, 18/11/2026) — Saque-Aniversário FGTS: o que o cliente vê da oferta do banco. valor_liberado tem o MESMO nome do CLT de propósito (o pré-aprovado e a conversão somam esse campo); valor_total é o que sai do FGTS; anos_antecipados é a contagem de aniversários antecipados. Sem prazo e sem parcela: o FGTS não tem. Taxa, CET, IOF, seguro e as parcelas anuais vão em payload_extra, fora do fingerprint; só isto entra no fingerprint",
+   "required": [
+    "forma",
+    "valor_liberado",
+    "valor_total",
+    "anos_antecipados",
+    "tabela_identificador"
+   ],
+   "properties": {
+    "forma": {
+     "type": "string",
+     "const": "payload_fgts_v1"
+    },
+    "valor_liberado": {
+     "$ref": "#/components/schemas/DecimalMoeda"
+    },
+    "valor_total": {
+     "$ref": "#/components/schemas/DecimalMoeda"
+    },
+    "anos_antecipados": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 10
+    },
+    "tabela_identificador": {
+     "$ref": "#/components/schemas/Identificador"
     }
    },
    "unevaluatedProperties": false
