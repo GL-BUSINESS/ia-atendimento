@@ -36,6 +36,7 @@ def _sem_alta_errada(texto: str, certo: str) -> None:
         ("as 9 30 da manhã", "09:30"),
         ("às 3 30 da tarde", "15:30"),
         ("às 15 20 30", "15:20"),
+        ("às 16, 17 também serve", "16:17"),  # lista sem conector: nunca 16:00 alta
     ],
 )
 def test_minuto_justaposto_nunca_sai_alta_nem_descartado(texto, certo):

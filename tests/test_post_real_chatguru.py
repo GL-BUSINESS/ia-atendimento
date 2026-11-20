@@ -33,7 +33,8 @@ A10: Final = frozenset(
 def post_real(texto: str = "quero saber da proposta", hora: str = "2026-11-17T08:59:30-03:00", **mudar: Any) -> dict[str, Any]:
     """As 22 chaves nomeadas no estudo, com os TIPOS medidos e valores sintéticos (nenhum dado de cliente)."""
     base: dict[str, Any] = {
-        "chat_id": CHAT, "phone_id": PHONE, "email": "5500000000000@exemplo.invalid",  # na forma real é «55…@c.us» "celular": "5500000000000", "nome": "Pessoa Sintetica",
+        # `email` na forma real é «55…@c.us»; aqui o domínio é reservado para não cair na varredura
+        "chat_id": CHAT, "phone_id": PHONE, "email": "5500000000000@exemplo.invalid", "celular": "5500000000000", "nome": "Pessoa Sintetica",
         "link_chat": f"https://chatguru.invalid/chats#{CHAT}", "chat_created": "2026-11-17T08:00:00-03:00", "datetime_post": hora,
         "tipo_mensagem": "chat", "texto_mensagem": texto, "executado_por": "", "tags": ["Pre-aprovado"],
         "campos_personalizados": {"CPF": CPF_SINTETICO}, "bot_context": {"MBURA": "INAAP-1"}, "responsavel_email": RESPONSAVEL_IA,
@@ -41,6 +42,10 @@ def post_real(texto: str = "quero saber da proposta", hora: str = "2026-11-17T08
         "username": "",
     }  # fmt: skip
     return {**base, **mudar}
+
+
+def test_a_forma_tem_as_22_chaves_nomeadas_no_estudo():
+    assert len(post_real()) == 22
 
 
 def projetar_como_o_gateway(corpo: dict[str, Any]) -> dict[str, Any]:
@@ -79,6 +84,8 @@ def test_post_real_sem_projecao_segue_recusado_pela_allowlist(ambiente):
     abrir_ativo(ambiente)
     r = ambiente.evento_chatguru(post_real())
     assert r.status_code == 422 and r.json()["erro"]["codigo"] == "campo_fora_da_allowlist"
+    recusadas = {c["campo"] for c in r.json()["erro"]["detalhe"]["campos"]}
+    assert {"celular", "nome", "email", "campos_personalizados", "bot_context"} <= recusadas
     assert CPF_SINTETICO not in r.text and ambiente.escalar("SELECT count(*) FROM ia.passo") == 0
 
 
@@ -106,6 +113,25 @@ def test_datetime_post_invalido_vale_como_ausente_e_conta_o_alerta(ambiente, hor
     assert ambiente.escalar("SELECT ultimo_cliente_em FROM ia.atendimento WHERE atendimento_id = %s", (atd,)) == ambiente.relogio.agora()
     assert ambiente.ctx.metricas.valor("datetime_post_invalido") == 1
     assert ambiente.fila.turnos == [(atd, CHAT)]
+
+
+@pytest.mark.parametrize("hora", ["2026-11-17 08:59:30-03:00", "2026-11-17T08:59:30"])
+def test_retry_do_post_com_hora_invalida_e_repetido_e_conta_uma_vez(ambiente, hora):
+    """Revisão (M1): sem hora a chave era o recebimento (com microssegundos) e o retry do ChatGuru virava mensagem nova. A hora crua entra na
+    chave: o mesmo Post é `repetido`; outro texto na mesma hora crua é mensagem nova."""
+    atd = abrir_ativo(ambiente)
+    corpo = projetar_como_o_gateway(post_real(hora=hora))
+    assert ambiente.evento_chatguru(corpo).json()["resultado"] == "gravado"
+    ambiente.relogio.avancar(seconds=7)  # o retry chega depois: o recebimento muda, a chave não
+    assert ambiente.evento_chatguru(corpo).json()["resultado"] == "repetido"
+    assert ambiente.evento_chatguru(projetar_como_o_gateway(post_real("outro", hora=hora))).json()["resultado"] == "gravado"
+    assert ambiente.escalar("SELECT count(*) FROM ia.passo WHERE atendimento_id = %s", (atd,)) == 2
+    assert ambiente.ctx.metricas.valor("datetime_post_invalido") == 2
+
+
+def test_hora_invalida_sem_atendimento_nao_conta(ambiente):
+    r = ambiente.evento_chatguru(projetar_como_o_gateway(post_real(hora="2026-11-17T08:59:30")))
+    assert r.json()["resultado"] == "descartado" and ambiente.ctx.metricas.valor("datetime_post_invalido") == 0
 
 
 def test_datetime_post_invalido_com_chave_fora_da_allowlist_segue_422_sem_contar(ambiente):

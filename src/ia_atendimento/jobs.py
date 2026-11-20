@@ -334,13 +334,16 @@ def reconciliar_bloqueio_diario(servicos: Servicos) -> bool:
     return gravar_bloqueio_entrada(servicos, "tarefa:reconciliacao_bloqueio", tick)
 
 
+FOLGA_DO_RELOGIO_DATAPREV = timedelta(minutes=2)
+
+
 def executar_bloqueio_dataprev(servicos: Servicos) -> bool:
     """Job do mês (dia 20, 21:50 SP): fecha a entrada antes da janela DATAPREV. Só vale de 21:50 do dia 20 até o fim da janela (dia 23
     06:00); atrasado para depois dela, ou adiantado, não faz nada (a volta é do Danilo)."""
     agora = servicos.relogio.agora()
     janela = proxima_janela_dataprev(agora)
     tick = bloqueio_dataprev_em(janela)
-    if not tick <= agora < janela.ate:
+    if not tick - FOLGA_DO_RELOGIO_DATAPREV <= agora < janela.ate:  # o Procrastinate solta pelo relógio do banco, não pelo do worker
         return False
     return gravar_bloqueio_entrada(servicos, "tarefa:bloqueio_dataprev", tick)
 

@@ -55,3 +55,9 @@ def test_portao_continua_barrando_documento_na_pendente():
 
 def test_cabem_rotulos_para_todas_as_pendentes_e_a_linha_de_omitidas():
     assert len(ctx._ROTULOS_DE_PENDENTE) >= ctx.MAX_PENDENTES_NO_PROMPT + 1
+
+
+def test_mais_de_26_pendentes_seguem_com_rotulo_de_letras():
+    contexto = _contexto(*(f"0{d % 9 + 1}/11 1{d % 9}:30" for d in range(30)))
+    ctx.auditar_prompt(contexto)
+    assert len(ctx.ler_do_prompt(contexto.usuario)[1]) == 30 and "(ad) «" in contexto.usuario

@@ -23,6 +23,7 @@ from ia_atendimento.config import ConfiguracaoInvalida, Settings, get_settings
 from ia_atendimento.enfileirador import EnfileiradorProcrastinate
 from ia_atendimento.evento_mensagem import ChavesDeMensagem
 from ia_atendimento.observabilidade import configurar as configurar_observabilidade
+from ia_atendimento.observabilidade import registrar_segredo
 from ia_atendimento.pessoas_teste import carregar as carregar_pessoas_teste
 from ia_atendimento.relogio import RelogioReal
 from ia_atendimento.segredos import carregar_gateway_hmac, carregar_segredos_de_saida
@@ -68,14 +69,18 @@ def _montar(settings: Settings) -> FastAPI:
         check=ConnectionPool.check_connection, open=False,
     )  # fmt: skip
     app_fila = fila.criar_app(url, com_periodicas=False)
+    gateway_hmac = carregar_gateway_hmac(settings.gateway_hmac_arquivo)
+    segredos_de_saida = carregar_segredos_de_saida(settings.segredos_saida_arquivo)
+    for segredo in (*(c.decode("ascii") for c in gateway_hmac), *vars(segredos_de_saida).values()):
+        registrar_segredo(segredo)  # dos arquivos 0600: também viram [SEGREDO] em log e span (revisão dos altos, M3)
     contexto = ContextoApi(
         settings=settings, relogio=relogio, conexao=pool.connection, leitor=LeitorConfig(relogio),
         chaveiro=Chaveiro.de_arquivo(settings.chave_aes_arquivo, settings.chave_aes_id),
         chaves_msg=ChavesDeMensagem.de_settings(settings), enfileirador=EnfileiradorProcrastinate(app_fila),
         tokens={origem: token.get_secret_value().encode() for origem, token in settings.api_tokens.items()},
-        gateway_hmac=carregar_gateway_hmac(settings.gateway_hmac_arquivo),
+        gateway_hmac=gateway_hmac,
         pessoas_teste=carregar_pessoas_teste(settings.pessoas_teste_arquivo),
-        segredos_de_saida=carregar_segredos_de_saida(settings.segredos_saida_arquivo),
+        segredos_de_saida=segredos_de_saida,
         pre_voo=PreVooComCache(PreVooLivre(), relogio), dsn=settings.database_url.get_secret_value(),
         diretorio_migracoes=_diretorio_de_migracoes(),
         git_sha=os.environ.get("GIT_SHA", "desconhecido"), built_at=os.environ.get("BUILT_AT", "desconhecido"),

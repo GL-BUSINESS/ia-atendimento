@@ -20,6 +20,7 @@ _EMITIR = (
     "import logging;"
     f"logging.getLogger('procrastinate.worker').warning('job falhou: cliente %s', {CPF_SINTETICO!r});"
     f"logging.getLogger('httpx').warning('cabecalho %s', {SEGREDO_DO_MODELO!r});"
+    f"logging.getLogger('psycopg').warning('token %s chave %s', {TOKENS['ti']!r}, {H16!r});"
     "print('fabrica=' + logging.getLogRecordFactory().__module__, flush=True)"
 )
 API = (
@@ -58,6 +59,7 @@ def _conferir(saida: str) -> None:
     assert "fabrica=ia_atendimento.observabilidade" in saida, "a fábrica de LogRecord com a máscara não foi instalada"
     assert "job falhou: cliente [CPF]" in saida and CPF_SINTETICO not in saida
     assert "cabecalho [SEGREDO]" in saida and SEGREDO_DO_MODELO not in saida
+    assert "token [SEGREDO] chave [SEGREDO]" in saida and TOKENS["ti"] not in saida and H16 not in saida  # revisão M3
 
 
 def test_api_de_producao_liga_a_mascara_de_logs(tmp_path):

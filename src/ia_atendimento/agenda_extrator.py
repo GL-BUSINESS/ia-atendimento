@@ -285,7 +285,7 @@ _R_CONECTOR_DEPOIS = re.compile(rf"\s+(?:e|ou)\s+(?:as\s+)?(?=\d|(?:{_W}|{_MINW}
 _R_CONECTOR_ANTES = re.compile(r"(\d[\w:]*)\s+(?:e|ou)\s+(?:as\s+)?$")
 # G-0090: número solto colado depois da hora («às 15 30», «às 3 30 da tarde») é minuto que nenhuma regra leu; data («06/11»), hora
 # formatada («15:30») e decimal não contam.
-_R_NUMERO_COLADO = re.compile(r"\s+\d{1,2}(?![\d/:.,])")
+_R_NUMERO_COLADO = re.compile(r"[\s,;]+\d{1,2}(?![\d/:.,])")  # «às 16, 17 também serve»: a vírgula também (revisão, M5)
 
 _R_HOJE = re.compile(r"\b(?:hoje|hj)\b")
 _R_DEPOIS_AMANHA = re.compile(r"\bdepois\s+de\s+amanha+\b")
