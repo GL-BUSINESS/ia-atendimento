@@ -26,6 +26,8 @@ from typing import NamedTuple
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from ia_atendimento.segredos import regra_de_permissao
+
 REMETENTES = frozenset({"cliente", "ia"})  # CHECK conversa_cifrada_forma_check
 TIPOS_DE_MENSAGEM = frozenset({"mensagem", "resumo"})
 FINALIDADES_DO_COFRE = frozenset({"canal", "digitacao"})  # CHECK cofre_forma_check
@@ -105,13 +107,13 @@ def _ler_arquivo(caminho: Path) -> dict[int, bytes]:
     try:
         fd = os.open(caminho, os.O_RDONLY | os.O_NOFOLLOW)
     except OSError:
-        raise ChaveInsegura("arquivo de chaves ausente, ilegível ou é um link simbólico") from None
+        raise ChaveInsegura(f"arquivo de chaves ausente, ilegível ou é um link simbólico; {regra_de_permissao()}") from None
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise ChaveInsegura("arquivo de chaves não é um arquivo comum")
         if info.st_mode & 0o077:
-            raise ChaveInsegura(f"arquivo de chaves com permissão aberta ({stat.S_IMODE(info.st_mode):04o}); exige 0600")
+            raise ChaveInsegura(f"arquivo de chaves com permissão aberta ({stat.S_IMODE(info.st_mode):04o}); {regra_de_permissao()}")
         with os.fdopen(fd, "rb", closefd=False) as f:
             bruto = f.read()
     finally:

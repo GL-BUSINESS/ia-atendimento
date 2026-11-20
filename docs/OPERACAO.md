@@ -21,6 +21,12 @@ bash scripts/aplicar_migracoes_local.sh      # Postgres 18 descartável + papéi
 Arquivo JSON `{"<chave_id>": "<base64 de 32 bytes>"}` com permissão **0600** (o `Chaveiro` recusa 0644, symlink ou chave que não tenha
 32 bytes). Uma chave por mês (`chave_id` 1..32767); `CHAVE_AES_ID` aponta a vigente.
 
+**Regra única dos arquivos de segredo (G-0097; vale para a chave AES, `gateway-hmac.keys` e `saida.json`):** o contêiner roda como uid
+**10001** com `cap_drop: ALL`, então o arquivo tem de ser **`chown 10001:10001`** e **`chmod 600`**, num diretório montado
+**`/etc/ia-s4:/etc/ia-s4:ro`**. Qualquer bit de grupo ou de outros é recusado na subida (0640 é recusado, mesmo com o grupo 10001), e
+0600 de outro dono (por exemplo root:root) nem abre. A mensagem de erro diz o modo e o uid esperado, nunca o conteúdo. Fora do
+contêiner (testes, máquina do TI), o dono é o usuário que roda o processo.
+
 ```bash
 umask 077
 uv run python - <<'PY' > "$CHAVE_AES_ARQUIVO"      # novo arquivo; para adicionar o mês seguinte, junte a nova entrada ao JSON existente
@@ -28,6 +34,7 @@ import base64, json, os
 print(json.dumps({"1": base64.b64encode(os.urandom(32)).decode()}))
 PY
 chmod 600 "$CHAVE_AES_ARQUIVO"
+chown 10001:10001 "$CHAVE_AES_ARQUIVO"   # no host do contêiner; precisa de root
 ```
 
 - **Sem backup da chave** (P-R10): perder a chave = perder o texto cifrado (é a intenção: o texto vive 14 dias).
@@ -161,13 +168,14 @@ Procrastinate de pé (o `/readyz` dá 503 sem batimento de worker). Nada disto r
 O worker é outro processo (próxima seção). Sem ele a API enfileira e nada executa.
 
 ```bash
-# arquivos de segredo (modo 0600, dono do usuário do contêiner; nunca em variável de ambiente do Coolify, nunca no git)
+# arquivos de segredo (modo 0600, dono 10001 = usuário do contêiner, montados /etc/ia-s4:/etc/ia-s4:ro; nunca em variável do Coolify nem no git)
 umask 077
 printf '%s\n' "<chave HMAC 1 do gateway, a mesma do GATEWAY_ASSINATURAS>" > /etc/ia-s4/gateway-hmac.keys    # 2ª linha só na virada de rotação
 cat > /etc/ia-s4/saida.json <<'JSON'
 {"ia_orquestrador_bearer": "<...>", "chatguru_token_ia": "<...>", "c360_client_id": "<...>", "c360_client_secret": "<...>"}
 JSON
 chmod 600 /etc/ia-s4/gateway-hmac.keys /etc/ia-s4/saida.json
+chown 10001:10001 /etc/ia-s4/gateway-hmac.keys /etc/ia-s4/saida.json   # a regra única da seção 2 (G-0097)
 
 # Onde cada segredo mora (decisão R1-24, DECISOES-B1.5):
 #  - ARQUIVO 0600 montado :ro (nunca variável do Coolify): gateway-hmac.keys, saida.json e as chaves AES mensais (CHAVE_AES_ARQUIVO).
