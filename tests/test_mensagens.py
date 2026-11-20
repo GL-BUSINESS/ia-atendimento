@@ -46,7 +46,12 @@ def test_resposta_so_leva_codigos_e_ids_opacos_e_omite_o_que_e_nulo():
     }  # fmt: skip
 
 
-async def test_job_encerrar_por_chave_chama_o_servico_e_sem_servico_falha_alto():
+@pytest.mark.banco
+async def test_job_encerrar_por_chave_chama_o_servico_e_sem_servico_falha_alto(banco):
+    """Com a IA desligada (o padrão do seed) o job entrega ao serviço; sem serviço injetado, falha alto. Desde a B1.6a o job relê
+    `ia_ativa` no banco antes (a IA religada não é tratada aqui: `tests/test_ia_ativa_relida.py`)."""
+    from tests.fixtures_fila import Chamadas, montar_servicos
+
     chamadas: list[uuid.UUID] = []
 
     async def encerrar(atendimento_id: uuid.UUID) -> None:
@@ -54,7 +59,7 @@ async def test_job_encerrar_por_chave_chama_o_servico_e_sem_servico_falha_alto()
 
     relogio = RelogioFalso(datetime(2026, 11, 17, 15, 0, tzinfo=UTC))
     atd = uuid.uuid4()
-    await jobs.executar_encerrar_por_chave(jobs.Servicos(relogio=relogio, abrir_conexao=lambda: None, encerrar_por_chave=encerrar), atd)
+    await jobs.executar_encerrar_por_chave(montar_servicos(banco, relogio, Chamadas(), encerrar_por_chave=encerrar), atd)
     assert chamadas == [atd]
     with pytest.raises(jobs.ServicoNaoConfigurado):
-        await jobs.executar_encerrar_por_chave(jobs.Servicos(relogio=relogio, abrir_conexao=lambda: None), atd)
+        await jobs.executar_encerrar_por_chave(montar_servicos(banco, relogio, Chamadas()), atd)  # sem o serviço injetado

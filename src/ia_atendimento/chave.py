@@ -5,12 +5,15 @@
 - `LeitorConfig` guarda cada chave por até 5 s (relógio injetado); a escrita do próprio processo invalida o cache na hora.
 - `bloqueio_entrada()` devolve o código da primeira recusa de entrada nova (ou None). A chave `bloqueio_entrada=true` recusa entrada nova e
   **não encerra ninguém**: abertos e pausados seguem as réguas deles (quem encerra por chave é só a parada leve manual `ia_ativa=false`).
+- Gasto (`teto_atingido`/`teto_diario`) é Σ `passo.custo_brl` em São Paulo (`gasto.py`, contrato 08 §9); soma que falha levanta
+  `GastoIndisponivel` (a API responde `503 nao_pronto`), nunca recusa nem aceita com zero.
 - Hora e mês/dia de negócio vêm do `Relogio` e do calendário (America/Sao_Paulo), nunca do `now()` nem do fuso do banco.
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -20,7 +23,7 @@ import psycopg
 from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 
-from ia_atendimento.calendario import carregar_calendario, limites_do_dia, limites_do_mes
+from ia_atendimento.calendario import carregar_calendario, limites_do_dia
 from ia_atendimento.chave_registro import (
     PADROES,
     REGISTRO,
@@ -30,6 +33,7 @@ from ia_atendimento.chave_registro import (
     ModoTesteGlobal,
     ValorInvalido,
 )
+from ia_atendimento.gasto import GastoIndisponivel, gasto_dia, gasto_mes
 from ia_atendimento.relogio import Relogio
 
 __all__ = [
@@ -37,16 +41,20 @@ __all__ = [
     "ConfigCorrida",
     "ConfigInexistente",
     "ErroConfig",
+    "GastoIndisponivel",
     "LeitorConfig",
     "ModoTesteGlobal",
     "ValorInvalido",
     "VersaoConfig",
     "abertos_agora",
     "bloqueio_entrada",
+    "config_em",
+    "config_no_tempo",
     "config_vigente",
     "garantir_defaults",
     "gasto_dia",
     "gasto_mes",
+    "ia_ativa_agora",
     "optou_por_sair",
     "registrar_config",
 ]
@@ -85,6 +93,33 @@ def config_vigente(conn: psycopg.Connection, nome: str) -> VersaoConfig | None:
         (nome,),
     ).fetchone()
     return VersaoConfig(*linha) if linha else None
+
+
+def config_em(conn: psycopg.Connection, nome: str, instante: datetime) -> Any:
+    """Valor da chave vigente em `instante` (a maior versão publicada até ele). Sem versão até lá (a chave foi gravada depois, ex.: seed no
+    boot posterior ao atendimento), a mais antiga; nunca gravada, o padrão do registro. É o que «a config vigente em `iniciado_em`» quer
+    dizer: trocar a config não muda atendimento em curso."""
+    linha = conn.execute(
+        "SELECT valor FROM ia.config_versao WHERE nome = %s AND publicado_em <= %s ORDER BY versao DESC LIMIT 1", (nome, instante)
+    ).fetchone()
+    if linha is None:
+        linha = conn.execute("SELECT valor FROM ia.config_versao WHERE nome = %s ORDER BY versao LIMIT 1", (nome,)).fetchone()
+    return linha[0] if linha is not None else PADROES.get(nome)
+
+
+def config_no_tempo(conn: psycopg.Connection, nome: str) -> Callable[[datetime], Any]:
+    """`config_em` para muitos instantes com UMA leitura (o `expirar_parados` avalia centenas de `iniciado_em` por rodada): as versões
+    de `nome` ficam em memória e a regra é a mesma (a maior versão publicada até o instante; sem nenhuma até lá, a mais antiga; nunca
+    gravada, o padrão do registro)."""
+    versoes = conn.execute("SELECT publicado_em, valor FROM ia.config_versao WHERE nome = %s ORDER BY versao", (nome,)).fetchall()
+
+    def em(instante: datetime) -> Any:
+        if not versoes:
+            return PADROES.get(nome)
+        ate_la = [valor for publicado_em, valor in versoes if publicado_em <= instante]
+        return ate_la[-1] if ate_la else versoes[0][1]
+
+    return em
 
 
 def registrar_config(
@@ -190,23 +225,6 @@ class LeitorConfig:
 # --- gasto e recusas de entrada ----------------------------------------------------------------------------------------------------------
 
 
-def _gasto(conn: psycopg.Connection, inicio: datetime, fim: datetime) -> Decimal:
-    """Soma de modelo + mídia dos atendimentos iniciados no intervalo, de TODOS os modos (real, sombra, duble e teste)."""
-    linha = conn.execute(
-        "SELECT coalesce(sum(custo_modelo_brl + custo_midia_brl), 0) FROM ia.atendimento WHERE iniciado_em >= %s AND iniciado_em < %s",
-        (inicio, fim),
-    ).fetchone()
-    return Decimal(linha[0])
-
-
-def gasto_mes(conn: psycopg.Connection, agora: datetime) -> Decimal:
-    return _gasto(conn, *limites_do_mes(agora))
-
-
-def gasto_dia(conn: psycopg.Connection, agora: datetime) -> Decimal:
-    return _gasto(conn, *limites_do_dia(agora))
-
-
 def disparos_dia(conn: psycopg.Connection, agora: datetime) -> int:
     """Atendimentos de disparo iniciados no dia local (o `agendamento` nasce de uma conversa do cliente, não de um disparo)."""
     inicio, fim = limites_do_dia(agora)
@@ -214,6 +232,13 @@ def disparos_dia(conn: psycopg.Connection, agora: datetime) -> int:
         "SELECT count(*) FROM ia.atendimento WHERE gatilho <> 'agendamento' AND iniciado_em >= %s AND iniciado_em < %s", (inicio, fim)
     ).fetchone()
     return int(linha[0])
+
+
+def ia_ativa_agora(conn: psycopg.Connection) -> bool:
+    """`ia_ativa` lida do banco AGORA, sem o cache do processo: quem executa um job agendado minutos antes (parada leve, `iniciar`,
+    volta) decide pelo valor de agora, não pelo de quando o job nasceu (liga → desliga → liga em menos de 19 min)."""
+    vigente = config_vigente(conn, "ia_ativa")
+    return vigente is not None and vigente.valor is True
 
 
 def optou_por_sair(conn: psycopg.Connection, pessoa_id: uuid.UUID) -> bool:

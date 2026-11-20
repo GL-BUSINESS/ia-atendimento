@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 import psycopg
 
+from ia_atendimento import espelho, estado
 from ia_atendimento.calendario import (
     BLOQUEIO_DATAPREV_EM,
     DATAPREV_ATE,
@@ -26,7 +27,7 @@ from ia_atendimento.calendario import (
     Calendario,
     carregar_calendario,
 )
-from ia_atendimento.chave import ConfigCorrida, LeitorConfig, config_vigente
+from ia_atendimento.chave import ConfigCorrida, LeitorConfig, config_vigente, ia_ativa_agora
 from ia_atendimento.relogio import Relogio
 
 JANELA_24H = timedelta(hours=24)
@@ -148,13 +149,45 @@ async def executar_turno(servicos: Servicos, atendimento_id: uuid.UUID) -> None:
     await servicos.processar_turno(atendimento_id)
 
 
-async def executar_iniciar(servicos: Servicos, atendimento_id: uuid.UUID) -> None:
+MOTIVO_IA_DESLIGADA = "ia_desligada"
+
+
+def _ia_ligada_para_iniciar(servicos: Servicos, atendimento_id: uuid.UUID) -> bool:
+    """Relê `ia_ativa` ao executar. Desligada: o `reservado` é abortado ANTES do `assumir` (nada muda no chat) com o `encerrou` no
+    outbox, na mesma transação; outro estado fica como está (quem fecha aberto/aguardando/pausado é a parada leve)."""
+    with servicos.abrir_conexao() as conn:
+        if ia_ativa_agora(conn):
+            return True
+        with conn.transaction():
+            linha = conn.execute(
+                "SELECT estado, versao FROM ia.atendimento WHERE atendimento_id = %s FOR UPDATE", (atendimento_id,)
+            ).fetchone()
+            if linha is not None and linha[0] == "reservado":
+                estado.abortar(conn, atendimento_id, linha[1], motivo=MOTIVO_IA_DESLIGADA, relogio=servicos.relogio.agora)
+                espelho.emitir_encerrou(conn, atendimento_id, "ia_desligada", servicos.relogio.agora())
+        return False
+
+
+async def executar_iniciar(servicos: Servicos, atendimento_id: uuid.UUID) -> bool:
+    """O job `iniciar`. Devolve se entregou ao serviço (False = a IA estava desligada ao executar)."""
+    if not await asyncio.to_thread(_ia_ligada_para_iniciar, servicos, atendimento_id):
+        return False
     await servicos.iniciar_atendimento(atendimento_id)
+    return True
 
 
-async def executar_encerrar_por_chave(servicos: Servicos, atendimento_id: uuid.UUID) -> None:
-    """Parada leve manual (`PUT ia_ativa=false`, B1.5 agenda um job por atendimento, escalonado em ≤ 20 min). A implementação é da B1.6."""
+def _ia_desligada_agora(servicos: Servicos) -> bool:
+    with servicos.abrir_conexao() as conn:
+        return not ia_ativa_agora(conn)
+
+
+async def executar_encerrar_por_chave(servicos: Servicos, atendimento_id: uuid.UUID) -> bool:
+    """Parada leve manual (`PUT ia_ativa=false`, B1.5 agenda um job por atendimento, escalonado em ≤ 20 min). Relê `ia_ativa` AO
+    EXECUTAR, sem cache: religada no meio tempo, não fecha nada (devolve False). O encerramento em si é da B1.6b."""
+    if not await asyncio.to_thread(_ia_desligada_agora, servicos):
+        return False
     await servicos.encerrar_por_chave(atendimento_id)
+    return True
 
 
 async def executar_expirar(servicos: Servicos) -> int:

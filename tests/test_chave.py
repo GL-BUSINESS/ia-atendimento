@@ -26,7 +26,7 @@ from ia_atendimento.chave import (
 from ia_atendimento.chave_registro import PADROES, REGISTRO
 from ia_atendimento.relogio import RelogioFalso
 from tests import fixtures_fila as ff
-from tests.fixtures_fila import estados_dos_atendimentos, hex24, inserir_atendimento, inserir_opt_out
+from tests.fixtures_fila import estados_dos_atendimentos, hex24, inserir_atendimento, inserir_custo, inserir_opt_out
 
 # fixtures da B1.3 (atribuição, não import: o módulo ganha o nome do fixture sem brigar com o parâmetro do teste nem com o conftest)
 conn_app, conn_super, relogio = ff.conn_app, ff.conn_super, ff.relogio
@@ -280,22 +280,27 @@ def test_cinco_recusas_de_entrada(conn_app, conn_super, relogio):
         assert recusa(conn_app, RelogioFalso(instante)) == "fora_de_janela", instante
     assert recusa(conn_app, RelogioFalso(datetime(2026, 11, 17, 22, 30, tzinfo=UTC))) is None  # 19:30 local: dentro
 
-    # 3. teto_atingido: gasto do mês de TODOS os modos; o mês anterior não conta
+    # 3. teto_atingido: Σ passo.custo_brl do mês de TODOS os modos (contrato 08 §9); o mês anterior não conta
     reg(conn_app, relogio, "teto_mensal_brl", 10)
-    inserir_atendimento(conn_super, estado="encerrado", custo_modelo=50, iniciado_em=relogio.agora() - timedelta(days=20))  # 28/10
-    inserir_atendimento(conn_super, estado="encerrado", custo_modelo=6, modo="sombra", iniciado_em=relogio.agora() - timedelta(days=5))
+    velho = inserir_atendimento(conn_super, estado="encerrado", iniciado_em=relogio.agora() - timedelta(days=20))  # 28/10
+    inserir_custo(conn_super, velho, 50, relogio.agora() - timedelta(days=20))
+    sombra = inserir_atendimento(conn_super, estado="encerrado", modo="sombra", iniciado_em=relogio.agora() - timedelta(days=5))
+    inserir_custo(conn_super, sombra, 6, relogio.agora() - timedelta(days=5))
     assert recusa(conn_app, relogio) is None
-    inserir_atendimento(conn_super, estado="encerrado", custo_midia=4, modo="teste", iniciado_em=relogio.agora() - timedelta(days=2))
+    teste = inserir_atendimento(conn_super, estado="encerrado", modo="teste", iniciado_em=relogio.agora() - timedelta(days=2))
+    inserir_custo(conn_super, teste, 4, relogio.agora() - timedelta(days=2))
     assert gasto_mes(conn_app, relogio.agora()) == 10
     assert recusa(conn_app, relogio) == "teto_atingido"
     reg(conn_app, relogio, "teto_mensal_brl", 1000)
 
     # 4. teto_diario: sub-teto em R$ do dia local (02:30 UTC de hoje ainda é ontem em SP)
     reg(conn_app, relogio, "subteto_dia", 5)
-    inserir_atendimento(conn_super, estado="encerrado", custo_modelo=9, iniciado_em=datetime(2026, 11, 17, 2, 30, tzinfo=UTC))
+    ontem = inserir_atendimento(conn_super, estado="encerrado", iniciado_em=datetime(2026, 11, 17, 2, 30, tzinfo=UTC))
+    inserir_custo(conn_super, ontem, 9, datetime(2026, 11, 17, 2, 30, tzinfo=UTC))
     assert gasto_dia(conn_app, relogio.agora()) == 0
     assert recusa(conn_app, relogio) is None
-    inserir_atendimento(conn_super, estado="encerrado", custo_modelo=5, iniciado_em=relogio.agora() - timedelta(hours=1))
+    hoje = inserir_atendimento(conn_super, estado="encerrado", iniciado_em=relogio.agora() - timedelta(hours=1))
+    inserir_custo(conn_super, hoje, 5, relogio.agora() - timedelta(hours=1))
     assert recusa(conn_app, relogio) == "teto_diario"
     reg(conn_app, relogio, "subteto_dia", 1000)
 

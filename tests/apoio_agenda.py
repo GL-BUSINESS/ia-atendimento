@@ -14,9 +14,11 @@ import psycopg
 
 from ia_atendimento import agenda_estado as ae
 from ia_atendimento import estado, estado_pausa, fila
+from ia_atendimento.chave import ia_ativa_agora, registrar_config
 from ia_atendimento.estado import Versoes
 from ia_atendimento.estado_conversa import EstadoConversa, gravar_estado_conversa
 from ia_atendimento.jobs import Volta
+from ia_atendimento.relogio import RelogioFalso
 from tests.estado_apoio import entrada
 from tests.fixtures_fila import Chamadas, montar_servicos
 
@@ -80,7 +82,11 @@ def novo_aberto(conn: psycopg.Connection, relogio: Any, versoes: Versoes, *, fas
 def novo_agendado(
     conn: psycopg.Connection, agora: datetime, versoes: Versoes, *, retoma_em: datetime, folga_min: int = FOLGA_MIN
 ) -> tuple[uuid.UUID, int, str]:
-    """Caso (b): `reservado` de vida longa por `abrir_agendado`. Devolve (atendimento, versao, chat)."""
+    """Caso (b): `reservado` de vida longa por `abrir_agendado`. Devolve (atendimento, versao, chat).
+
+    Liga `ia_ativa` (instância no ar): desde a B1.6a o `retomar` do reservado agendado recusa com a IA desligada (R1-31)."""
+    if not ia_ativa_agora(conn):
+        registrar_config(conn, "ia_ativa", True, "teste", relogio=RelogioFalso(agora), motivo="instância no ar (apoio_agenda)")
     n = next(_SEQ)
     chat = f"{n:024x}"
     resultado = estado_pausa.abrir_agendado(
