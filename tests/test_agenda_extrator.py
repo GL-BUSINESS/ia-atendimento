@@ -321,7 +321,7 @@ def test_texto_longo_e_recusado_sem_varrer():
 
 def test_resultado_e_candidato_sao_imutaveis_e_versionados():
     r = _ex("às 15h")
-    assert VERSAO == "1" and r.versao == "1"
+    assert VERSAO == "2" and r.versao == "2"
     with pytest.raises(dataclasses.FrozenInstanceError):
         r.motivo_recusa = "x"  # type: ignore[misc]
     with pytest.raises(dataclasses.FrozenInstanceError):

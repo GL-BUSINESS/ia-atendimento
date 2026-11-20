@@ -36,7 +36,7 @@ from types import MappingProxyType
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-VERSAO = "1"
+VERSAO = "2"  # 2: minuto solto colado à hora recusa (G-0090) e hedge na fronteira da palavra (F4-009, F4-010)
 FUSO = ZoneInfo("America/Sao_Paulo")
 MAX_TEXTO = 1000  # uma resposta de agendamento é curta; texto maior nem é varrido
 MAX_CANDIDATOS = 3
@@ -227,8 +227,8 @@ def _lado(n: str, *, fecha: bool = True) -> str:
 
 _R_ENTRE = re.compile(rf"\bentre\s+{_lado('a', fecha=False)}\s+e\s+{_lado('b')}(?:\s+{_QUAL})?{_NAO_HORA}")
 _R_OU = re.compile(rf"{_ANTES}{_lado('a')}\s+ou\s+{_lado('b')}(?:\s+{_QUAL})?{_NAO_HORA}")
-_R_QUAL = re.compile(
-    rf"{_ANTES}(?P<pre>(?:umas?|as?)\s+)?(?P<h>{_NUM_UMA})(?::(?P<m>\d{{2}}))?\s*(?:{_UNID}\b)?\s*(?:e\s+{_MN}\s+)?{_QUAL}\b"
+_R_QUAL = re.compile(  # `\b`: o achado começa na palavra inteira, nunca dentro de «d|as»/«pel|as» (F4-009: o hedge ficava fora da janela)
+    rf"{_ANTES}\b(?P<pre>(?:umas?|as?)\s+)?(?P<h>{_NUM_UMA})(?::(?P<m>\d{{2}}))?\s*(?:{_UNID}\b)?\s*(?:e\s+{_MN}\s+)?{_QUAL}\b"
 )
 _R_UMAS = re.compile(rf"\bumas?\s+(?P<h>{_NUM})(?:\s*{_UNID}\b)?(?:\s+e\s+{_MN})?{_NAO_HORA}")
 _R_DEPOIS = re.compile(rf"\b(?:depois|dps)\s+d[aeo]s?\s+(?P<h>{_NUM})(?:\s*{_UNID}\b)?")
@@ -259,7 +259,7 @@ _R_FAIXA = re.compile(
 # aproximação ou hesitação perto da hora: a hora vale no máximo `media` («depois de amanhã» NÃO é aproximação)
 _R_HEDGE = re.compile(
     r"\b(?:por\s+volta|mais\s+ou\s+menos|aproximadamente|aprox|perto\s+d[aeo]s?|la\s+pel[ao]s|pel[ao]s|umas?|uns|tipo|por\s+ai|ou\s+mais"
-    r"|a\s+partir|apos|cerca\s+d[aeo]|em\s+torno|quase|talvez|acho\s+que|quem\s+sabe|se\s+der|se\s+puder)\b"
+    r"|a\s+partir|apos|cerca\s+d[aeo]s?|em\s+torno|quase|talvez|acho\s+que|quem\s+sabe|se\s+der|se\s+puder)\b"
 )
 _JANELA_ANTES, _JANELA_DEPOIS = 26, 16
 # duração, não horário: «trabalho 16 horas por dia», «demora 15 horas», «faz 15h que espero»
@@ -272,6 +272,9 @@ _R_REL_LISTA = re.compile(
 )
 _R_CONECTOR_DEPOIS = re.compile(rf"\s+(?:e|ou)\s+(?:as\s+)?(?=\d|(?:{_W}|{_MINW}|uma|um|meio|meia)\b)")
 _R_CONECTOR_ANTES = re.compile(r"(\d[\w:]*)\s+(?:e|ou)\s+(?:as\s+)?$")
+# G-0090: número solto colado depois da hora («às 15 30», «às 3 30 da tarde») é minuto que nenhuma regra leu; data («06/11»), hora
+# formatada («15:30») e decimal não contam.
+_R_NUMERO_COLADO = re.compile(r"\s+\d{1,2}(?![\d/:.,])")
 
 _R_HOJE = re.compile(r"\b(?:hoje|hj)\b")
 _R_DEPOIS_AMANHA = re.compile(r"\bdepois\s+de\s+amanha+\b")
@@ -394,8 +397,12 @@ def _eh_duracao(v: _Varredura, m: re.Match[str]) -> bool:
 
 def _lista_incompleta(v: _Varredura) -> bool:
     """Depois de varrer TUDO: «15h e 16h» tem as duas pontas lidas (ambíguo); «15h ou 16:99» e «15 e trinta e cinco» têm uma ponta
-    que não virou hora, e então a outra não pode sobrar sozinha (a ordem da varredura não importa)."""
+    que não virou hora, e então a outra não pode sobrar sozinha (a ordem da varredura não importa). «às 15 30» deixa um minuto solto
+    que ninguém leu (G-0090): a hora sem ele seria a hora errada com confiança alta."""
     for h in v.horas:
+        colado = _R_NUMERO_COLADO.match(v.n, h.fim)
+        if colado and not v.ocupado[colado.end() - 1]:
+            return True
         seguinte = _R_CONECTOR_DEPOIS.match(v.n, h.fim)
         if seguinte and not v.ocupado[seguinte.end()]:
             return True
