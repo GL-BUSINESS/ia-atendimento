@@ -47,7 +47,7 @@ def test_portao_continua_barrando_documento_na_pendente():
     """O rótulo novo não abre brecha: um CPF que escapasse da proteção ainda derruba o turno."""
     insumos = ctx.Insumos(
         fase="E8", estado='{"fase":"E8"}', modulo="modulo", ferramentas="", exemplos=(), resumo=None, trocas=(), resultados="",
-        pendentes=("000.000." + "201-00",),
+        pendentes=("000.000." + "201-00",),  # base 2nn, DV inválido
     )  # fmt: skip
     with pytest.raises(ctx.ContextoComDadoPessoal):
         ctx.auditar_prompt(ctx.construir(insumos, {}, EstimadorPorCaracteres()))

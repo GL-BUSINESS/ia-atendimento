@@ -13,7 +13,8 @@ import pytest
 
 from ia_atendimento.ferramentas.esquemas import SaidaT1, saida_t1_do_resumo
 
-PESSOA = {"pessoa_id": "11111111-1111-7111-8111-111111111111", "nome": None, "cpf_mascarado": "***.***.***-00", "cpf": "000000" + "20100"}
+CPF_DIGITOS = "000000" + "20100"  # base 2nn, DV inválido
+PESSOA = {"pessoa_id": "11111111-1111-7111-8111-111111111111", "nome": None, "cpf_mascarado": "***.***.***-00", "cpf": CPF_DIGITOS}
 NAO_PERTURBE = {"desde": "2026-11-01T10:00:00Z", "ate": "2026-12-01T10:00:00Z"}
 LIMITE = {"banco": "FACTA", "desde": "2026-11-01T10:00:00Z", "visto_em": "2026-11-10T10:00:00Z"}
 
@@ -54,4 +55,4 @@ def test_t1_valor_que_nao_e_objeto_nem_null_bloqueia(valor):
 
 def test_t1_nao_leva_cpf_nem_nome():
     saida = saida_t1_do_resumo({"itens": [{**PESSOA, "nome": "Pessoa Sintetica", "nao_perturbe": None, "limite_contratos": None}]})
-    assert "000000" + "20100" not in saida.model_dump_json() and saida.primeiro_nome is None
+    assert CPF_DIGITOS not in saida.model_dump_json() and saida.primeiro_nome is None

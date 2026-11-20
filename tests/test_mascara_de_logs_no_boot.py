@@ -14,7 +14,7 @@ from pathlib import Path
 
 from tests.apoio_api import FINGERPRINT, H16, RESPONSAVEL_IA, TOKENS
 
-CPF_SINTETICO = "000.000." + "201-00"
+CPF_SINTETICO = "000.000." + "201-00"  # base 2nn, DV inválido; sem o literal na árvore (gitleaks)
 SEGREDO_DO_MODELO = "fw_chave-do-modelo-descartavel-123"
 _EMITIR = (
     "import logging;"

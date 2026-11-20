@@ -23,6 +23,7 @@ ambiente = apoio_api.ambiente
 pytestmark = pytest.mark.banco
 
 # contrato 01 §4: as chaves do topo que a rota `ia-mensagem` deixa passar
+CPF_SINTETICO: Final = "000.000." + "201-00"  # base 2nn, DV inválido; sem o literal na árvore (gitleaks)
 A10: Final = frozenset(
     {"chat_id", "phone_id", "texto_mensagem", "tipo_mensagem", "url_arquivo", "datetime_post", "responsavel_nome", "responsavel_email",
      "executado_por", "link_chat"}
@@ -35,7 +36,7 @@ def post_real(texto: str = "quero saber da proposta", hora: str = "2026-11-17T08
         "chat_id": CHAT, "phone_id": PHONE, "email": "5500000000000@exemplo.invalid",  # na forma real é «55…@c.us» "celular": "5500000000000", "nome": "Pessoa Sintetica",
         "link_chat": f"https://chatguru.invalid/chats#{CHAT}", "chat_created": "2026-11-17T08:00:00-03:00", "datetime_post": hora,
         "tipo_mensagem": "chat", "texto_mensagem": texto, "executado_por": "", "tags": ["Pre-aprovado"],
-        "campos_personalizados": {"CPF": "000.000." + "201-00"}, "bot_context": {"MBURA": "INAAP-1"}, "responsavel_email": RESPONSAVEL_IA,
+        "campos_personalizados": {"CPF": CPF_SINTETICO}, "bot_context": {"MBURA": "INAAP-1"}, "responsavel_email": RESPONSAVEL_IA,
         "responsavel_nome": "Amado Batista", "campanha_id": "", "campanha_nome": "", "origem": "", "ctwa_ad": None, "bsuid": "bsuid-sintetico",
         "username": "",
     }  # fmt: skip
@@ -78,7 +79,7 @@ def test_post_real_sem_projecao_segue_recusado_pela_allowlist(ambiente):
     abrir_ativo(ambiente)
     r = ambiente.evento_chatguru(post_real())
     assert r.status_code == 422 and r.json()["erro"]["codigo"] == "campo_fora_da_allowlist"
-    assert "000.000." + "201-00" not in r.text and ambiente.escalar("SELECT count(*) FROM ia.passo") == 0
+    assert CPF_SINTETICO not in r.text and ambiente.escalar("SELECT count(*) FROM ia.passo") == 0
 
 
 @pytest.mark.parametrize(
@@ -109,7 +110,7 @@ def test_datetime_post_invalido_vale_como_ausente_e_conta_o_alerta(ambiente, hor
 
 def test_datetime_post_invalido_com_chave_fora_da_allowlist_segue_422_sem_contar(ambiente):
     abrir_ativo(ambiente)
-    r = ambiente.evento_chatguru(mensagem_nativa(datetime_post="2026-11-17T08:59:30", cpf="000.000." + "201-00"))
+    r = ambiente.evento_chatguru(mensagem_nativa(datetime_post="2026-11-17T08:59:30", cpf=CPF_SINTETICO))
     assert r.status_code == 422 and r.json()["erro"]["codigo"] == "campo_fora_da_allowlist"
     assert ambiente.ctx.metricas.valor("datetime_post_invalido") == 0
 
