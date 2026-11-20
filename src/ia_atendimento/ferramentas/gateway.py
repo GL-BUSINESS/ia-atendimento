@@ -8,7 +8,8 @@ Ordem fixa de uma chamada (falha em qualquer passo devolve `Resultado` com `Erro
 2. **Orçamento** (§6): por turno ≤ 4 síncronas (a vaga é reservada aqui, atômica: o modelo chama em paralelo) e ≤ 5 s; por atendimento
    ≤ 2 pagas (contadas no disparo, a tentativa) e ≤ 3 corrigíveis (a saída `corrigivel` e o `CORRIGIVEL` tipado do executor).
 3. **Pré-condições por código** (§3): cada nome declarado precisa de um verificador que devolva `True`; sem verificador, com exceção ou
-   com qualquer outra resposta, `PRECONDICAO_FALHOU{nome}` (fail-closed). Banco fora da flag é `banco_habilitado`.
+   com qualquer outra resposta, `PRECONDICAO_FALHOU{nome}` (fail-closed). Banco fora da flag é `banco_habilitado`. Conferidas aqui (a
+   recusa cedo) e DE NOVO depois da vaga do limitador e da leitura do CPF, logo antes do disparo (passo 6; TOCTOU, 20/11).
 4. **Vaga do limitador** por serviço (FACTA 2, 3RN 2, C6 1; §10): o serviço não depende do modo, então a espera vem ANTES do destino.
    Síncrona: um prazo só (o menor entre o da ferramenta e o que resta do turno) cobre a fila e o efeito. Assíncrona: a fila tem o seu
    prazo e o do efeito recomeça ao pegar a vaga.
@@ -352,12 +353,16 @@ class Gateway:
         return retorno, tipado, codigo, despachado
 
     async def _preparar_disparo(self, pedido: Pedido, andamento: _Andamento) -> tuple[Executor, Chamada]:
-        """Destino desta hora, CPF se o destino o pede e a consulta paga contada; o último passo antes do executor não tem `await`."""
+        """Pré-condições de novo, destino desta hora, CPF se o destino o pede e a consulta paga contada; o último passo antes do executor
+        não tem `await`. As pré-condições (opt-out, humano assumiu, lease, confirmação, DATAPREV...) são reconferidas DEPOIS da vaga do
+        limitador e de novo depois da leitura do CPF: a 1ª conferência, em `chamar`, é a recusa cedo; a que vale é esta (TOCTOU, 20/11)."""
         spec = pedido.especificacao
+        await self._conferir_precondicoes(pedido)
         destino = self._resolver(pedido)
         cpf: CpfEmMemoria | None = None
         if spec.usa_cpf and destino.tipo in _DESTINOS_COM_CPF:
             cpf = await self._cpf(pedido)
+            await self._conferir_precondicoes(pedido)  # a leitura do CPF também é ponto de espera
             destino = self._resolver(pedido)  # a leitura do CPF é um ponto de espera: o modo pode ter mudado nela
             if destino.tipo not in _DESTINOS_COM_CPF:
                 cpf = None
