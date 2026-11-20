@@ -364,8 +364,8 @@ async def test_reaper_agenda_nao_reenfileira_o_que_tem_job_vivo(conninfo_app, co
     app = criar(conninfo_app)
     async with app.open_async():
         await fila.agendar_retomada(
-            app, caso.agendamento_id, caso.atendimento_id, caso.chat_id, dispara
-        )  # alarme `todo`, ainda não vencido no banco
+            app, caso.agendamento_id, caso.atendimento_id, caso.chat_id, ff.futuro_no_banco()
+        )  # alarme `todo`, ainda não vencido no banco (o `now()` do banco é o relógio real, não o falso)
         await app.tasks["ia:reaper_agenda"].defer_async(timestamp=1)
         await rodar(app, _servicos(banco, relogio, Voltas()))
     assert _jobs(conn_super, "ia:retomar") == [], "alarme `todo` é job vivo: o reaper espera"

@@ -295,7 +295,8 @@ async def test_em4_restart_com_tres_confirmados_sem_perda_nem_duplicidade(connin
     worker1 = criar(conninfo_app)
     async with worker1.open_async():
         for c in casos:
-            assert await fila.agendar_retomada(worker1, c.agendamento_id, c.atendimento_id, c.chat_id, c.dispara_em) is not None
+            # no futuro do `now()` do BANCO (relógio real): `c.dispara_em` é do relógio falso (nov/2026) e já venceria no banco
+            assert await fila.agendar_retomada(worker1, c.agendamento_id, c.atendimento_id, c.chat_id, ff.futuro_no_banco()) is not None
         await rodar(worker1, servicos)
     assert voltas.recebidas == [] and [j[1] for j in jobs_por_status(conn_super, "ia:alarme_retomar")] == ["todo"] * 3
 

@@ -17,6 +17,7 @@ pytestmark = pytest.mark.banco
 MIGRACOES = Path(__file__).resolve().parent.parent / "migrations"
 # a view compara o lease com o now() do BANCO (que o teste não controla): leases vencidos usam o relógio real, os instantes da fila usam o falso
 VENCIDO_NO_BANCO = datetime.now(UTC) - timedelta(hours=1)
+VIVO_NO_BANCO = datetime.now(UTC) + timedelta(days=1)  # lease que o now() do banco ainda não venceu (o padrão do fixture é 17/11/2026)
 
 
 def semear_saudavel(conn) -> None:
@@ -35,10 +36,10 @@ def job_todo(conn, idade: timedelta) -> None:
 
 def test_le_a_view_v_prontidao(conn_app, conn_super, relogio):
     semear_saudavel(conn_super)
-    inserir_atendimento(conn_super, estado="aberto")
-    inserir_atendimento(conn_super, estado="aguardando_cliente")
+    inserir_atendimento(conn_super, estado="aberto", lease_ate=VIVO_NO_BANCO)
+    inserir_atendimento(conn_super, estado="aguardando_cliente", lease_ate=VIVO_NO_BANCO)
     inserir_atendimento(conn_super, estado="pausado")
-    inserir_atendimento(conn_super, estado="reservado")
+    inserir_atendimento(conn_super, estado="reservado", lease_ate=VIVO_NO_BANCO)
     inserir_atendimento(conn_super, estado="aberto", iniciado_em=VENCIDO_NO_BANCO, lease_ate=VENCIDO_NO_BANCO + timedelta(minutes=1))
     p = ler_prontidao(conn_app)
     # `abertos` = tudo que a IA atende agora, inclusive o `reservado` comum; pausado e agendado ficam de fora

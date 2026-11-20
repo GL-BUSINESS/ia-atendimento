@@ -25,6 +25,22 @@ INSTANTE_UTIL = datetime(2026, 11, 17, 15, 0, tzinfo=UTC)
 LOGIN_APP = "ia_app_a"
 
 
+# O Procrastinate decide o que venceu pelo `now()` do BANCO (relógio real), não pelo `RelogioFalso` dos testes. Job que o teste quer «ainda no
+# futuro» precisa de um instante à frente do relógio real; um instante fixo de nov/2026 vira passado com o calendário (falhou em 20/11/2026).
+
+
+def futuro_no_banco(dias: int = 1) -> datetime:
+    """Instante que o `now()` do banco ainda não alcançou (para `schedule_at` de job que não pode vencer durante o teste)."""
+    return datetime.now(UTC) + timedelta(days=dias)
+
+
+def terca_futura_utc() -> datetime:
+    """00:00 UTC de uma terça-feira pelo menos 2 dias à frente do relógio real: dia útil comum (fora dos feriados e da DATAPREV de 2026, que o
+    seed fixa em nov/2026), para testes cujo relógio falso também precisa estar no futuro do banco. São Paulo é UTC-3 o ano todo."""
+    dia = (datetime.now(UTC) + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return dia + timedelta(days=(1 - dia.weekday()) % 7)
+
+
 @pytest.fixture
 def relogio() -> RelogioFalso:
     return RelogioFalso(INSTANTE_UTIL)
