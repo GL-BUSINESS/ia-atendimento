@@ -224,6 +224,9 @@ class Repasse(DadosPasso):
     tipo: ClassVar[str] = "repasse"
     repasse_etapa: Literal["nota", "chatbot", "rota", "marca", "lease", "cerco"]
     tx_id: TxId | None = None
+    # (B1.6b, 08 §7.1) o marco da etapa: `ok|transitorio|incerto|pulado`; `motivo` = código curto (`nota_nao_entregue`, `delegou`...)
+    resultado: Literal["ok", "transitorio", "incerto", "pulado"] | None = None
+    motivo: Codigo60 | None = None
 
     def colunas(self) -> dict[str, Any]:
         return self.model_dump()
@@ -387,7 +390,8 @@ def _texto_encerramento(d: Encerramento) -> str:
 
 
 def _texto_repasse(d: Repasse) -> str:
-    return f"Repasse ao vendedor: etapa {d.repasse_etapa}" + (f" (texto {d.tx_id})." if d.tx_id else ".")
+    marco = f": {d.resultado}" + (f" ({d.motivo})" if d.motivo else "") if d.resultado else ""
+    return f"Repasse ao vendedor: etapa {d.repasse_etapa}{marco}" + (f" (texto {d.tx_id})." if d.tx_id else ".")
 
 
 def _texto_verificacao(d: Verificacao) -> str:

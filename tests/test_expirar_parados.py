@@ -136,3 +136,41 @@ def test_config_no_tempo_segue_a_regra_do_config_em(conn_app, relogio):
     assert [em(i) for i in instantes] == [config_em(conn_app, "faixas_esforco", i) for i in instantes]
     assert [em(i)["faixas"]["media"]["dias_max"] for i in instantes] == [2, 2, 3, 5, 5]  # 2 = o seed (a versão mais antiga)
     assert config_no_tempo(conn_app, "nome_nunca_gravado")(antes) is None
+
+
+# --- B1.6b: G-0093, quem tem posse real passa pelo repasse ------------------------------------------------------------------------------
+
+
+def _posse_real(conn, atd):
+    pessoa = conn.execute("SELECT pessoa_id FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone()[0]
+    chave = f"assumir:{atd}"
+    conn.execute(
+        "INSERT INTO ia.ferramenta_chamada (atendimento_id, pessoa_id, ferramenta, ferramenta_versao, classe_efeito, chave_logica, idem_key,"
+        " estado, modo, enviada_em, concluida_em) VALUES (%s, %s, 'assumir', '1.0.0', 'acao_interna', %s, encode(sha256(convert_to(%s,"
+        " 'UTF8')), 'hex'), 'ok', 'real', now(), now())",
+        (atd, pessoa, chave, chave),
+    )
+
+
+async def test_expirar_com_posse_real_passa_pelo_repasse(banco, conn_super, relogio):
+    """G-0093: o chat tomado de verdade volta ao vendedor (fase 1 + job `repasse`), não é só encerrado."""
+    atd = inserir_atendimento(conn_super, estado="aguardando_cliente", modo="real", iniciado_em=relogio.agora() - timedelta(days=3))
+    _posse_real(conn_super, atd)
+    enfileirados = []
+
+    async def enfileirar(a):
+        enfileirados.append(a)
+
+    servicos = montar_servicos(banco, relogio, Chamadas(), enfileirar_repasse=enfileirar)
+    assert await expiracao.executar_expirar_parados(servicos) == 1
+    estado, _, motivo = _estado(conn_super, atd)
+    assert (estado, motivo) == ("repassando", "expirar_parados") and enfileirados == [atd]
+    assert _encerrou(conn_super, atd) == []  # o `encerrou` sai quando o repasse fechar
+
+
+async def test_expirar_com_posse_real_sem_quem_enfileire_nao_mexe(banco, conn_super, relogio):
+    """Sem o enfileirador (produção sem a B1.6b ligada) não vai a `repassando` órfão: fica e a próxima rodada tenta."""
+    atd = inserir_atendimento(conn_super, estado="aberto", modo="real", iniciado_em=relogio.agora() - timedelta(days=3))
+    _posse_real(conn_super, atd)
+    assert await _expirar(banco, relogio) == 0
+    assert _estado(conn_super, atd)[0] == "aberto"
