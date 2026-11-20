@@ -106,3 +106,32 @@ async def test_ausencia_em_vivos_nao_autoriza():
     await leitor.atualizar()
     assert leitor.situacao("venda:a", esperado_em_vivos="aberto") == "fora_de_vivos"
     assert leitor.situacao("venda:a") == "livre"  # o iniciar (regra iii) e o repasse usam só a regra (i)
+
+
+async def test_gerado_em_no_futuro_alem_de_30s_e_indisponivel():
+    """Revisão B1.6b, achado 6: relógio da S2 adiantado não faz vigia morta parecer viva."""
+    leitor, _, _ = _leitor(batimento_v2(T0 + timedelta(minutes=60)))
+    await leitor.atualizar()
+    assert leitor.situacao("venda:x") == "indisponivel"
+    leitor._fonte.corpo = batimento_v2(T0 + timedelta(seconds=20), seq=2)
+    await leitor.atualizar()
+    assert leitor.situacao("venda:x") == "livre"
+
+
+async def test_indisponibilidade_sem_consulta_ainda_exige_vivos_na_volta():
+    leitor, relogio, _ = _leitor(batimento_v2(T0, vivos={"venda:a": "aberto"}))
+    await leitor.atualizar()
+    assert leitor.situacao("venda:a", esperado_em_vivos="aberto") == "livre" and not leitor.recem_voltou
+    relogio.avancar(minutes=10)
+    leitor._fonte.corpo = None  # a vigia caiu e ninguém consultou nesse tempo
+    await leitor.atualizar()
+    leitor._fonte.corpo = batimento_v2(relogio.agora(), seq=2, vivos={})
+    await leitor.atualizar()
+    assert leitor.recem_voltou
+
+
+async def test_um_alerta_por_episodio_de_indisponibilidade():
+    leitor, _, alertas = _leitor(None)
+    for _ in range(5):
+        leitor.situacao("venda:x")
+    assert alertas.codigos("critico").count("batimento_indisponivel") == 1

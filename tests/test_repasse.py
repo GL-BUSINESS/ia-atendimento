@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import timedelta
 
 import pytest
@@ -44,7 +45,7 @@ class Montagem:
             "UPDATE ia.atendimento SET chatbot_estado = %s, chatbot_antes = 'ligado', mensagens_enviadas = 2 WHERE atendimento_id = %s",
             (self.chatbot, self.atd),
         )
-        iniciar_repasse(self.conn, self.atd, motivo="duas_falhas", relogio=self.relogio)
+        iniciar_repasse(self.conn, self.atd, motivo=self.motivo, relogio=self.relogio)
         self.porta.chamadas.clear()
 
     def _versao(self):
@@ -74,6 +75,7 @@ class Montagem:
         return r, voltas
 
     batimento_vivo = True
+    motivo = "duas_falhas"
 
 
 @pytest.fixture
@@ -155,7 +157,8 @@ async def test_repasse_para_de_tentar_aos_30_min_e_marca_travado(conn_app, conn_
     inicio = relogio.agora()
     r, _ = await m.ate_parar()
     assert r is None and relogio.agora() - inicio <= timedelta(minutes=30, seconds=1)
-    assert 8 <= len(m.rota.corpos) <= 10  # a 1ª + 8 repetições, a última aos ≈ 26 min (08 §7.2)
+    assert len(m.rota.corpos) == 9  # a 1ª + 8 repetições (08 §7.2)
+    assert relogio.agora() - inicio == timedelta(seconds=1570)  # a última aos ≈ 26 min; a 10ª passaria dos 30 min e não é marcada
     estado, *_ = m.fim()
     assert estado == "repassando" and "repasse_travado" in m.fim()[3]
     assert "repasse_travado" in m.alertas.codigos("humano") and "repasse_travado" in m.alertas.codigos("critico")
@@ -245,3 +248,37 @@ async def test_restaurar_transitorio_reagenda_e_repete(m):
     m.batimento.aceitar(batimento_v2(m.relogio.agora(), seq=3))
     assert await m.rodar(r.desde) is None
     assert m.porta.ops() == ["nota", "restaurar", "restaurar"]
+
+
+async def test_repassando_sem_job_e_achado_pela_rede(conn_app, conn_super, relogio):
+    """Revisão B1.6b, achado 1: a fase 1 commitou e o worker morreu antes do defer. Sem job vivo e sem `repasse_travado` ⇒ listado."""
+    m = Montagem(conn_app, conn_super, relogio)
+    await m.preparar()
+    assert repasse.repasses_sem_job(conn_super, relogio.agora()) == []  # ainda dentro da folga de 2 min
+    relogio.avancar(minutes=3)
+    assert [a for a, _ in repasse.repasses_sem_job(conn_super, relogio.agora())] == [m.atd]
+    conn_super.execute(
+        "UPDATE ia.atendimento SET contexto_codigos = array_append(contexto_codigos, 'repasse_travado') WHERE atendimento_id = %s", (m.atd,)
+    )
+    assert repasse.repasses_sem_job(conn_super, relogio.agora()) == []  # travado é da vigia e da TI, não da rede
+
+
+async def test_motivo_humano_assumiu_fecha_o_repasse(conn_app, conn_super, relogio):
+    """Revisão B1.6b, achado 8: `encerrar` exige `humano_assumiu_em` junto; antes o repasse ficava preso depois da rota."""
+    m = Montagem(conn_app, conn_super, relogio)
+    m.motivo = "humano_assumiu"
+    await m.preparar()
+    assert await m.rodar() is None
+    assert m.fim()[:3] == ("encerrado", "repassado", "humano_assumiu")
+
+
+def test_motivo_fora_da_forma_vira_repasse():
+    assert repasse.motivo_valido("Cliente Pediu!") == "repasse" and repasse.motivo_valido("cliente_pediu") == "cliente_pediu"
+
+
+async def test_nota_vazia_nao_se_aplica(conn_app, conn_super, relogio):
+    m = Montagem(conn_app, conn_super, relogio)
+    m.deps = dataclasses.replace(m.deps, texto_da_nota=lambda linha: "  ")
+    await m.preparar()
+    assert await m.rodar() is None
+    assert "nota" not in m.porta.ops() and m.rota.corpos[0]["nota_enviada"] == "nao_aplica"

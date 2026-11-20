@@ -44,7 +44,7 @@ from ia_atendimento.estado_erros import ConflitoVersao, TransicaoInvalida
 from ia_atendimento.gasto import GastoIndisponivel, MedidorGasto, avaliar_gasto
 from ia_atendimento.ledger import Cerca
 from ia_atendimento.relogio import Relogio
-from ia_atendimento.repasse import Linha, encerrar_devolvido_pela_s2, iniciar_repasse, ler_linha
+from ia_atendimento.repasse import Linha, encerrar_devolvido_pela_s2, iniciar_repasse, ler_linha, motivo_valido
 from ia_atendimento.turno import ErroDoModelo
 
 TURNOS_MAX: Final = 24  # RG-006 (08 v2.4 §9): a F3 reprova acima de 24
@@ -193,16 +193,19 @@ async def iniciar(conn: psycopg.Connection, atd: uuid.UUID, deps: DepsProcessado
         return Resultado("batimento_indisponivel")  # não age; o reaper do lease aborta o reservado se o batimento não voltar
     except (ConflitoVersao, TransicaoInvalida):
         return Resultado("superado")
-    if r.estado != "ok" or r.versao is None:
+    if r.estado != "ok":
         deps.alertas.alertar("critico", "assumir_falhou", atendimento_id=atd)
         return Resultado("assumir_falhou")
+    # Revisão B1.6b, achado 3: no retry (o `assumir` já fechou `ok` e a execução morreu antes do `estado.iniciar`) a chave é repetida,
+    # a cerca não anda e `executou` é falso: vale a versão atual e o que o LEDGER gravou (modo e chatbot anterior), não esta execução.
+    versao = r.versao if r.versao is not None else linha.versao
     antes = r.ref_externa if r.ref_externa in CHATBOT_ANTES else "desconhecido"
-    mexeu = r.executou and antes == "ligado"  # só o efeito real desliga o chatbot
+    mexeu = r.modo in ("real", "teste") and antes == "ligado"  # só o efeito real desliga o chatbot
     with conn.transaction():
         estado.iniciar(
             conn,
             atd,
-            r.versao,
+            versao,
             chatbot_antes=antes,
             chatbot_estado="desligado_pela_ia" if mexeu else "intocado",
             relogio=deps.relogio.agora,
@@ -216,6 +219,7 @@ async def iniciar(conn: psycopg.Connection, atd: uuid.UUID, deps: DepsProcessado
 
 async def processar(conn: psycopg.Connection, atd: uuid.UUID, deps: DepsProcessador, *, recem_criado: bool = False) -> Resultado:
     linha = ler_linha(conn, atd)
+    turno_novo = recem_criado or (linha is not None and linha.estado == "aguardando_cliente")
     if linha is not None and linha.estado == "aguardando_cliente":
         estado.retomar(conn, atd, linha.versao, relogio=deps.relogio.agora)
         linha = ler_linha(conn, atd)
@@ -235,7 +239,23 @@ async def processar(conn: psycopg.Connection, atd: uuid.UUID, deps: DepsProcessa
     disjuntor = _disjuntor(conn, linha)
     if disjuntor is not None:
         return await repassar(conn, atd, deps, disjuntor)
+    if not turno_novo and _rodada_ja_enviou(conn, atd):
+        # Revisão B1.6b, achado 2: retry de um turno que morreu DEPOIS de enviar (o turno bom sempre termina em `aguardando_cliente` ou
+        # `repassando`). Chamar o modelo de novo abriria outra rodada e o cliente receberia outra resposta: não chama, fecha o turno.
+        deps.alertas.alertar("amarelo", "turno_retomado_sem_reenvio", atendimento_id=atd)
+        aguardar_cliente_com_espera(conn, atd, linha.versao, relogio=deps.relogio, leitor=deps.leitor)
+        return Resultado("retomado_sem_reenvio")
     return await _turno(conn, linha, deps)
+
+
+def _rodada_ja_enviou(conn: psycopg.Connection, atd: uuid.UUID) -> bool:
+    rodada = ler_estado_conversa(conn, atd).contadores.rodada
+    if rodada < 1:
+        return False
+    return conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM ia.ferramenta_chamada WHERE atendimento_id = %s AND ferramenta = 't11' AND chave_logica LIKE %s)",
+        (atd, f"t11:{atd}:{rodada}:%"),
+    ).fetchone()[0]
 
 
 async def _turno(conn: psycopg.Connection, linha: Linha, deps: DepsProcessador) -> Resultado:
@@ -243,7 +263,10 @@ async def _turno(conn: psycopg.Connection, linha: Linha, deps: DepsProcessador) 
     try:
         decisao = await deps.motor.decidir(atd)
     except ErroDoModelo as erro:
-        _, _, falhas = _anotar_rodada(conn, linha, deps, falhou=True)
+        try:
+            _, _, falhas = _anotar_rodada(conn, linha, deps, falhou=True)
+        except (ConflitoVersao, TransicaoInvalida):
+            return Resultado("superado")
         deps.alertas.alertar("amarelo", "falha_do_modelo", atendimento_id=atd, detalhe=erro.codigo[:40])
         if falhas >= FALHAS_MAX:
             return await repassar(conn, atd, deps, "duas_falhas")
@@ -264,13 +287,18 @@ async def _turno(conn: psycopg.Connection, linha: Linha, deps: DepsProcessador) 
         except (ConflitoVersao, TransicaoInvalida):
             return Resultado("superado")  # outra execução (rodada nova) mexeu: a velha não envia por cima
         versao = r.versao if r.versao is not None else versao
-        enviados += 1
+        if r.estado == "enviada":  # outra execução está no meio deste mesmo envio: não segue por cima
+            return Resultado("em_andamento", ESPERA_FALHA_S)
+        if r.estado not in ("ok", "indeterminado"):  # revisão B1.6b, achado 4: a resposta não saiu; o cliente vai a uma pessoa
+            deps.alertas.alertar("amarelo", "envio_falhou", atendimento_id=atd)
+            return await repassar(conn, atd, deps, "envio_falhou")
+        enviados += 1 if r.executou or r.estado == "indeterminado" else 0  # simulado não conta como mensagem enviada
     if enviados:
         versao = aplicar(
             conn, atd, versao, Mudancas(mensagens_enviadas=_enviadas(conn, atd) + enviados), agora=deps.relogio.agora(), de={"aberto"}
         )
     if decisao.acao == "repassar":
-        return await repassar(conn, atd, deps, decisao.motivo or "pedido_do_turno")
+        return await repassar(conn, atd, deps, motivo_valido(decisao.motivo or "pedido_do_turno"))
     aguardar_cliente_com_espera(conn, atd, versao, relogio=deps.relogio, leitor=deps.leitor)
     return Resultado("aguardar")
 

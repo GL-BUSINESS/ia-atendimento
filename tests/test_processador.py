@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 
 import pytest
@@ -10,6 +11,7 @@ from ia_atendimento.batimento import LeitorBatimento
 from ia_atendimento.canal import Canal
 from ia_atendimento.chave import LeitorConfig, registrar_config
 from ia_atendimento.gasto import GastoIndisponivel, MedidorGasto
+from ia_atendimento.ledger import Cerca, Desfecho
 from ia_atendimento.processador import Decisao, DepsProcessador, encerrar_por_chave, iniciar, processar
 from ia_atendimento.turno import ErroDoModelo
 from tests import fixtures_fila as ff
@@ -246,3 +248,41 @@ async def test_desligamento_nao_mexe_em_repassando_nem_encerrado(conn_app, conn_
 
 def test_decimal_do_teto_por_atendimento():
     assert Decimal("3.01") > Decimal(3)
+
+
+async def test_retry_do_turno_que_morreu_depois_de_enviar_nao_responde_de_novo(conn_app, conn_super, relogio):
+    """Revisão B1.6b, achado 2: o worker morreu entre o 1º e o 2º envio. O retry não chama o modelo nem envia outra resposta."""
+    m = M(conn_app, conn_super, relogio, motor=MotorFalso(Decisao(("primeira", "segunda"))))
+    m.porta.respostas["enviar"] = [Desfecho("ok"), asyncio.CancelledError()]
+    with pytest.raises(asyncio.CancelledError):
+        await processar(conn_app, m.atd, m.deps)
+    r = await processar(conn_app, m.atd, m.deps)
+    assert r.acao == "retomado_sem_reenvio" and m.motor.chamadas == 1
+    assert m.porta.ops() == ["enviar", "enviar"] and m.linha("estado") == "aguardando_cliente"
+    assert "turno_retomado_sem_reenvio" in m.alertas.codigos("amarelo")
+
+
+async def test_retry_do_iniciar_depois_do_assumir_completa(conn_app, conn_super, relogio):
+    """Revisão B1.6b, achado 3: o `assumir` fechou `ok` (chatbot desligado de verdade) e a execução morreu antes do `estado.iniciar`.
+    O retry abre o atendimento com o chatbot anterior que o ledger gravou e não assume de novo."""
+    m = M(conn_app, conn_super, relogio, estado="reservado")
+    versao = m.linha("versao")
+    await m.deps.canal.assumir(conn_app, m.atd, cerca=Cerca(versao, {"reservado"}))
+    r = await iniciar(conn_app, m.atd, m.deps)
+    assert r.acao == "aguardar" and m.porta.ops() == ["assumir", "enviar"]
+    assert (m.linha("chatbot_estado"), m.linha("chatbot_antes")) == ("desligado_pela_ia", "ligado")
+
+
+@pytest.mark.parametrize("desfecho", [Desfecho("recusa", http_bucket="4xx"), Desfecho("transitorio", http_bucket="5xx", nada_saiu=True)])
+async def test_envio_que_nao_saiu_repassa_e_nao_conta(conn_app, conn_super, relogio, desfecho):
+    """Revisão B1.6b, achado 4: a resposta não saiu ⇒ o cliente vai a uma pessoa; `mensagens_enviadas` não conta o que não saiu."""
+    m = M(conn_app, conn_super, relogio)
+    m.porta.respostas["enviar"] = [desfecho]
+    assert (await processar(conn_app, m.atd, m.deps)).acao == "repassar"
+    assert m.linha("mensagens_enviadas") == 0 and m.linha("motivo_desfecho") == "envio_falhou"
+
+
+async def test_motivo_do_modelo_fora_da_forma_nao_derruba_o_repasse(conn_app, conn_super, relogio):
+    m = M(conn_app, conn_super, relogio, motor=MotorFalso(Decisao((), "repassar", "Motivo Livre!")))
+    assert (await processar(conn_app, m.atd, m.deps)).acao == "repassar"
+    assert m.linha("motivo_desfecho") == "repasse"

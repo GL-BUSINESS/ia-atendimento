@@ -103,3 +103,14 @@ def test_enviada_dentro_do_timeout_nao_e_mexida(conn_app, conn_super, relogio):
                    enviada_em=agora - timedelta(seconds=20))  # fmt: skip
     varrer_ledger(conn_app, agora, AlertasFalsos())
     assert _estado(conn_super, linha) == "enviada"
+
+
+@pytest.mark.parametrize(("segundos", "esperado"), [(60, "enviada"), (200, "indeterminado")])
+def test_t7_lenta_segue_o_prazo_do_catalogo(conn_app, conn_super, relogio, segundos, esperado):
+    """Revisão B1.6b, achado 7: a T7 tem 125 s no catálogo; aos 60 s ainda está no ar e não é fechada."""
+    agora = relogio.agora()
+    atd = inserir_atendimento(conn_super, estado="aberto", modo="real", iniciado_em=agora)
+    linha = _linha(conn_super, atd, "t7", "efeito_irreversivel", "enviada", reservada_em=agora - timedelta(seconds=segundos),
+                   enviada_em=agora - timedelta(seconds=segundos), banco="FACTA", conf=_confirmacao(conn_super, atd, agora))  # fmt: skip
+    varrer_ledger(conn_app, agora, AlertasFalsos())
+    assert _estado(conn_super, linha) == esperado

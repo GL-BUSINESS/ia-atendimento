@@ -75,11 +75,18 @@ def montar(base: Servicos, portas: Portas, app: procrastinate.App | None = None)
         return await com_conexao(repasse.executar_repasse, atd, deps_rep, desde)
 
     async def varrer() -> reaper_ledger.Varredura:
-        def _varrer() -> reaper_ledger.Varredura:
-            with base.abrir_conexao() as conn:
-                return reaper_ledger.varrer_ledger(conn, relogio.agora(), portas.alertas)
+        """O reaper do ledger e, na mesma rodada, a rede do `repassando` sem job (revisão B1.6b, achado 1): reenfileira o repasse."""
 
-        return await asyncio.to_thread(_varrer)
+        def _varrer() -> tuple[reaper_ledger.Varredura, list[tuple[uuid.UUID, str]]]:
+            with base.abrir_conexao() as conn:
+                return reaper_ledger.varrer_ledger(conn, relogio.agora(), portas.alertas), repasse.repasses_sem_job(conn, relogio.agora())
+
+        varredura, orfaos = await asyncio.to_thread(_varrer)
+        for atd, chat in orfaos:
+            portas.alertas.alertar("amarelo", "repasse_sem_job", atendimento_id=atd)
+            if app is not None:
+                await fila.enfileirar_repasse(app, atd, chat)
+        return varredura
 
     async def publicar() -> int:
         return await com_conexao(publicar_espelho.publicar_espelho, deps_esp)

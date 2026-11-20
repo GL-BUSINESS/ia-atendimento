@@ -27,6 +27,7 @@ from ia_atendimento.relogio import Relogio
 
 VERSAO: Final = 2
 IDADE_MAX: Final = timedelta(seconds=90)
+FUTURO_MAX: Final = timedelta(seconds=30)  # relógio da S2 adiantado não pode fazer vigia morta parecer viva (revisão B1.6b, achado 6)
 INTERVALO_LEITURA_S: Final = 15
 ESTADOS_IMPEDIDOS: Final = frozenset({"devolvendo", "devolvido", "fechado"})
 ESTADOS_VIVOS: Final = frozenset({"reservado", "agendado", "aberto", "pausado"})
@@ -86,6 +87,7 @@ class LeitorBatimento:
         self._relogio = relogio
         self._alertas = alertas
         self._ultimo: Batimento | None = None
+        self._alertado = False
         self._esteve_indisponivel = True  # processo recém-iniciado = 1ª ação depois de indisponibilidade (reaper do boot)
 
     async def atualizar(self) -> None:
@@ -94,6 +96,7 @@ class LeitorBatimento:
         except Exception:  # a porta não pode derrubar o laço: falha de leitura = ausente
             corpo = None
         if corpo is None:
+            self.disponivel()  # marca o episódio mesmo sem ninguém consultar (regra ii)
             return
         try:
             novo = ler_batimento(corpo)
@@ -105,6 +108,7 @@ class LeitorBatimento:
             self._alertas.alertar("critico", "batimento_seq_regrediu")
             return
         self._ultimo = novo
+        self.disponivel()
 
     def aceitar(self, corpo: object) -> None:
         """Atalho síncrono (testes e o reaper do boot): o mesmo que `atualizar` com o corpo já lido."""
@@ -117,10 +121,19 @@ class LeitorBatimento:
             self._ultimo = novo
 
     def disponivel(self, agora: datetime | None = None) -> Batimento | None:
+        """O último aceito, se tem idade em [−30 s, 90 s]; senão None, e a próxima ação de conversa exige `vivos` (regra ii)."""
         agora = agora or self._relogio.agora()
-        if self._ultimo is None or agora - self._ultimo.gerado_em > IDADE_MAX:
+        if self._ultimo is None or not -FUTURO_MAX <= agora - self._ultimo.gerado_em <= IDADE_MAX:
+            self._esteve_indisponivel = True
             return None
         return self._ultimo
+
+    def _indisponivel(self, atendimento_id: object) -> Situacao:
+        """Um alerta crítico por episódio de indisponibilidade (não um por consulta)."""
+        if not self._alertado:
+            self._alertas.alertar("critico", "batimento_indisponivel", atendimento_id=atendimento_id)
+            self._alertado = True
+        return "indisponivel"
 
     @property
     def recem_voltou(self) -> bool:
@@ -132,9 +145,8 @@ class LeitorBatimento:
         que não está em `vivos`); com ele, a regra (ii). Liberado com a regra (ii) fecha o «recém-voltou»."""
         batimento = self.disponivel()
         if batimento is None:
-            self._esteve_indisponivel = True
-            self._alertas.alertar("critico", "batimento_indisponivel", atendimento_id=atendimento_id)
-            return "indisponivel"
+            return self._indisponivel(atendimento_id)
+        self._alertado = False
         if chave in batimento.impedidos:
             return "impedido"
         if esperado_em_vivos is not None:

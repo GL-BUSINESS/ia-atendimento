@@ -29,10 +29,14 @@ def conferir(codigo: str, detalhe: str) -> None:
 
 
 class AlertasEmLog:
-    """Implementação padrão: uma linha de log por alerta (o filtro de logs mascara o resto)."""
+    """Implementação padrão: uma linha de log por alerta (o filtro de logs mascara o resto). Alerta fora da forma não derruba quem
+    alerta (é caminho de erro): o código vira `alerta_invalido` e o detalhe some."""
 
     def alertar(self, nivel: Nivel, codigo: str, *, atendimento_id: object = None, detalhe: str = "") -> None:
-        conferir(codigo, detalhe)
+        try:
+            conferir(codigo, detalhe)
+        except ValueError:
+            codigo, detalhe = "alerta_invalido", ""
         atd = str(atendimento_id) if isinstance(atendimento_id, uuid.UUID) else "-"
         nivel_log = logging.WARNING if nivel == "amarelo" else logging.ERROR
         log.log(nivel_log, "alerta %s %s atendimento=%s %s", nivel, codigo, atd, detalhe)

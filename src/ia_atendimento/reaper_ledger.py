@@ -19,14 +19,24 @@ from typing import Final
 import psycopg
 
 from ia_atendimento.alertas import Alertas
+from ia_atendimento.ferramentas.catalogo import CATALOGO_MVP
 from ia_atendimento.ledger import EM_VOO, FOLGA_EM_VOO, TIMEOUT_PADRAO_S, desfecho_da_orfa
 
 RESERVADA_MAX: Final = timedelta(minutes=10)
-EM_VOO_MAX: Final = timedelta(seconds=TIMEOUT_PADRAO_S) + FOLGA_EM_VOO
+# Revisão B1.6b, achado 7: o prazo de cada ferramenta é o do catálogo (T7 125 s, T8 1500 s), não os 10 s padrão; quem não está no
+# catálogo (T11, T12, nota, restaurar, assumir) usa o padrão do ledger.
+TIMEOUT_S: Final[dict[str, float]] = {spec.nome_no_ledger: spec.timeout_s for spec in CATALOGO_MVP}
+EM_VOO_MIN: Final = timedelta(seconds=TIMEOUT_PADRAO_S) + FOLGA_EM_VOO
+
+
+def prazo_em_voo(ferramenta: str) -> timedelta:
+    return timedelta(seconds=max(TIMEOUT_PADRAO_S, TIMEOUT_S.get(ferramenta, TIMEOUT_PADRAO_S))) + FOLGA_EM_VOO
+
+
 LIMITE: Final = 200
 
 _SQL_ABERTAS: Final = """
-SELECT chamada_id, atendimento_id, classe_efeito, estado, modo FROM ia.ferramenta_chamada
+SELECT chamada_id, atendimento_id, classe_efeito, estado, modo, ferramenta, enviada_em FROM ia.ferramenta_chamada
 WHERE concluida_em IS NULL AND ((estado = 'reservada' AND reservada_em < %(reservada)s)
   OR (estado = ANY(%(em_voo)s) AND enviada_em < %(enviada)s))
 ORDER BY reservada_em LIMIT %(limite)s
@@ -45,10 +55,12 @@ class Varredura:
 
 def varrer_ledger(conn: psycopg.Connection, agora: datetime, alertas: Alertas, *, limite: int = LIMITE) -> Varredura:
     linhas = conn.execute(
-        _SQL_ABERTAS, {"reservada": agora - RESERVADA_MAX, "em_voo": list(EM_VOO), "enviada": agora - EM_VOO_MAX, "limite": limite}
+        _SQL_ABERTAS, {"reservada": agora - RESERVADA_MAX, "em_voo": list(EM_VOO), "enviada": agora - EM_VOO_MIN, "limite": limite}
     ).fetchall()
     contagem = {"nao_criada": 0, "indeterminado": 0, "transitorio": 0}
-    for chamada_id, atd, classe, estado_atual, modo in linhas:
+    for chamada_id, atd, classe, estado_atual, modo, ferramenta, enviada_em in linhas:
+        if estado_atual != "reservada" and agora - enviada_em <= prazo_em_voo(ferramenta):
+            continue  # ainda dentro do prazo desta ferramenta
         final = "nao_criada" if estado_atual == "reservada" else desfecho_da_orfa(classe, modo)
         if conn.execute(_SQL_FECHAR, (final, agora, chamada_id, estado_atual)).fetchone() is None:
             continue  # alguém fechou antes

@@ -84,3 +84,12 @@ async def test_pendente_velho_alerta(conn_app, conn_super, relogio):
     deps = _deps(relogio, EspelhoFalso([OSError("fora")]))
     await publicar_espelho(conn_app, deps)
     assert "espelho_pendente" in deps.alertas.codigos("critico")
+
+
+async def test_impedido_em_sombra_fecha_sem_venda(conn_app, conn_super, relogio):
+    """Revisão B1.6b, achado 5: `atendimento_sombra_check` proíbe `repassado` em sombra."""
+    atd = inserir_atendimento(conn_super, estado="aberto", modo="sombra", iniciado_em=relogio.agora())
+    _emitir(conn_app, atd, "assumiu", quando=relogio.agora())
+    await publicar_espelho(conn_app, _deps(relogio, EspelhoFalso(["impedido"])))
+    linha = conn_super.execute("SELECT estado, desfecho, motivo_desfecho FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone()
+    assert linha == ("encerrado", "sem_venda", "devolvido_pela_s2")

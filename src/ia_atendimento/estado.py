@@ -581,6 +581,7 @@ def repassar(
     modo: str,
     motivo: str,
     consultor_ref: str | None = None,
+    humano_assumiu_em: datetime | None = None,
     relogio: Relogio,
 ) -> int:
     """Fase 1 do repasse: `aberto|aguardando_cliente|pausado → repassando` (E10), grava `repasse_modo`. O chat continua trancado.
@@ -593,6 +594,9 @@ def repassar(
     }  # fmt: skip
     if consultor_ref is not None:
         campos["repasse_consultor_ref"] = consultor_ref
+    _exigir_timestamps("", motivo, None, humano_assumiu_em)  # o CHECK exige o instante junto do motivo `humano_assumiu` (B1.6b)
+    if humano_assumiu_em is not None:
+        campos["humano_assumiu_em"] = humano_assumiu_em
     return aplicar(conn, atendimento_id, versao, _mudancas(**campos), agora=agora, de=_REPASSAVEIS, fase="E10", pausa="remover")
 
 

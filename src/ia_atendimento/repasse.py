@@ -21,6 +21,7 @@ restaurado idem (o ledger garante o mesmo por baixo).
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -55,6 +56,14 @@ TRANSITORIOS: Final = frozenset({"em_andamento", "falha_transitoria"})
 RESPOSTA_INVALIDA: Final = "invalida"
 DESFECHOS_DA_ETAPA: Final = frozenset({"ok", "pulado", "incerto"})  # a etapa terminou (o `transitorio` repete)
 TAMANHO_MAX_NOTA: Final = 400
+MOTIVO_HUMANO_ASSUMIU: Final = "humano_assumiu"  # `encerrar` exige o instante junto (revisão B1.6b, achado 8)
+_CODIGO_MOTIVO: Final = re.compile(r"^[a-z0-9_]{1,60}$")
+MOTIVO_PADRAO: Final = "repasse"
+
+
+def motivo_valido(motivo: str | None) -> str:
+    """O motivo do repasse vai ao `motivo_desfecho` (Codigo60): fora da forma vira `repasse`, nunca derruba a fase 1."""
+    return motivo if motivo is not None and _CODIGO_MOTIVO.fullmatch(motivo) else MOTIVO_PADRAO
 
 
 class PortaRepasse(Protocol):
@@ -153,6 +162,23 @@ def repasses_travados(conn: psycopg.Connection) -> list[str]:
     ]
 
 
+_SQL_SEM_JOB: Final = """
+SELECT a.atendimento_id, a.chat_id FROM ia.atendimento a
+WHERE a.estado = 'repassando' AND NOT (%(travado)s = ANY(a.contexto_codigos)) AND a.atualizado_em < %(antes)s
+  AND NOT EXISTS (SELECT 1 FROM procrastinate.procrastinate_jobs j WHERE j.queueing_lock = 'repasse:' || a.atendimento_id
+                  AND j.status IN ('todo', 'doing'))
+ORDER BY a.atualizado_em LIMIT %(limite)s
+"""
+FOLGA_SEM_JOB: Final = timedelta(minutes=2)
+
+
+def repasses_sem_job(conn: psycopg.Connection, agora: datetime, limite: int = 100) -> list[tuple[uuid.UUID, str]]:
+    """Revisão B1.6b, achado 1: `repassando` sem job `repasse` vivo (o worker morreu entre a fase 1 e o defer, ou o job esgotou o retry)
+    e sem `repasse_travado`. O varredor periódico reenfileira; o prazo de D-14 recomeça (o `desde` se perdeu com o job)."""
+    parametros = {"travado": CODIGO_TRAVADO, "antes": agora - FOLGA_SEM_JOB, "limite": limite}
+    return [(r[0], r[1]) for r in conn.execute(_SQL_SEM_JOB, parametros)]
+
+
 # --- fase 1 ----------------------------------------------------------------------------------------------------------------------------
 
 
@@ -163,7 +189,9 @@ def iniciar_repasse(conn: psycopg.Connection, atd: uuid.UUID, *, motivo: str, re
         if linha is None:
             raise AtendimentoInexistente("atendimento inexistente")
         versao = linha.versao
-    return estado.repassar(conn, atd, versao, modo=MODO_DO_REPASSE, motivo=motivo, relogio=relogio.agora)
+    motivo = motivo_valido(motivo)
+    humano = relogio.agora() if motivo == MOTIVO_HUMANO_ASSUMIU else None
+    return estado.repassar(conn, atd, versao, modo=MODO_DO_REPASSE, motivo=motivo, humano_assumiu_em=humano, relogio=relogio.agora)
 
 
 # --- escrita dos marcos ----------------------------------------------------------------------------------------------------------------
@@ -183,6 +211,12 @@ def _aplicar(conn: psycopg.Connection, atd: uuid.UUID, agora: datetime, **campos
     aplicar(conn, atd, linha.versao, Mudancas(**campos), agora=agora, de={"repassando"})
 
 
+def _humano_assumiu_em(conn: psycopg.Connection, atd: uuid.UUID, agora: datetime) -> datetime:
+    """O instante gravado na fase 1 (o `encerrar` o regrava junto do motivo); sem ele, agora."""
+    linha = conn.execute("SELECT humano_assumiu_em FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone()
+    return linha[0] if linha and linha[0] is not None else agora
+
+
 def _encerrar(
     conn: psycopg.Connection, linha: Linha, *, desfecho: str, motivo: str, evento: espelho.DesfechoEspelho, agora: datetime, codigos=()
 ) -> None:
@@ -193,15 +227,17 @@ def _encerrar(
         estado.encerrar(
             conn, linha.atendimento_id, atual.versao, desfecho=desfecho, motivo=motivo,
             contexto_codigos=tuple(dict.fromkeys((*atual.contexto_codigos, *codigos))), relogio=lambda: agora,
+            humano_assumiu_em=_humano_assumiu_em(conn, linha.atendimento_id, agora) if motivo == MOTIVO_HUMANO_ASSUMIU else None,
         )  # fmt: skip
         espelho.emitir_encerrou(conn, linha.atendimento_id, evento, agora)
 
 
 def encerrar_devolvido_pela_s2(conn: psycopg.Connection, linha: Linha, agora: datetime) -> None:
     """A S2 já tomou o lead (impedidos ou `ja_devolvido`): fecha sem nota, sem restaurar, sem rota."""
+    desfecho = "sem_venda" if linha.modo == "sombra" else "repassado"  # `atendimento_sombra_check`: sombra nunca fecha `repassado`
     with conn.transaction():
         _passo(conn, linha, "cerco", "ok", MOTIVO_DEVOLVIDO_S2)
-        _encerrar(conn, linha, desfecho="repassado", motivo=MOTIVO_DEVOLVIDO_S2, evento="devolvido_pela_s2", agora=agora)
+        _encerrar(conn, linha, desfecho=desfecho, motivo=MOTIVO_DEVOLVIDO_S2, evento="devolvido_pela_s2", agora=agora)
 
 
 def _travar(conn: psycopg.Connection, linha: Linha, etapa: str, deps: DepsRepasse, agora: datetime) -> None:
@@ -224,11 +260,13 @@ def backoff_s(tentativas: int) -> float:
 def _esperar_ou_travar(
     conn: psycopg.Connection, linha: Linha, etapa: str, deps: DepsRepasse, *, inicio: datetime, desde: datetime, atraso_s: float
 ) -> Reagendar | None:
+    """A próxima tentativa só é marcada se cabe no prazo de D-14; a que não cabe vira `repasse_travado` agora (a 1ª + 8 repetições,
+    a última aos ≈ 26 min, 08 §7.2)."""
     agora = deps.relogio.agora()
-    if agora - inicio >= PRAZO:
+    if agora + timedelta(seconds=atraso_s) - inicio > PRAZO:
         _travar(conn, linha, etapa, deps, agora)
         return None
-    return Reagendar(min(atraso_s, max(1.0, (inicio + PRAZO - agora).total_seconds())), desde)
+    return Reagendar(atraso_s, desde)
 
 
 # --- etapas ----------------------------------------------------------------------------------------------------------------------------
@@ -244,7 +282,7 @@ def _simular(conn: psycopg.Connection, linha: Linha, agora: datetime) -> None:
 
 async def _nota(conn: psycopg.Connection, linha: Linha, deps: DepsRepasse) -> ResultadoEfeito | None:
     """UMA chamada, sem retry próprio (02 §5 i). 200 ⇒ `sim`; sem resposta ⇒ `incerta` (nunca repete); recusa ⇒ segue sem nota."""
-    texto = deps.texto_da_nota(linha)
+    texto = (deps.texto_da_nota(linha) or "").strip() or None
     agora = deps.relogio.agora()
     if texto is None:
         with conn.transaction():
@@ -388,6 +426,12 @@ async def _antes_da_rota(
         if resultado == "transitorio":
             n = _contar(conn, linha.atendimento_id, "chatbot", "transitorio")
             return _esperar_ou_travar(conn, linha, "chatbot", deps, inicio=desde, desde=desde, atraso_s=backoff_s(n))
+    situacao = deps.batimento.situacao(linha.chave, atendimento_id=linha.atendimento_id)  # e uma vez antes da 1ª rota (D-15)
+    if situacao == "impedido":
+        encerrar_devolvido_pela_s2(conn, linha, deps.relogio.agora())
+        return None
+    if situacao == "indisponivel":
+        return _esperar_ou_travar(conn, linha, "cerco", deps, inicio=desde, desde=desde, atraso_s=ESPERA_BATIMENTO_S)
     return False
 
 
