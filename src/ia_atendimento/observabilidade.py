@@ -88,11 +88,13 @@ def registrar_segredos_do_settings(settings: Settings) -> None:
 
 
 def mascarar_texto(texto: str) -> str:
-    """`mascarar()` (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos) e depois os segredos registrados."""
-    saida = mascarar(texto)
-    for segredo in _segredos:
+    """Os segredos registrados PRIMEIRO (do mais longo ao mais curto) e depois `mascarar()` (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos).
+    Na ordem inversa a máscara de PII trocava os dígitos de dentro do segredo (`token-…-[TELEFONE]…`) e o literal não casava mais: o
+    resto do segredo saía em claro (achado ao estender o registro a todos os segredos, revisão dos altos de 20/11)."""
+    saida = texto
+    for segredo in sorted(_segredos, key=len, reverse=True):
         saida = saida.replace(segredo, SEGREDO)
-    return saida
+    return mascarar(saida)
 
 
 def _limpar_json(texto: str) -> str | None:
