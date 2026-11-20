@@ -534,11 +534,18 @@ def test_422_corpo_invalido_sem_gravar(ambiente):
         mensagem_nativa(chat_id="nao-e-hex"),
         mensagem_nativa(datetime_post="2026-11-17T08:59:30"),
         {"chat_id": CHAT},
-        mensagem_nativa(texto_mensagem="x" * 4001),
     ):
         r = ambiente.evento_chatguru(corpo)
         assert r.status_code == 422, corpo
     assert ambiente.escalar("SELECT count(*) FROM ia.passo") == 0 and ambiente.fila.turnos == []
+
+
+def test_texto_mensagem_acima_de_4000_trunca_sem_422(ambiente):
+    """RG-104 (08 v2.4 §5.1): 4001 caracteres ⇒ 200, gravado com 4000; nunca 422."""
+    abrir_ativo(ambiente)
+    r = ambiente.evento_chatguru(mensagem_nativa(texto_mensagem="quero saber " + "x" * 3995))
+    assert r.status_code == 200 and r.json()["resultado"] == "gravado"
+    assert ambiente.escalar("SELECT msg_tamanho FROM ia.passo WHERE tipo = 'mensagem_recebida'") == 4000
 
 
 # --- casamento webhook × RPA ----------------------------------------------------------------------------------------------------------------

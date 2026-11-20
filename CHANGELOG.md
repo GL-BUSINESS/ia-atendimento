@@ -4,6 +4,15 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
 
 ## [Unreleased]
 
+- **B1.6b, processador, repasse por etapas, `Canal`, batimento fail-closed, desligamento, `reaper_ledger` e publicador do espelho** (roteiro v3.3 B1.6,
+  divisão RG-045; contrato 08 §6, §7.1–§7.4, §9; branch `feat/b1-6b`, empilhada na `feat/b1-6a`; `docs/DECISOES-B1.6b-2011.md`). Sem migração nova.
+  Tudo atrás de portas com implementação falsa: o adaptador real de delegação depende de DEC-PIA-002 e a hospedagem vai para a S5.
+  - `batimento.py` (v2, 90 s fail-closed, D-15), `canal.py` (batimento antes do efeito real + ledger), `repasse.py` (nota → chatbot → rota → marca → lease,
+    D-14 com `repasse_travado` e alerta `humano`, R-c2 do lado do orquestrador), `processador.py` (iniciar, processar, gasto, disjuntor de 24 turnos,
+    duas falhas, desligamento), `reaper_ledger.py` (G-0116), `publicar_espelho.py` (G-0216), `alertas.py`, `montagem_b16b.py`; fila: `repasse`,
+    `reaper_ledger`, `publicar_espelho`.
+  - `expirar_parados` com posse real passa pelo repasse (G-0093); texto > 4000 trunca em vez de 422 (RG-104); o gateway reconfere as pré-condições
+    depois da vaga do limitador e da leitura do CPF (TOCTOU, revisão automática de 20/11).
 - **B5.1, gateway de ferramentas** (branch `feat/b5-1`; `docs/DECISOES-B5.1-0411.md`). Pacote `ferramentas/` (o `ferramentas.py` da B1.4 vira `ferramentas/projecao.py`):
   registro versionado (`Especificacao`, esquemas `extra=forbid` em todos os níveis, classes de efeito, pré-condições nomeadas), `catalogo_hash` amarrado ao `numero` de
   `catalogo_versoes.json` (o portão falha se o hash mudar sem versão), o modelo só passa referências opacas, saída reconstruída pelo esquema e projetada pela allowlist (D-29),

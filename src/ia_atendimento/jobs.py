@@ -132,6 +132,11 @@ class Servicos:
     tratar_lease_vencido: Callable[[LeaseVencido], Awaitable[None]] = field(default=_NaoConfigurado("tratar_lease_vencido"))
     auditar_pii: Callable[[Sequence[uuid.UUID]], Awaitable[int]] = field(default=_NaoConfigurado("auditar_pii"))
     encerrar_por_chave: Callable[[uuid.UUID], Awaitable[None]] = field(default=_NaoConfigurado("encerrar_por_chave"))
+    # B1.6b: o job `repasse` (uma rodada; devolve o atraso da próxima ou None), quem o enfileira, o reaper do ledger e o publicador
+    repassar: Callable[[uuid.UUID, datetime | None], Awaitable[Any]] = field(default=_NaoConfigurado("repassar"))
+    enfileirar_repasse: Callable[[uuid.UUID], Awaitable[None]] = field(default=_NaoConfigurado("enfileirar_repasse"))
+    reaper_ledger: Callable[[], Awaitable[Any]] = field(default=_NaoConfigurado("reaper_ledger"))
+    publicar_espelho: Callable[[], Awaitable[int]] = field(default=_NaoConfigurado("publicar_espelho"))
     # a volta combinada (B5.7c): pré-checagens, `sair_da_pausa`/`iniciar_agendado`, mensagem.
     # Devolve o desfecho (`None` = `retomou`) ou `Adiar` (nova tentativa no mesmo agendamento)
     retomar_atendimento: Callable[[Volta], Awaitable[DesfechoDaVolta | Adiar | None]] = field(
@@ -192,6 +197,19 @@ async def executar_encerrar_por_chave(servicos: Servicos, atendimento_id: uuid.U
 
 async def executar_expirar(servicos: Servicos) -> int:
     return await servicos.expirar_parados()
+
+
+async def executar_repasse(servicos: Servicos, atendimento_id: uuid.UUID, desde: datetime | None) -> Any:
+    """Uma rodada do job `repasse` (B1.6b): devolve o `Reagendar` (quem chama defere de novo com o mesmo `desde`) ou None."""
+    return await servicos.repassar(atendimento_id, desde)
+
+
+async def executar_reaper_ledger(servicos: Servicos) -> Any:
+    return await servicos.reaper_ledger()
+
+
+async def executar_publicar_espelho(servicos: Servicos) -> int:
+    return await servicos.publicar_espelho()
 
 
 # --- lembrete --------------------------------------------------------------------------------------------------------------------------

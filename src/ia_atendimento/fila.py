@@ -131,6 +131,14 @@ def _tarefas_do_chat(bp: procrastinate.Blueprint) -> None:
     async def encerrar_por_chave(contexto: procrastinate.JobContext, atendimento_id: str) -> None:
         await jobs.executar_encerrar_por_chave(_servicos(contexto), uuid.UUID(atendimento_id))
 
+    @bp.task(name="repasse", pass_context=True, retry=RETRY_FILA)
+    async def repasse(contexto: procrastinate.JobContext, atendimento_id: str, chat_id: str, desde: str | None = None) -> None:
+        """B1.6b (08 §7.1/§7.2): uma rodada; o `Reagendar` vira job novo com o mesmo `desde` (o prazo de D-14 não reinicia)."""
+        atd = uuid.UUID(atendimento_id)
+        proximo = await jobs.executar_repasse(_servicos(contexto), atd, datetime.fromisoformat(desde) if desde else None)
+        if proximo is not None:
+            await enfileirar_repasse(contexto.app, atd, chat_id, desde=proximo.desde, atraso_s=proximo.atraso_s)
+
 
 def _tarefas_da_agenda(bp: procrastinate.Blueprint) -> dict[str, Any]:
     """A volta combinada (alarme, job de verdade e a rede por minuto); devolve a periódica."""
@@ -172,6 +180,14 @@ def _tarefas_de_manutencao(bp: procrastinate.Blueprint) -> dict[str, Any]:
     async def reaper_lease(contexto: procrastinate.JobContext, timestamp: int) -> None:
         await jobs.executar_reaper_lease(_servicos(contexto))
 
+    @bp.task(name="reaper_ledger", pass_context=True, queueing_lock="reaper_ledger")
+    async def reaper_ledger(contexto: procrastinate.JobContext, timestamp: int) -> None:
+        await jobs.executar_reaper_ledger(_servicos(contexto))
+
+    @bp.task(name="publicar_espelho", pass_context=True, queueing_lock="publicar_espelho")
+    async def publicar_espelho(contexto: procrastinate.JobContext, timestamp: int) -> None:
+        await jobs.executar_publicar_espelho(_servicos(contexto))
+
     @bp.task(name="auditoria_pii", pass_context=True)
     async def auditoria_pii(contexto: procrastinate.JobContext, timestamp: int) -> None:
         await jobs.executar_auditoria_pii(_servicos(contexto))
@@ -194,6 +210,8 @@ def _tarefas_de_manutencao(bp: procrastinate.Blueprint) -> dict[str, Any]:
 
     return {
         "reaper_lease": reaper_lease,
+        "reaper_ledger": reaper_ledger,
+        "publicar_espelho": publicar_espelho,
         "expirar_parados": expirar_parados,
         "auditoria_pii": auditoria_pii,
         "podar": podar,
@@ -210,6 +228,10 @@ def _registrar_periodicas(bp: procrastinate.Blueprint, tarefas: dict[str, Any]) 
         "reaper_agenda": "* * * * *",  # B5.7b: reenfileira a volta combinada que ficou sem job vivo
         "jobs_presos": "* * * * *",  # R1-01: `doing` de worker morto segura o lock do chat para sempre
         "expirar_parados": "*/30 * * * *",
+        "reaper_ledger": "* * * * *",  # B1.6b (G-0116): reservada > 10 min ⇒ nao_criada; enviada órfã pelo critério de classe
+        # B1.6b (08 §7.3): o contrato pede 10 s; o cron do Procrastinate é de minuto. O publicador do evento novo, deferido na transação,
+        # fica para a integração (B1.7); até lá o atraso máximo é ~1 min (o alerta amarelo é de 10 min).
+        "publicar_espelho": "* * * * *",
         "auditoria_pii": "7 * * * *",
         "podar": cron_utc(HORA_PODA_LOCAL, referencia),
         "bloqueio_2015": cron_utc(HORA_BLOQUEIO_ENTRADA, referencia),  # B6.7: 20:15 -> "15 23 * * *"
@@ -317,6 +339,17 @@ async def enfileirar_lembrete(app: procrastinate.App, atendimento_id: uuid.UUID,
     """O lembrete de verdade: roda já, com o lock do chat (serializa com os turnos). Chamado pelo alarme ao disparar."""
     opcoes = {"lock": f"chat:{chat_id}", "queueing_lock": f"lembrete_exec:{atendimento_id}:{n}"}
     return await _enfileirar(app, "lembrete", opcoes, atendimento_id=str(atendimento_id), chat_id=chat_id, n=n)
+
+
+async def enfileirar_repasse(
+    app: procrastinate.App, atendimento_id: uuid.UUID, chat_id: str, *, desde: datetime | None = None, atraso_s: float = 0
+) -> int | None:
+    """O job `repasse` (B1.6b): lock do chat (serializa com turno e lembrete), um `todo` por atendimento."""
+    opcoes: dict[str, Any] = {"lock": f"chat:{chat_id}", "queueing_lock": f"repasse:{atendimento_id}"}
+    if atraso_s > 0:
+        opcoes["schedule_in"] = {"seconds": atraso_s}
+    argumentos = {"atendimento_id": str(atendimento_id), "chat_id": chat_id, "desde": desde.isoformat() if desde else None}
+    return await _enfileirar(app, "repasse", opcoes, **argumentos)
 
 
 # --- enfileiramento SÍNCRONO na transação do chamador (API de entrada, B1.5) --------------------------------------------------------

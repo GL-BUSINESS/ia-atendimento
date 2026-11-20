@@ -11,6 +11,7 @@ antes de tudo.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Annotated, Any, Final, Literal
 from urllib.parse import urlsplit
@@ -27,6 +28,7 @@ from ia_atendimento.evento_mensagem import LIMITE_TEXTO, EventoMensagem, RpaId, 
 from ia_atendimento.mensagens import DepsMensagem, RespostaMensagem, atendimento_ativo, registrar_mensagem
 from ia_atendimento.tipos import DataHora
 
+log = logging.getLogger(__name__)
 TIPOS_NATIVOS: Final[dict[str, str]] = {
     "chat": "texto", "audio": "audio", "ptt": "audio", "image": "imagem", "document": "documento", "sticker": "sticker",
     "location": "localizacao",
@@ -43,7 +45,7 @@ class NativoChatguru(BaseModel):
     chat_id: Hex24
     phone_id: Hex24
     tipo_mensagem: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,40}$")]
-    texto_mensagem: Annotated[str, StringConstraints(max_length=LIMITE_TEXTO)] | None = None
+    texto_mensagem: str | None = None  # RG-104: acima de 4000 trunca (o corpo inteiro já é limitado a 64 KB, 413)
     datetime_post: DataHora | None = None
     url_arquivo: Medio | None = None
     responsavel_email: Curto | None = None
@@ -58,7 +60,7 @@ class MensagemNormalizada(BaseModel):
     chat_id: Hex24
     phone_id: Hex24
     tipo: TipoMensagem
-    texto: Annotated[str, StringConstraints(max_length=LIMITE_TEXTO)] | None = None
+    texto: str | None = None  # RG-104: acima de 4000 trunca
     url_arquivo: Medio | None = None
     datetime_post: DataHora | None = None
     origem_evento: Literal["webhook", "reconciliacao", "replay"]
@@ -79,13 +81,21 @@ def url_sem_query(url: str | None, campo: str) -> str | None:
     return f"{partes.scheme}://{host}{f':{porta}' if porta else ''}{partes.path}"
 
 
+def truncar(texto: str | None) -> str | None:
+    """RG-104 (08 v2.4 §5.1): texto acima de `LIMITE_TEXTO` é truncado, marcado no log (só o tamanho) e segue; nunca 422."""
+    if texto is None or len(texto) <= LIMITE_TEXTO:
+        return texto
+    log.info("texto_mensagem truncado: %d caracteres para %d", len(texto), LIMITE_TEXTO)
+    return texto[:LIMITE_TEXTO]
+
+
 def _evento_de_nativo(dados: NativoChatguru, origem_evento: str, hora: datetime | None) -> EventoMensagem | None:
     """`None` = `chat` sem texto (descartado `texto_vazio`)."""
     tipo = TIPOS_NATIVOS.get(dados.tipo_mensagem, "outro")
     if tipo == "texto" and not (dados.texto_mensagem or "").strip():
         return None
     return EventoMensagem.criar(
-        chat_id=dados.chat_id, phone_id=dados.phone_id, tipo=tipo, texto=dados.texto_mensagem if tipo == "texto" else None,
+        chat_id=dados.chat_id, phone_id=dados.phone_id, tipo=tipo, texto=truncar(dados.texto_mensagem) if tipo == "texto" else None,
         url_arquivo=url_sem_query(dados.url_arquivo, "url_arquivo"), datetime_post=hora, origem_evento=origem_evento,
     )  # fmt: skip
 
@@ -94,7 +104,7 @@ def _evento_de_normalizado(dados: MensagemNormalizada, hora: datetime | None) ->
     if dados.tipo == "texto" and not (dados.texto or "").strip():
         return None
     return EventoMensagem.criar(
-        chat_id=dados.chat_id, phone_id=dados.phone_id, tipo=dados.tipo, texto=dados.texto if dados.tipo == "texto" else None,
+        chat_id=dados.chat_id, phone_id=dados.phone_id, tipo=dados.tipo, texto=truncar(dados.texto) if dados.tipo == "texto" else None,
         url_arquivo=url_sem_query(dados.url_arquivo, "url_arquivo"), datetime_post=hora, origem_evento=dados.origem_evento,
         rpa_id=dados.rpa_id,
     )  # fmt: skip

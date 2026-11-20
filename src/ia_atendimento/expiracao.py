@@ -6,8 +6,10 @@
 - Chat com job do chat em curso (`doing`/`todo`, `lock=chat:`) fica para a próxima rodada: não se disputa o atendimento com um turno.
 - Cada encerramento é um CAS de `versao` sob `FOR UPDATE` com o `encerrou` (`desfecho=expirar_parados`) no outbox, na mesma transação.
   Perdeu o CAS ou o estado mudou no meio: pula (o próximo tick reavalia).
-- **Não devolve o chat**: em 1 a 7 dias o lease já venceu e o `reaper_lease` repassou; o que sobra aqui é rede de segurança (o lead que
-  ninguém tocou). O `encerrou` fecha a linha do espelho, e a vigia da S2 devolve o lead pela regra de prazo se ainda for preciso.
+- **Com posse real (B1.6b, G-0093) passa pelo repasse**: fase 1 (`repassando`, motivo `expirar_parados`) e o job `repasse` devolve o
+  chat ao vendedor (nota, chatbot, rota); o `encerrou` sai quando o repasse fechar. Sem quem enfileire o job (`Servicos` sem a B1.6b),
+  não mexe: um `repassando` sem job ficaria órfão. **Sem posse real** (nasceu `sombra|duble`, ou o `assumir` nunca fechou `ok`) não há o
+  que devolver: encerra `expirado` direto, com o `encerrou` (`desfecho=expirar_parados`) no outbox.
 """
 
 from __future__ import annotations
@@ -23,7 +25,8 @@ from ia_atendimento import espelho, estado
 from ia_atendimento.chave import config_no_tempo
 from ia_atendimento.espera import TETO_DIAS, limites_de
 from ia_atendimento.estado_erros import EstadoErro
-from ia_atendimento.jobs import ESTADOS_EXPIRAVEIS, LIMITE_LOTE, Servicos
+from ia_atendimento.jobs import ESTADOS_EXPIRAVEIS, LIMITE_LOTE, Servicos, configurado
+from ia_atendimento.ledger import posse_real
 
 MOTIVO: Final = "expirar_parados"
 PISO_DIAS: Final = 1  # menor `dias_max` que o registro aceita
@@ -60,28 +63,40 @@ def vencidos(conn: psycopg.Connection, agora: datetime, limite: int = LIMITE_LOT
         params = {**params, "depois_em": pagina[-1][2], "depois_id": pagina[-1][0]}
 
 
-def expirar_um(conn: psycopg.Connection, atendimento_id: uuid.UUID, agora: datetime) -> bool:
-    """`encerrar(expirado)` + `encerrou` numa transação. False se o atendimento saiu dos expiráveis ou perdeu o CAS no meio."""
+def expirar_um(conn: psycopg.Connection, atendimento_id: uuid.UUID, agora: datetime, *, pode_repassar: bool = False) -> str | None:
+    """Numa transação: sem posse real, `encerrar(expirado)` + `encerrou` (devolve `expirado`); com posse real e `pode_repassar`, fase 1
+    do repasse (devolve `repassar`: quem chama enfileira o job). None se saiu dos expiráveis, perdeu o CAS ou tem posse sem repasse."""
     try:
         with conn.transaction():
             linha = conn.execute(
-                "SELECT estado, versao FROM ia.atendimento WHERE atendimento_id = %s FOR UPDATE", (atendimento_id,)
+                "SELECT estado, versao, modo FROM ia.atendimento WHERE atendimento_id = %s FOR UPDATE", (atendimento_id,)
             ).fetchone()
             if linha is None or linha[0] not in ESTADOS_EXPIRAVEIS:
-                return False
+                return None
+            if linha[2] in ("real", "teste") and posse_real(conn, atendimento_id):
+                if not pode_repassar:
+                    return None
+                estado.repassar(conn, atendimento_id, linha[1], modo="indicado", motivo=MOTIVO, relogio=lambda: agora)
+                return "repassar"
             estado.encerrar(conn, atendimento_id, linha[1], desfecho="expirado", motivo=MOTIVO, relogio=lambda: agora)
             espelho.emitir_encerrou(conn, atendimento_id, "expirar_parados", agora)
-            return True
+            return "expirado"
     except EstadoErro:
-        return False
+        return None
 
 
-def expirar_parados(servicos: Servicos) -> int:
+def expirar_parados(servicos: Servicos) -> tuple[int, list[uuid.UUID]]:
+    """Devolve (quantos saíram, os que foram a `repassando` e precisam do job `repasse`)."""
     agora = servicos.relogio.agora()
+    pode = configurado(servicos.enfileirar_repasse)
     with servicos.abrir_conexao() as conn:
-        return sum(expirar_um(conn, atd, agora) for atd in vencidos(conn, agora))
+        feitos = [(atd, expirar_um(conn, atd, agora, pode_repassar=pode)) for atd in vencidos(conn, agora)]
+    return sum(1 for _, r in feitos if r), [atd for atd, r in feitos if r == "repassar"]
 
 
 async def executar_expirar_parados(servicos: Servicos) -> int:
     """O serviço que o job periódico `expirar_parados` (a cada 30 min) chama; o banco roda em thread."""
-    return await asyncio.to_thread(expirar_parados, servicos)
+    n, repassar = await asyncio.to_thread(expirar_parados, servicos)
+    for atd in repassar:
+        await servicos.enfileirar_repasse(atd)
+    return n
