@@ -1,0 +1,10 @@
+# Dias em que NENHUM deploy pode ocorrer (lido por scripts/deploy-s5.sh). Um AAAA-MM-DD por linha; linhas com # são ignoradas.
+# Fonte: ROTEIRO-DE-ACAO D8 / PD-3. Arquivo AUSENTE ou SEM NENHUMA DATA = o script RECUSA todo deploy (falha fechado, G-0096).
+#
+# 20/11/2026: o piloto de 26–30/11 foi cancelado (DEC-PIA-011); a data nova sai quando a S5 existir. As datas abaixo ficam como trava
+# conservadora até lá. QUANDO O DONO FIXAR O PILOTO NOVO: trocar estas linhas pelos dias dele (e pelos da sombra, se ele pedir).
+2026-11-26
+2026-11-27
+2026-11-28
+2026-11-29
+2026-11-30

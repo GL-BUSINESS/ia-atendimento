@@ -36,6 +36,8 @@ Orquestrador da **IA de atendimento da GL Capital** (MVP em 29/11/2026). Este re
 | Jobs `retomar` (alarme sem lock + CAS `confirmado → disparado`) e `reaper_agenda` por minuto; `POST /agendamentos` enfileira o alarme — B5.7b | `agenda_jobs.py`, `fila.py`, `api/agendamentos.py` | `tests/test_agenda_jobs.py` (EM4: restart com 3 `confirmado`) |
 | Jobs presos: periódica `jobs_presos` (UPDATE atômico) e vigia do batimento do worker; rearme de agendamento e teto de atraso — B5.7b | `worker_vivo.py`, `agenda_estado.py`, `agenda_jobs.py` | `tests/test_jobs_presos.py` (SIGKILL real), `tests/test_execucao_superada.py`, `tests/test_agenda_rearme.py` |
 | Ponto de entrada do worker (`python -m ia_atendimento.worker`, script `ia-worker`, `--saude`); volta perdida fecha a linha (`fechar_volta_perdida`) — B5.7b | `worker.py`, `agenda_estado.py`, `docs/OPERACAO.md` §9 | `tests/test_worker_real.py` (processo real), `tests/test_agenda_volta_perdida.py` |
+| Esteira: imagem, compose, tag → registro da S3 → deploy manual na S5 (que confere versão e `git_sha`) | `Dockerfile`, `docker/ia-entrada.sh`, `docker-compose.yml`, `.github/workflows/imagem.yml`, `scripts/release.sh`, `scripts/deploy-s5.sh`, `docs/DEPLOY.md` | `tests/test_esteira.py`, `docker build` |
+| Kit da S5 (servidor da IA): endurecimento, Docker, WireGuard, firewall com caminho de volta, banco na S5 ou na S4, migrações por ledger, segredos 0600, backup cifrado com fila, alerta ntfy | `kits/s5/` | `kits/s5/ensaio-local.sh`, `kits/s5/ENSAIO.md` |
 
 ## Como rodar
 

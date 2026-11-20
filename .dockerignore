@@ -1,0 +1,30 @@
+# Fora do contexto de build: segredo, lixo e o que a imagem não usa.
+.git
+.github
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+build
+dist
+*.egg-info
+# segredos (o .env.example só tem nomes, mas a imagem também não precisa dele)
+.env
+.env.*
+*.env
+*.key
+*.pem
+chaves*.json
+*.aes
+# testes, documentação e scripts não vão para a imagem
+tests
+docs
+scripts
+.idea
+.vscode
+*.log
+Dockerfile
+docker-compose*.yml

@@ -1,0 +1,243 @@
+# Imagem do ia-atendimento: constrói no builder da S3 e publica no registry privado da S3, SÓ quando se empurra uma TAG `v*`.
+# NUNCA dispara em push na main (PD-3: o orquestrador da S5 não faz deploy a cada push; sobe por tag, na janela, depois de
+# `scripts/release.sh` e do «sim» do dono). O `ci.yml` continua cuidando do teste por SHA em push/PR.
+#
+# Mecânica copiada do pipeline central da GL-BUSINESS (gl-gateway e facta-on usam `GL-BUSINESS/.github/.github/workflows/
+# build-image.yml@dd6186b2…`): mesmo runner (grupo s3-builders), mesmo registry, mesmas ações fixadas por SHA, portão de manutenção
+# do registry e conferência do digest. Não dá para CHAMAR o reusable: ele recusa tag (`if: push em develop/main`) e a policy dele
+# lista repositório a repositório. Em troca, este arquivo aplica a mesma ideia da trava dele: só constrói tag que está na main.
+#
+# DEPLOY OPCIONAL: o job `implantar` só roda se a variável do repositório DEPLOY_AUTOMATICO for exatamente `true` (ausente = só
+# publica a imagem) e passa pelo environment `producao-s5` (configurar aprovação obrigatória do dono lá). Ele reaproveita a ação
+# composta `coolify-deploy` do pipeline central: grava IMAGE_TAG na aplicação do Coolify do S2 (que gerencia a S5), dispara o
+# deploy e volta sozinha para a tag anterior se falhar. Hora de deploy (12:30–14:00 ou depois das 20:30 BRT, nunca dia de piloto):
+# o workflow NÃO confere; por isso o caminho padrão é `scripts/deploy-s5.sh`, que confere.
+#
+# Nomes que o dono cria (docs/DEPLOY.md): secrets S3_REGISTRY_USER, S3_REGISTRY_PASSWORD, COOLIFY_S2_URL, COOLIFY_S2_TOKEN,
+# ALERT_WEBHOOK_URL (opcional); variáveis REGISTRO_IMAGEM (host:porta do registro da S3, obrigatória), DEPLOY_AUTOMATICO,
+# COOLIFY_UUID_IA_ORQUESTRADOR, APP_GID (opcional, padrão 10001). Nenhum host fixo neste arquivo.
+name: imagem
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+env:
+  REGISTRY: ${{ vars.REGISTRO_IMAGEM }}
+  GL_STATE: /var/lib/gl-builder
+  IMAGEM: ia-atendimento
+
+concurrency:
+  group: imagem-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  construir:
+    name: Construir e publicar a imagem (builder da S3)
+    runs-on:
+      group: s3-builders
+      labels: [self-hosted, linux, x64, s3-new, builder]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      image: ${{ steps.nomes.outputs.image }}
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - name: Portao de manutencao do registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          MARCA="$GL_STATE/active/${GITHUB_RUN_ID}_build_${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$GL_STATE/active"
+          if [ -z "$REGISTRY" ]; then
+            echo "::error::variavel do repositorio REGISTRO_IMAGEM vazia (host:porta do registro da S3)"; exit 1
+          fi
+          if [ -e "$GL_STATE/maintenance.failed" ]; then
+            echo "::error::registry em MAINTENANCE FAILED; intervencao manual necessaria"; exit 1
+          fi
+          # check -> registra -> RE-CHECK (sem o re-check existe a janela em que o job ve o lock ausente e a manutencao ve active/ vazio)
+          while true; do
+            while [ -e "$GL_STATE/maintenance.lock" ]; do echo "manutencao em curso; aguardando"; sleep 15; done
+            touch "$MARCA"
+            [ -e "$GL_STATE/maintenance.lock" ] || break
+            rm -f "$MARCA"; sleep 5
+          done
+          echo "GL_MARCA=$MARCA" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/.docker" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Tag valida, igual ao pyproject, e dentro da main
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          # O runner da S3 enxerga o BuildKit e o registry: codigo fora da main (nao revisado) nao pode chegar la por uma tag.
+          if ! [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag '$GITHUB_REF_NAME' fora do padrao vX.Y.Z"; exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::o commit da tag $GITHUB_REF_NAME nao esta na main; nada e construido"; exit 1
+          fi
+          VERSAO="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
+          if [ "v$VERSAO" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME diverge da versao do pyproject (v$VERSAO)"; exit 1
+          fi
+          echo "versao=$VERSAO" >> "$GITHUB_OUTPUT"
+          echo "construido_em=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Nome da imagem
+        id: nomes
+        shell: bash
+        run: echo "image=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/${IMAGEM}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver: remote
+          endpoint: unix:///run/buildkit/buildkitd.sock
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.S3_REGISTRY_USER }}
+          password: ${{ secrets.S3_REGISTRY_PASSWORD }}
+
+      - name: Tags e labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.nomes.outputs.image }}
+          # tag fixa de versao + sha para rastrear; SEM latest/production (deploy por tag, nunca por alias movel)
+          tags: |
+            type=raw,value=${{ github.ref_name }}
+            type=sha,format=long,prefix=
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            br.com.glcapital.environment=production
+
+      - name: Build e push
+        id: push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # só valores publicos (segredo nunca vira build-arg)
+          build-args: |
+            VERSION=${{ steps.tag.outputs.versao }}
+            GIT_SHA=${{ github.sha }}
+            BUILT_AT=${{ steps.tag.outputs.construido_em }}
+            APP_GID=${{ vars.APP_GID || '10001' }}
+
+      - name: Digest confirmado no registry
+        id: digest
+        shell: bash
+        env:
+          DO_PUSH: ${{ steps.push.outputs.digest }}
+          IMAGEM_COMPLETA: ${{ steps.nomes.outputs.image }}
+          RU: ${{ secrets.S3_REGISTRY_USER }}
+          RP: ${{ secrets.S3_REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # a autoridade e o Docker-Content-Digest do registry, nao o digest local (medido no pipeline central em 04/09/2026)
+          CAMINHO="${IMAGEM_COMPLETA#${REGISTRY}/}"
+          # credencial por stdin (curl -K -), nunca na linha de comando (lista de processos)
+          DO_REGISTRY="$(printf 'user = "%s:%s"\n' "$RU" "$RP" | curl -K - --proto '=https' -fsS -I \
+            -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+            "https://${REGISTRY}/v2/${CAMINHO}/manifests/${GITHUB_REF_NAME}" \
+            | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest"{print $2}')"
+          if [ -z "$DO_PUSH" ] || [ "$DO_PUSH" != "$DO_REGISTRY" ]; then
+            echo "::error::digest divergente: push=$DO_PUSH registry=$DO_REGISTRY"; exit 1
+          fi
+          echo "digest=$DO_REGISTRY" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Imagem publicada"
+            echo "- image: \`$IMAGEM_COMPLETA:$GITHUB_REF_NAME\`"
+            echo "- git_sha: \`$GITHUB_SHA\`"
+            echo "- image_digest: \`$DO_REGISTRY\`"
+            echo "- deploy: \`${{ vars.DEPLOY_AUTOMATICO == 'true' && 'automatico (job implantar)' || 'manual: scripts/deploy-s5.sh' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Libera o portao
+        if: always()
+        shell: bash
+        run: rm -f "${GL_MARCA:-/nonexistent}"
+
+  implantar:
+    name: Implantar no Coolify (so com DEPLOY_AUTOMATICO=true)
+    needs: construir
+    if: vars.DEPLOY_AUTOMATICO == 'true'
+    runs-on:
+      group: s3-builders
+      labels: [self-hosted, linux, x64, s3-new, builder]
+    timeout-minutes: 30
+    # aprovacao obrigatoria do dono configurada neste environment (Settings > Environments)
+    environment: producao-s5
+    permissions:
+      contents: read
+    concurrency:
+      group: deploy-ia-orquestrador
+      cancel-in-progress: false
+    steps:
+      - name: Portao de manutencao do registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          MARCA="$GL_STATE/active/${GITHUB_RUN_ID}_deploy_${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$GL_STATE/active"
+          if [ -e "$GL_STATE/maintenance.failed" ]; then
+            echo "::error::registry em MAINTENANCE FAILED; intervencao manual necessaria"; exit 1
+          fi
+          while true; do
+            while [ -e "$GL_STATE/maintenance.lock" ]; do sleep 15; done
+            touch "$MARCA"
+            [ -e "$GL_STATE/maintenance.lock" ] || break
+            rm -f "$MARCA"; sleep 5
+          done
+          echo "GL_MARCA=$MARCA" >> "$GITHUB_ENV"
+
+      - name: Credenciais do Coolify do S2
+        shell: bash
+        env:
+          S2_URL: ${{ secrets.COOLIFY_S2_URL }}
+          S2_TOKEN: ${{ secrets.COOLIFY_S2_TOKEN }}
+          APP_UUID: ${{ vars.COOLIFY_UUID_IA_ORQUESTRADOR }}
+        run: |
+          set -euo pipefail
+          if [ -z "$S2_URL" ] || [ -z "$S2_TOKEN" ] || [ -z "$APP_UUID" ]; then
+            echo "::error::faltam COOLIFY_S2_URL, COOLIFY_S2_TOKEN ou a variavel COOLIFY_UUID_IA_ORQUESTRADOR"; exit 1
+          fi
+          echo "::add-mask::$S2_TOKEN"
+          { echo "COOLIFY_URL=$S2_URL"; echo "COOLIFY_TOKEN=$S2_TOKEN"; } >> "$GITHUB_ENV"
+
+      # health-mode none: o /healthz escuta no IP da S5 no wg0 (so WireGuard), fora do alcance deste runner; a conferencia fica com
+      # scripts/deploy-s5.sh (confere na S5). new-git-sha recebe a TAG: em modo compose e o valor gravado em IMAGE_TAG.
+      - name: Deploy com rollback automatico para a tag anterior
+        uses: GL-BUSINESS/.github/.github/actions/coolify-deploy@dd6186b2aeed1fa78b90dcd3abae0d5ca6b323b0
+        with:
+          server: S2
+          resource-type: application
+          uuid: ${{ vars.COOLIFY_UUID_IA_ORQUESTRADOR }}
+          mode: compose
+          health-mode: none
+          image: ${{ needs.construir.outputs.image }}
+          new-git-sha: ${{ github.ref_name }}
+          new-digest: ${{ needs.construir.outputs.digest }}
+          state-dir: /var/lib/gl-builder/deploy-state
+          alert-webhook: ${{ secrets.ALERT_WEBHOOK_URL }}
+
+      - name: Libera o portao
+        if: always()
+        shell: bash
+        run: rm -f "${GL_MARCA:-/nonexistent}"
