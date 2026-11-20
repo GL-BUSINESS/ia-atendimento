@@ -23,7 +23,15 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from ia_atendimento import passos
 from ia_atendimento.api.contexto import ContextoApi
 from ia_atendimento.api.erros import ErroApi
-from ia_atendimento.api.validacao import LoginOuEmail, erro_de_validacao, rejeitar_documento, rejeitar_pii, uuid_do_caminho, validar
+from ia_atendimento.api.validacao import (
+    LoginOuEmail,
+    erro_de_validacao,
+    rejeitar_documento,
+    rejeitar_documento_salvo_sha256,
+    rejeitar_pii,
+    uuid_do_caminho,
+    validar,
+)
 from ia_atendimento.estado import Hex24
 from ia_atendimento.linha_tempo import gravar_passo
 from ia_atendimento.passos import LIMITE_NOTA
@@ -135,7 +143,7 @@ def _gravar_um(conn: psycopg.Connection, sessao: uuid.UUID, criterio: str, ref: 
 def gravar_candidatos(ctx: ContextoApi, sessao_id: str, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     sessao = uuid_do_caminho(sessao_id, "id")
     dados = validar(Candidatos, corpo)
-    rejeitar_documento("criterio_versao", dados.criterio_versao)
+    rejeitar_documento_salvo_sha256("criterio_versao", dados.criterio_versao)
     for i, candidato in enumerate(dados.candidatos):
         for nome, valor in candidato.perfil.items():
             if isinstance(valor, str):

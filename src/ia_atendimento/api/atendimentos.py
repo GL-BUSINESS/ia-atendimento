@@ -23,13 +23,21 @@ from pydantic import Field, StringConstraints
 from ia_atendimento import cofre, estado
 from ia_atendimento.api.contexto import ContextoApi, PreVooFalhou
 from ia_atendimento.api.erros import ErroApi
-from ia_atendimento.api.validacao import LoginOuEmail, erro_de_validacao, rejeitar_documento, rejeitar_pii, validar
+from ia_atendimento.api.validacao import (
+    LoginOuEmail,
+    erro_de_validacao,
+    rejeitar_documento,
+    rejeitar_documento_salvo_sha256,
+    rejeitar_pii,
+    validar,
+)
 from ia_atendimento.chave import abertos_agora, bloqueio_entrada, disparos_dia
 from ia_atendimento.esforco import faixa_por_comissao
 from ia_atendimento.estado import TOLERANCIA_RELOGIO, EntradaAtendimento, ModoInvalido, Resultado
 from ia_atendimento.estado_conversa import janela_24h_aberta
 
 CHAVE_DO_CHAT_NUMBER: Final = "chat_number"
+CHAVE_DA_MATRICULA: Final = "matricula"  # cofre `digitacao` (D-29): a T7 (B5.4) lê daqui
 TRAVA_ABRIR: Final = "ia_atendimento.abrir"
 _CHAVE_POR_CHAVE: Final = re.compile(r"^[a-z][a-z0-9_]{1,19}:[A-Za-z0-9_.:-]{1,180}$")
 Faixa = Literal["baixa", "media", "alta", "muito_alta"]
@@ -44,6 +52,9 @@ class EntradaApi(EntradaAtendimento):
     chat_number: Annotated[str, StringConstraints(pattern=r"^[0-9]{10,15}$")]
     comissao_esperada_brl: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)] | None = None
     faixa_esforco: Faixa | None = None
+    # D-29 / G-0121: a matrícula escolhida pelo braço (04 §2.5 passo 7). Só vai ao cofre `digitacao`, na transação da abertura; fica fora do
+    # fingerprint (que lista os campos à mão), do `repr`, da resposta e do log. O 360 não a entrega à credencial da IA (03 §1).
+    matricula: Annotated[str, StringConstraints(pattern=r"^[0-9A-Za-z./-]{1,40}$")] | None = Field(default=None, repr=False)
 
 
 def chave_esperada(clt_job_id: Any, chat_id: str) -> str:
@@ -56,13 +67,14 @@ def _conferir_forma(entrada: EntradaApi, agora: Any) -> None:
         raise erro_de_validacao((("ultimo_cliente_em", "no_futuro"),))
     for campo in (
         "disparado_por",
-        "criterio_versao",
         "banco",
         "produto",
         "responsavel_antes",
     ):  # identidades e códigos: sem documento/telefone
         if (valor := getattr(entrada, campo)) is not None:
             rejeitar_documento(campo, valor)
+    if entrada.criterio_versao is not None:
+        rejeitar_documento_salvo_sha256("criterio_versao", entrada.criterio_versao)  # o sha256 do critério (04) passa (G-0122)
     if entrada.motivo_escolha_nota is not None:
         rejeitar_pii("motivo_escolha_nota", entrada.motivo_escolha_nota)
     for nome, valor in entrada.perfil.items():
@@ -202,6 +214,9 @@ def _abrir(
         if aberto.repetido:  # perdeu a corrida para a MESMA chave: é replay, e quem venceu já gravou o cofre e enfileirou
             return _replay(conn, aberto)
         cofre.guardar(conn, aberto.atendimento_id, "canal", {CHAVE_DO_CHAT_NUMBER: entrada.chat_number}, chaveiro=ctx.chaveiro, agora=agora)
+        if entrada.matricula is not None:
+            dados = {CHAVE_DA_MATRICULA: entrada.matricula}
+            cofre.guardar(conn, aberto.atendimento_id, "digitacao", dados, chaveiro=ctx.chaveiro, agora=agora)
         ctx.enfileirador.iniciar(conn, aberto.atendimento_id, entrada.chat_id)
     return 201, _corpo_da_resposta(estado.ler(conn, aberto.atendimento_id), repetido=False)
 

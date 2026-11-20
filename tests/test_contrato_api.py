@@ -532,7 +532,7 @@ def test_422_corpo_invalido_sem_gravar(ambiente):
     abrir_ativo(ambiente)
     for corpo in (
         mensagem_nativa(chat_id="nao-e-hex"),
-        mensagem_nativa(datetime_post="2026-11-17T08:59:30"),
+        mensagem_nativa(tipo_mensagem="não é código"),  # o datetime_post sem fuso vale como ausente desde G-0119
         {"chat_id": CHAT},
         mensagem_nativa(texto_mensagem="x" * 4001),
     ):
