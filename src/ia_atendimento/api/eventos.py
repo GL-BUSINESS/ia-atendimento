@@ -11,8 +11,8 @@ antes de tudo.
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime
+from hashlib import sha256
 from typing import Annotated, Any, Final, Literal
 from urllib.parse import urlsplit
 
@@ -181,7 +181,7 @@ def _com_chave_da_hora_bruta(evento: EventoMensagem | None, bruta: str) -> Event
     if evento is None or not bruta.strip():
         return evento
     corpo = PREFIXO_HORA_BRUTA + "\n".join([bruta, evento.tipo, evento.texto or "", evento.url_arquivo or ""]).encode("utf-8")
-    return EventoMensagem.criar(**{**evento.model_dump(), "mensagem_id": hashlib.sha256(corpo).hexdigest()})
+    return EventoMensagem.criar(**{**evento.model_dump(), "mensagem_id": sha256(corpo).hexdigest()})
 
 
 def evento_chatguru(ctx: ContextoApi, identidade: Identidade, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
