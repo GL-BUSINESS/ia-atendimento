@@ -1,8 +1,10 @@
 """Calendário de mensagem ao cliente: janela 08–20 em America/Sao_Paulo, feriados e janelas de bloqueio (DATAPREV).
 
 - A **fonte** é a config (`janela_mensagem`, `calendario_bloqueio`); o código só **valida** (`validar_*`) e aplica. A validação é um piso:
-  a janela nunca passa de 08:00–20:00; o calendário sempre bloqueia os feriados de 02/11 e 20/11/2026 e a janela da DATAPREV
-  (20/11 22:00 → 23/11 06:00). A config pode ACRESCENTAR feriados e janelas, nunca tirar esses.
+  a janela nunca passa de 08:00–20:00; o calendário sempre bloqueia os feriados de 02/11 e 20/11/2026. A config pode ACRESCENTAR
+  feriados e janelas, nunca tirar esses.
+- **DATAPREV é mensal e do código** (DEC-PIA-011, 20/11): todo dia 20 às 22:00 até o dia 23 às 06:00, hora de São Paulo. Vale mesmo que
+  a config não traga a janela (`janela_dataprev_em`); a entrada fecha 10 min antes (`bloqueio_dataprev_em`).
 - Domingo (D-18, B1.8; migração 0005): obedece à config e fica FECHADO por padrão (seed e `PADROES`). Só abre com as DUAS chaves juntas:
   `calendario_bloqueio.domingos=false` E `janela_mensagem.dias."7"`. Uma só não abre: `domingos=true` bloqueia o dia 7 mesmo com horário,
   e `domingos=false` sem o dia 7 na janela não tem horário. `domingos` precisa ser booleano: ausente ou de outro tipo é config inválida.
@@ -29,8 +31,10 @@ DIAS_ISO = frozenset(range(1, 8))  # seg..dom; o domingo (7) só vale com `calen
 DOMINGO = 7
 HORA_BLOQUEIO_ENTRADA = time(20, 15)  # B6.7: a tarefa diária grava bloqueio_entrada=true neste horário local
 FERIADOS_MINIMOS = frozenset({date(2026, 11, 2), date(2026, 11, 20)})
-DATAPREV_DE = datetime(2026, 11, 20, 22, 0, tzinfo=FUSO)
-DATAPREV_ATE = datetime(2026, 11, 23, 6, 0, tzinfo=FUSO)
+DATAPREV_DIA_DE, DATAPREV_HORA_DE = 20, time(22, 0)  # virada mensal da DATAPREV (DEC-PIA-011 item 4)
+DATAPREV_DIA_ATE, DATAPREV_HORA_ATE = 23, time(6, 0)
+ANTECEDENCIA_BLOQUEIO_DATAPREV = timedelta(minutes=10)  # B6.7: a entrada fecha às 21:50 do dia 20
+MOTIVO_DATAPREV = "dataprev"
 _HORA = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 _MOTIVO = re.compile(r"^[a-z0-9_]{1,40}$")
 _LIMITE_PASSOS = 64  # cada passo avança para o próximo início/fim de janela: 64 cobre meses de feriados e janelas emendadas
@@ -93,7 +97,8 @@ class Calendario:
         raise CalendarioInvalido("calendário sem janela livre nos próximos passos: confira feriados e janelas")
 
     def _janela_bloqueio_em(self, instante: datetime) -> JanelaBloqueio | None:
-        return next((j for j in self.janelas if j.contem(instante)), None)
+        """A da config ou, se nenhuma cobre, a DATAPREV do mês (piso do código: a config não a tira)."""
+        return next((j for j in self.janelas if j.contem(instante)), None) or janela_dataprev_em(instante)
 
     def _proximo_inicio(self, instante: datetime) -> datetime:
         """Menor início de janela de mensagem estritamente depois de `instante` (ignora feriados: quem chama repete o teste)."""
@@ -159,9 +164,7 @@ def validar_calendario_bloqueio(valor: Mapping[str, Any]) -> tuple[frozenset[dat
     janelas = tuple(_janela(item) for item in _lista(valor, "janelas"))
     if not feriados >= FERIADOS_MINIMOS:
         raise CalendarioInvalido("calendario_bloqueio.feriados não pode tirar 02/11/2026 nem 20/11/2026")
-    if not any(j.de <= DATAPREV_DE and j.ate >= DATAPREV_ATE for j in janelas):
-        raise CalendarioInvalido("calendario_bloqueio.janelas deve cobrir a DATAPREV (20/11/2026 22:00 a 23/11/2026 06:00, São Paulo)")
-    return feriados, janelas
+    return feriados, janelas  # a DATAPREV não precisa estar aqui: o código a aplica todo mês (`janela_dataprev_em`)
 
 
 def _lista(valor: Mapping[str, Any], campo: str) -> list[Any]:
@@ -232,4 +235,41 @@ def limites_do_mes(agora: datetime) -> tuple[datetime, datetime]:
     )
 
 
-BLOQUEIO_DATAPREV_EM = datetime(2026, 11, 20, 21, 50, tzinfo=FUSO)  # B6.7: o job único fecha a entrada 10 min antes da janela DATAPREV
+# --- DATAPREV mensal (DEC-PIA-011) -------------------------------------------------------------------------------------------------------
+
+
+def janela_dataprev_do_mes(ano: int, mes: int) -> JanelaBloqueio:
+    """[dia 20 22:00, dia 23 06:00) de São Paulo daquele mês, em UTC."""
+    de = datetime.combine(date(ano, mes, DATAPREV_DIA_DE), DATAPREV_HORA_DE, tzinfo=FUSO)
+    ate = datetime.combine(date(ano, mes, DATAPREV_DIA_ATE), DATAPREV_HORA_ATE, tzinfo=FUSO)
+    return JanelaBloqueio(de=de.astimezone(UTC), ate=ate.astimezone(UTC), motivo=MOTIVO_DATAPREV)
+
+
+def janela_dataprev_em(instante: datetime) -> JanelaBloqueio | None:
+    """A janela DATAPREV que contém `instante`, se houver (só a do próprio mês local pode conter)."""
+    local = _local(instante)
+    janela = janela_dataprev_do_mes(local.year, local.month)
+    return janela if janela.contem(_utc(instante)) else None
+
+
+def _mes_seguinte(ano: int, mes: int) -> tuple[int, int]:
+    return (ano + 1, 1) if mes == 12 else (ano, mes + 1)
+
+
+def proxima_janela_dataprev(agora: datetime) -> JanelaBloqueio:
+    """A janela que ainda não acabou: a do mês corrente se `agora` é antes do fim dela, senão a do mês seguinte."""
+    local = _local(agora)
+    janela = janela_dataprev_do_mes(local.year, local.month)
+    if _utc(agora) < janela.ate:
+        return janela
+    return janela_dataprev_do_mes(*_mes_seguinte(local.year, local.month))
+
+
+def janela_dataprev_seguinte(janela: JanelaBloqueio) -> JanelaBloqueio:
+    local = _local(janela.de)
+    return janela_dataprev_do_mes(*_mes_seguinte(local.year, local.month))
+
+
+def bloqueio_dataprev_em(janela: JanelaBloqueio) -> datetime:
+    """B6.7: o instante (UTC) em que o job fecha a entrada nova, 10 min antes da janela."""
+    return janela.de - ANTECEDENCIA_BLOQUEIO_DATAPREV

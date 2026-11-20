@@ -265,26 +265,52 @@ async def test_tarefa_das_2015_fora_do_horario_falha_e_nao_grava(conninfo_app, c
     assert config_vigente(conn_app, "bloqueio_entrada").versao == 1
 
 
-async def test_job_unico_de_2011_grava_bloqueio(conninfo_app, conn_app, conn_super, banco):
+def _agendados(conn_super) -> list[tuple[datetime, str, str]]:
+    return conn_super.execute(
+        "SELECT scheduled_at, queueing_lock, status::text FROM procrastinate.procrastinate_jobs"
+        " WHERE task_name = 'ia:bloqueio_dataprev' ORDER BY scheduled_at"
+    ).fetchall()
+
+
+async def test_job_mensal_da_dataprev_grava_bloqueio_e_deixa_o_do_mes_seguinte(conninfo_app, conn_app, conn_super, banco):
+    """DEC-PIA-011: o job sai todo dia 20 às 21:50 (SP). O boot agenda o do mês e o do mês seguinte; ao rodar, o job agenda o próximo."""
     antes = RelogioFalso(datetime(2026, 11, 12, 12, 0, tzinfo=UTC))
     app = criar(conninfo_app)
     async with app.open_async():
         job = await fila.agendar_bloqueio_dataprev(app, antes)
         assert job is not None
-        assert await fila.agendar_bloqueio_dataprev(app, antes) is None  # idempotente: um só job, mesmo chamando em todo boot
-        (agendado,) = conn_super.execute("SELECT scheduled_at, queueing_lock FROM procrastinate.procrastinate_jobs").fetchall()
-        assert agendado[0] == datetime(2026, 11, 21, 0, 50, tzinfo=UTC)  # 20/11 21:50 em São Paulo
-        assert agendado[1] == "bloqueio_dataprev:2026-11-20"
+        assert await fila.agendar_bloqueio_dataprev(app, antes) is None  # idempotente, mesmo chamando em todo boot
+        assert [a[:2] for a in _agendados(conn_super)] == [
+            (datetime(2026, 11, 21, 0, 50, tzinfo=UTC), "bloqueio_dataprev:2026-11-20"),  # 20/11 21:50 em São Paulo
+            (datetime(2026, 12, 21, 0, 50, tzinfo=UTC), "bloqueio_dataprev:2026-12-20"),  # 20/12 21:50 em São Paulo
+        ]
 
         # na hora: grava true e não encerra ninguém; a volta não é automática
         ativo = ff.inserir_atendimento(conn_super, estado="aberto")
-        conn_super.execute("UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second'")  # chegou 20/11 21:50
+        conn_super.execute(
+            "UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second' WHERE queueing_lock = %s",
+            ("bloqueio_dataprev:2026-11-20",),
+        )  # chegou 20/11 21:50
         na_hora = RelogioFalso(datetime(2026, 11, 21, 0, 51, tzinfo=UTC))
         await rodar(app, montar_servicos(banco, na_hora, Chamadas()))
     assert config_vigente(conn_app, "bloqueio_entrada").valor is True
     assert conn_super.execute("SELECT estado FROM ia.atendimento WHERE atendimento_id = %s", (ativo,)).fetchone()[0] == "aberto"
+    assert [(a[1], a[2]) for a in _agendados(conn_super)] == [
+        ("bloqueio_dataprev:2026-11-20", "succeeded"),
+        ("bloqueio_dataprev:2026-12-20", "todo"),  # sempre há o do mês seguinte na fila
+    ]
 
-    # depois da janela DATAPREV (23/11 06:00 SP) o job não agenda mais, e se rodasse atrasado não fecharia a casa de novo
+    # o de dezembro, ao rodar (21/12 00:51 UTC = 20/12 21:50 SP), fecha a entrada e deixa o de janeiro: a corrente não depende de boot
+    registrar_config(conn_app, "bloqueio_entrada", False, "ti", relogio=RelogioFalso(datetime(2026, 11, 23, 10, 0, tzinfo=UTC)))
     async with app.open_async():
-        depois = RelogioFalso(datetime(2026, 11, 23, 9, 0, tzinfo=UTC))
-        assert await fila.agendar_bloqueio_dataprev(app, depois) is None
+        conn_super.execute(
+            "UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second' WHERE queueing_lock = %s",
+            ("bloqueio_dataprev:2026-12-20",),
+        )
+        await rodar(app, montar_servicos(banco, RelogioFalso(datetime(2026, 12, 21, 0, 51, tzinfo=UTC)), Chamadas()))
+    assert config_vigente(conn_app, "bloqueio_entrada").valor is True
+    assert [(a[1], a[2]) for a in _agendados(conn_super)] == [
+        ("bloqueio_dataprev:2026-11-20", "succeeded"),
+        ("bloqueio_dataprev:2026-12-20", "succeeded"),
+        ("bloqueio_dataprev:2027-01-20", "todo"),
+    ]

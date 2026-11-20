@@ -62,7 +62,18 @@ PERIODOS_PADRAO = MappingProxyType(
     }
 )
 FERIADOS_PADRAO = frozenset({date(2026, 11, 2), date(2026, 11, 20)})
-DATAPREV_PADRAO = (datetime(2026, 11, 20, 22, 0, tzinfo=FUSO), datetime(2026, 11, 23, 6, 0, tzinfo=FUSO))
+DATAPREV_DE_DIA, DATAPREV_DE_HORA, DATAPREV_ATE_DIA, DATAPREV_ATE_HORA = 20, time(22, 0), 23, time(6, 0)
+
+
+def na_dataprev(quando: datetime) -> bool:
+    """Janela MENSAL da DATAPREV (DEC-PIA-011): dia 20 22:00 até dia 23 06:00, São Paulo. Gêmea de `calendario.janela_dataprev_em`
+    (este módulo só usa a biblioteca padrão; `tests/test_dataprev_mensal.py` confere que as duas dizem o mesmo)."""
+    local = quando.astimezone(FUSO)
+    de = datetime.combine(local.date().replace(day=DATAPREV_DE_DIA), DATAPREV_DE_HORA, tzinfo=FUSO)
+    ate = datetime.combine(local.date().replace(day=DATAPREV_ATE_DIA), DATAPREV_ATE_HORA, tzinfo=FUSO)
+    return de <= local < ate
+
+
 _HHMM = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 _CHAVE_PERIODO = re.compile(r"^[a-z_]{1,30}$")
 
@@ -96,7 +107,7 @@ class ConfigAgenda:
     teto_dia_util_fim: str = "19:00"  # «próximo dia útil 19:00» do teto
     antecedencia_min: int = 10
     feriados: frozenset[date] = FERIADOS_PADRAO
-    bloqueios: tuple[tuple[datetime, datetime], ...] = (DATAPREV_PADRAO,)  # [início, fim)
+    bloqueios: tuple[tuple[datetime, datetime], ...] = ()  # [início, fim) da config; a DATAPREV mensal é do código (`na_dataprev`)
     usa_periodos: bool = False  # v1 = False (C2 parcial): período sem hora explícita ⇒ repasse
     domingo_aberto: bool = False  # D-18: só com `calendario_bloqueio.domingos=false` E o dia 7 em `janela_mensagem` (fechado por padrão)
     # Horário de ENVIO por dia ISO (`Calendario.dias`, fim exclusivo). A volta também tem de caber nele (R-01 da B1.8): a agenda nunca
@@ -622,7 +633,7 @@ def _razoes(q: datetime, agora: datetime, teto: datetime, cfg: ConfigAgenda) -> 
     achadas = set()
     if q.date() in cfg.feriados:
         achadas.add("feriado")
-    if any(ini <= q < fim for ini, fim in cfg.bloqueios):
+    if any(ini <= q < fim for ini, fim in cfg.bloqueios) or na_dataprev(q):
         achadas.add("bloqueio_dataprev")
     if q.weekday() == 6 and not cfg.domingo_aberto:
         achadas.add("domingo")

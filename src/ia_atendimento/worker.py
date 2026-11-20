@@ -5,7 +5,7 @@ Sem isto a proteção da revisão 1 não existia em produção: o `command` do c
 
 - `Settings` (a mesma validação da API), log de formato fixo (`configurar_logging`), pool de conexões com o `search_path` da fila,
   `Servicos` e `fila.rodar_worker` (reconciliação do bloqueio na subida, concorrência, `stalled_worker_timeout` de 60 s,
-  `shutdown_graceful_timeout` de 30 s, vigia do batimento). O job de 20/11 21:50 (DATAPREV) é agendado em todo boot (idempotente)
+  `shutdown_graceful_timeout` de 30 s, vigia do batimento). O job mensal do dia 20 às 21:50 (DATAPREV) é agendado em todo boot (idempotente)
   e as periódicas ficam registradas.
 - Os serviços da B1.6 (turno, iniciar, lembrete, repasse, `retomar_atendimento`...) ainda não existem: ficam `_NaoConfigurado` e o
   job que os chama FALHA ALTO (o `retomar` falha antes do CAS). Nada finge que processou.

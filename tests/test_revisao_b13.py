@@ -127,11 +127,15 @@ async def test_a4_job_de_2011_nao_e_reenfileirado_depois_de_executar(conninfo_ap
     async with app.open_async():
         assert await fila.agendar_bloqueio_dataprev(app, RelogioFalso(U(2026, 11, 12, 12, 0))) is not None
         tornar_vencidos(conn_super)
-        conn_super.execute("UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second'")
+        conn_super.execute(
+            "UPDATE procrastinate.procrastinate_jobs SET scheduled_at = now() - interval '1 second' WHERE queueing_lock = %s",
+            ("bloqueio_dataprev:2026-11-20",),
+        )
         await rodar(app, montar_servicos(banco, RelogioFalso(U(2026, 11, 21, 0, 51)), Chamadas()))
         segundo = await fila.agendar_bloqueio_dataprev(app, RelogioFalso(U(2026, 11, 21, 1, 0)))  # novo boot, ainda antes de 23/11 06:00
     assert segundo is None
-    assert [j[1] for j in jobs_por_status(conn_super)] == ["succeeded"]
+    # o de novembro rodou uma vez só; o de dezembro (mensal, DEC-PIA-011) espera a vez dele
+    assert sorted(j[1] for j in jobs_por_status(conn_super)) == ["succeeded", "todo"]
 
 
 # --- A5: cache de config ---------------------------------------------------------------------------------------------------------------------
