@@ -54,16 +54,18 @@ def test_responsavel_vazio_nao_marca_delegacao_externa(ambiente, email, esperado
     [int(CPF), float(CPF), CPF, "1700000000", 1700000000, "2026-11-17", "2026-11-17T08:59:30", "2026-11-17 08:59:30-03:00", True, "0"],
 )
 def test_datetime_post_que_nao_e_rfc3339_com_fuso_422_sem_eco(ambiente, valor):
+    """Normalizado: 422 sem eco. Nativo (Post do ChatGuru): desde G-0119 vale como ausente, sem eco e sem virar data (o epoch não grava)."""
     abrir_ativo(ambiente)
     r = ambiente.evento_chatguru(mensagem_nativa(datetime_post=valor))
-    assert r.status_code == 422 and r.json()["erro"]["campo"] == "datetime_post" and CPF not in r.text
+    assert r.status_code == 200 and r.json()["resultado"] == "gravado" and CPF not in r.text
+    assert ambiente.escalar("SELECT msg_enviada_em FROM ia.passo") is None
     r = ambiente.post(
         "/eventos/mensagem",
         {"chat_id": CHAT, "phone_id": PHONE, "tipo": "texto", "texto": "oi", "origem_evento": "webhook", "datetime_post": valor},
         token="ti",
     )
     assert r.status_code == 422 and CPF not in r.text
-    assert ambiente.escalar("SELECT count(*) FROM ia.passo") == 0
+    assert ambiente.escalar("SELECT count(*) FROM ia.passo") == 1, "só o Post nativo gravou"
 
 
 @pytest.mark.parametrize("valor", [int(CPF), CPF, "1700000000", "2026-11-17T08:41:07"])

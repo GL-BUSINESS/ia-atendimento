@@ -16,12 +16,12 @@ from typing import Annotated, Any, Final, Literal
 from urllib.parse import urlsplit
 
 import psycopg
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints, TypeAdapter, ValidationError
 
 from ia_atendimento.api.auth import CREDENCIAL_DE_TESTE, Identidade
 from ia_atendimento.api.contexto import ContextoApi
 from ia_atendimento.api.erros import ErroApi
-from ia_atendimento.api.validacao import erro_de_validacao, validar
+from ia_atendimento.api.validacao import erro_de_validacao, exigir_chaves_conhecidas, validar
 from ia_atendimento.estado import TOLERANCIA_RELOGIO, Hex24
 from ia_atendimento.evento_mensagem import LIMITE_TEXTO, EventoMensagem, RpaId, TipoMensagem
 from ia_atendimento.mensagens import DepsMensagem, RespostaMensagem, atendimento_ativo, registrar_mensagem
@@ -151,9 +151,29 @@ def _hora_utilizavel(instante: datetime | None, agora: datetime) -> tuple[dateti
     return instante, False
 
 
+_HORA_DO_POST: Final = TypeAdapter(DataHora)
+
+
+def _sem_hora_invalida(ctx: ContextoApi, corpo: dict[str, Any]) -> dict[str, Any]:
+    """G-0119: no Post do ChatGuru, um `datetime_post` que não é RFC 3339 com fuso (sem fuso, espaço no lugar do «T», vazio, número,
+    ano fora da faixa) vale como AUSENTE, igual ao relógio adiantado: o 422 virava 424 no gateway, o ChatGuru repetia e a mensagem REAL do
+    cliente se perdia. A identidade e o dedupe passam a usar o recebimento; o contador `datetime_post_invalido` avisa o TI. O valor
+    nunca é ecoado nem registrado. Só o Post nativo: o `/eventos/mensagem` (RPA, replay) é código nosso e segue estrito."""
+    bruto = corpo.get("datetime_post")
+    if bruto is None:
+        return corpo
+    try:
+        _HORA_DO_POST.validate_python(bruto)
+    except ValidationError:
+        ctx.metricas.somar("datetime_post_invalido")
+        return {**corpo, "datetime_post": None}
+    return corpo
+
+
 def evento_chatguru(ctx: ContextoApi, identidade: Identidade, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Origem `gateway_chatguru` (assinatura) ⇒ `webhook`; origem `ti` (replay manual, sem `x-gl-*`) ⇒ `replay`."""
-    dados = validar(NativoChatguru, corpo, codigo_de_chave_extra="campo_fora_da_allowlist")
+    exigir_chaves_conhecidas(corpo, NativoChatguru, codigo="campo_fora_da_allowlist")  # a allowlist primeiro: chave estranha segue 422
+    dados = validar(NativoChatguru, _sem_hora_invalida(ctx, corpo), codigo_de_chave_extra="campo_fora_da_allowlist")
     agora = ctx.relogio.agora()
     hora, adiantada = _hora_utilizavel(dados.datetime_post, agora)
     origem_evento = "webhook" if identidade.canal_origem is not None else "replay"

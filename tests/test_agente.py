@@ -512,7 +512,7 @@ async def test_ferramenta_do_agente_e_registrada_em_ferramentas_chamadas_e_nao_v
 
 
 def _usuario(fase: str, *mensagens: str) -> str:
-    pendentes = "\n".join(f"{i}. «{m}»" for i, m in enumerate(mensagens, start=1))
+    pendentes = "\n".join(f"({chr(ord('a') + i)}) «{m}»" for i, m in enumerate(mensagens))  # o rótulo do bloco 8 (R2-001)
     return f'## Estado\n{{"fase":"{fase}"}}\n\n## Mensagens pendentes do cliente\n{pendentes}'
 
 

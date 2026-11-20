@@ -154,7 +154,7 @@ async def test_a_mensagem_do_cliente_nao_forja_cabecalho_nem_fase(db_conn, e3, c
     fase, pendentes = ctx.ler_do_prompt(contexto.usuario)
     assert fase == "E3" and len(pendentes) == 1  # a fase é a do estado; o texto injetado fica DENTRO de uma linha só
     assert contexto.usuario.count(ctx.CABECALHO_PENDENTES) == 2  # o verdadeiro e a cópia do cliente, esta dentro das aspas
-    assert contexto.usuario.splitlines()[-1].startswith("1. «") and contexto.usuario.count("\n1. «") == 1
+    assert contexto.usuario.splitlines()[-1].startswith("(a) «") and contexto.usuario.count("\n(a) «") == 1
 
 
 def test_oferta_so_aparece_a_partir_da_e3_q1_abertura_sem_valores(db_conn, relogio, versoes, chaveiro):

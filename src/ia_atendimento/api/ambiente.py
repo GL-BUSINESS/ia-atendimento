@@ -22,6 +22,7 @@ from ia_atendimento.cifra import Chaveiro
 from ia_atendimento.config import ConfiguracaoInvalida, Settings, get_settings
 from ia_atendimento.enfileirador import EnfileiradorProcrastinate
 from ia_atendimento.evento_mensagem import ChavesDeMensagem
+from ia_atendimento.observabilidade import configurar as configurar_observabilidade
 from ia_atendimento.pessoas_teste import carregar as carregar_pessoas_teste
 from ia_atendimento.relogio import RelogioReal
 from ia_atendimento.segredos import carregar_gateway_hmac, carregar_segredos_de_saida
@@ -36,6 +37,7 @@ POOL_ESPERA_S = 5.0  # sem conexão livre em 5 s ⇒ PoolTimeout ⇒ 503 `nao_pr
 def criar_app_de_ambiente() -> FastAPI:
     configurar_logging()  # o uvicorn não configura o logger da aplicação: sem isto a linha `req trace=…` e os alertas não saem (R2-03)
     settings = get_settings()
+    configurar_observabilidade(settings)  # G-0085: sem isto a máscara de logs e o registro de segredos nunca ligavam em produção
     return _montar(settings)
 
 

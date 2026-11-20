@@ -34,6 +34,7 @@ from ia_atendimento.api.logs import configurar_logging
 from ia_atendimento.chave import LeitorConfig
 from ia_atendimento.config import ConfiguracaoInvalida, Settings, get_settings
 from ia_atendimento.jobs import Servicos
+from ia_atendimento.observabilidade import configurar as configurar_observabilidade
 from ia_atendimento.prontidao import HEARTBEAT_MAX_S
 from ia_atendimento.relogio import RelogioReal
 from ia_atendimento.worker_vivo import WorkerPerdeuOBatimento
@@ -100,6 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ConfiguracaoInvalida as erro:
         log.error("configuração inválida: %s", erro)
         return 1
+    configurar_observabilidade(settings)  # G-0085: máscara de PII em TODO log do processo (Procrastinate, psycopg_pool...) e segredos
     try:
         asyncio.run(executar(settings))
     except WorkerPerdeuOBatimento as erro:

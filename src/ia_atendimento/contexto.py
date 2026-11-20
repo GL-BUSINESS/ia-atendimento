@@ -123,7 +123,11 @@ MAX_INTEIRO_DE_RESULTADO: Final = 99  # contador; acima disso pode ser valor, pr
 _ALIAS_DE_REF: Final = {"oferta_ref": "oferta", "opcao_ref": "opcao"}
 
 _PROIBIDO_NO_PROMPT: Final = re.compile(r"(?i)r\$|us\$")
-_LINHA_DE_PENDENTE: Final = re.compile(r"^\d+\. «(.*)»$")
+_LINHA_DE_PENDENTE: Final = re.compile(r"^\([a-z]\) «(.*)»$")
+# R2-001: o rótulo é uma LETRA. Um índice numérico («1. «06/11 15:30»») colava o dígito à data/hora da pendente, e a corrente de dígitos da
+# máscara (até 6 separadores entre dígitos) somava 9 dígitos: a isenção de data caía e o portão derrubava o turno. A letra também separa
+# duas pendentes seguidas («…15:30»\n(b) «06/11…»). Cabem 26: no máximo `MAX_PENDENTES_NO_PROMPT` + a linha de omitidas.
+_ROTULOS_DE_PENDENTE: Final = "abcdefghijklmnopqrstuvwxyz"
 _FASE_NO_ESTADO: Final = re.compile(r'"fase":"(E(?:10|[0-9]))"')
 
 
@@ -238,6 +242,10 @@ class Contexto:
         return bloco.tokens + (self.tokens_formato if numero == 1 else 0)  # o formato `Turno` conta junto do bloco 1 (H §3.1)
 
 
+def _linha_de_pendente(indice: int, texto: str) -> str:
+    return f"({_ROTULOS_DE_PENDENTE[indice]}) «{texto}»"
+
+
 def _juntar(textos: Iterable[str]) -> str:
     return "\n\n".join(t for t in textos if t)
 
@@ -263,7 +271,7 @@ def construir(
         f"{CABECALHO_RESUMO}\n{insumos.resumo}" if insumos.resumo else "",
         f"{CABECALHO_TROCAS}\n" + "\n".join(insumos.trocas) if insumos.trocas else "",
         f"{CABECALHO_RESULTADOS}\n{insumos.resultados}" if insumos.resultados else "",
-        f"{CABECALHO_PENDENTES}\n" + "\n".join(f"{i}. «{t}»" for i, t in enumerate(insumos.pendentes, start=1)),
+        f"{CABECALHO_PENDENTES}\n" + "\n".join(_linha_de_pendente(i, t) for i, t in enumerate(insumos.pendentes)),
     )
     blocos = tuple(_bloco(numero, texto, estimador) for numero, texto in enumerate(textos, start=1))
     return Contexto(
