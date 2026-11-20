@@ -53,28 +53,25 @@ def validar[M: BaseModel](modelo: type[M], corpo: dict[str, Any], *, codigo_de_c
     raise saida  # fora do `except`: sem `__context__` com o erro do Pydantic (que guarda o valor)
 
 
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
 def rejeitar_pii(campo: str, valor: str) -> None:
     """`422 pii_no_texto_livre` (só o nome do campo) se a máscara mudaria o texto: CPF, telefone, e-mail, CEP, UUID, 8+ dígitos (§5.4)."""
     if mascarar(valor) != valor:
         raise ErroApi("pii_no_texto_livre", campo=campo)
 
 
-def rejeitar_documento(campo: str, valor: str) -> None:
-    """`422 pii_no_texto_livre` se a IDENTIDADE (login/e-mail do operador) leva sequência de documento ou telefone (10+ dígitos)."""
+def rejeitar_documento(campo: str, valor: str, *, isentar_sha256: bool = False) -> None:
+    """`422 pii_no_texto_livre` se a IDENTIDADE (login/e-mail do operador) leva sequência de documento ou telefone (10+ dígitos).
+
+    `isentar_sha256` (G-0122): o sha256 em hex minúsculo (64) passa. O 04 manda `criterio_versao` como hash do critério, e ~18 % dos
+    hashes têm 10+ dígitos seguidos, o que dava 422 em todo disparo até a próxima edição do critério. O campo é preenchido por código (o
+    braço do n8n), nunca por texto do cliente; qualquer outra forma segue a guarda."""
+    if isentar_sha256 and _SHA256_HEX.fullmatch(valor):
+        return
     if contem_documento(valor):
         raise ErroApi("pii_no_texto_livre", campo=campo)
-
-
-_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
-
-
-def rejeitar_documento_salvo_sha256(campo: str, valor: str) -> None:
-    """`rejeitar_documento`, mas o sha256 em hex minúsculo (64) passa (G-0122): o 04 manda `criterio_versao` como hash do critério, e ~18 %
-    dos hashes têm 10+ dígitos seguidos, o que dava 422 em todo disparo até a próxima edição do critério. O campo é preenchido por código
-    (o braço do n8n), nunca por texto do cliente; qualquer outra forma segue a guarda de documento."""
-    if _SHA256_HEX.fullmatch(valor):
-        return
-    rejeitar_documento(campo, valor)
 
 
 def uuid_do_caminho(valor: str, campo: str) -> UUID:

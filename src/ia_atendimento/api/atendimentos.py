@@ -23,14 +23,7 @@ from pydantic import Field, StringConstraints
 from ia_atendimento import cofre, estado
 from ia_atendimento.api.contexto import ContextoApi, PreVooFalhou
 from ia_atendimento.api.erros import ErroApi
-from ia_atendimento.api.validacao import (
-    LoginOuEmail,
-    erro_de_validacao,
-    rejeitar_documento,
-    rejeitar_documento_salvo_sha256,
-    rejeitar_pii,
-    validar,
-)
+from ia_atendimento.api.validacao import LoginOuEmail, erro_de_validacao, rejeitar_documento, rejeitar_pii, validar
 from ia_atendimento.chave import abertos_agora, bloqueio_entrada, disparos_dia
 from ia_atendimento.esforco import faixa_por_comissao
 from ia_atendimento.estado import TOLERANCIA_RELOGIO, EntradaAtendimento, ModoInvalido, Resultado
@@ -74,7 +67,7 @@ def _conferir_forma(entrada: EntradaApi, agora: Any) -> None:
         if (valor := getattr(entrada, campo)) is not None:
             rejeitar_documento(campo, valor)
     if entrada.criterio_versao is not None:
-        rejeitar_documento_salvo_sha256("criterio_versao", entrada.criterio_versao)  # o sha256 do critério (04) passa (G-0122)
+        rejeitar_documento("criterio_versao", entrada.criterio_versao, isentar_sha256=True)  # o sha256 do critério (04) passa (G-0122)
     if entrada.motivo_escolha_nota is not None:
         rejeitar_pii("motivo_escolha_nota", entrada.motivo_escolha_nota)
     for nome, valor in entrada.perfil.items():

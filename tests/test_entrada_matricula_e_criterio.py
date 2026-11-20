@@ -98,6 +98,6 @@ def test_candidatos_com_criterio_sha256_gravam(ambiente):
 
 def test_hash_real_de_um_criterio_passa():
     """Sanidade: o que o 04 manda é `sha256(...).hexdigest()`, minúsculo."""
-    from ia_atendimento.api.validacao import rejeitar_documento_salvo_sha256
+    from ia_atendimento.api.validacao import rejeitar_documento
 
-    rejeitar_documento_salvo_sha256("criterio_versao", hashlib.sha256(b"criterio-sintetico").hexdigest())
+    rejeitar_documento("criterio_versao", hashlib.sha256(b"criterio-sintetico").hexdigest(), isentar_sha256=True)
