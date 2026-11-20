@@ -135,7 +135,7 @@ def _gravar_um(conn: psycopg.Connection, sessao: uuid.UUID, criterio: str, ref: 
 def gravar_candidatos(ctx: ContextoApi, sessao_id: str, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     sessao = uuid_do_caminho(sessao_id, "id")
     dados = validar(Candidatos, corpo)
-    rejeitar_documento("criterio_versao", dados.criterio_versao)
+    rejeitar_documento("criterio_versao", dados.criterio_versao, isentar_sha256=True)
     for i, candidato in enumerate(dados.candidatos):
         for nome, valor in candidato.perfil.items():
             if isinstance(valor, str):

@@ -22,8 +22,9 @@ EXTREMAS = [
 @pytest.mark.parametrize("hora", EXTREMAS)
 def test_data_extrema_e_422_sem_eco_e_nunca_500_nem_gravada(ambiente, hora):
     abrir_ativo(ambiente)
-    r = ambiente.evento_chatguru(mensagem_nativa(datetime_post=hora))
-    assert r.status_code == 422 and r.json()["erro"]["campo"] == "datetime_post" and hora not in r.text
+    r = ambiente.evento_chatguru(mensagem_nativa(datetime_post=hora))  # Post nativo: vale como ausente (G-0119), sem eco e sem 500
+    assert r.status_code == 200 and r.json()["resultado"] == "gravado" and hora not in r.text
+    assert ambiente.escalar("SELECT msg_enviada_em FROM ia.passo") is None
     corpo = {"chat_id": CHAT, "phone_id": PHONE, "tipo": "texto", "texto": "oi", "origem_evento": "webhook", "datetime_post": hora}
     assert ambiente.post("/eventos/mensagem", corpo, token="ti").status_code == 422
     ambiente.ligar()
@@ -34,7 +35,7 @@ def test_data_extrema_e_422_sem_eco_e_nunca_500_nem_gravada(ambiente, hora):
         ambiente.post("/agendamentos", corpo_de_agendamento(datetime_post=hora, chave=f"agendar:{CHAT}:0000000000000000")).status_code
         == 422
     )
-    assert ambiente.escalar("SELECT count(*) FROM ia.passo") == 0 and ambiente.escalar("SELECT count(*) FROM ia.agendamento") == 0
+    assert ambiente.escalar("SELECT count(*) FROM ia.passo") == 1 and ambiente.escalar("SELECT count(*) FROM ia.agendamento") == 0
 
 
 def test_a_faixa_de_anos_aceita_o_que_e_real(ambiente):

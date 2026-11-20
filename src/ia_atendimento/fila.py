@@ -32,7 +32,15 @@ from psycopg import ProgrammingError
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from ia_atendimento import agenda_jobs, jobs
-from ia_atendimento.calendario import BLOQUEIO_DATAPREV_EM, DATAPREV_ATE, HORA_BLOQUEIO_ENTRADA, cron_utc
+from ia_atendimento.calendario import (
+    FUSO,
+    HORA_BLOQUEIO_ENTRADA,
+    JanelaBloqueio,
+    bloqueio_dataprev_em,
+    cron_utc,
+    janela_dataprev_seguinte,
+    proxima_janela_dataprev,
+)
 from ia_atendimento.chave import ConfigCorrida
 from ia_atendimento.relogio import Relogio
 from ia_atendimento.worker_vivo import (
@@ -186,7 +194,9 @@ def _tarefas_de_manutencao(bp: procrastinate.Blueprint) -> dict[str, Any]:
 
     @bp.task(name="bloqueio_dataprev", pass_context=True, retry=RETRY_BLOQUEIO)
     async def bloqueio_dataprev(contexto: procrastinate.JobContext) -> None:
-        await asyncio.to_thread(jobs.executar_bloqueio_dataprev, _servicos(contexto))
+        servicos = _servicos(contexto)
+        await asyncio.to_thread(jobs.executar_bloqueio_dataprev, servicos)
+        await agendar_bloqueio_dataprev(contexto.app, servicos.relogio)  # mensal: deixa o do mês seguinte na fila (DEC-PIA-011)
 
     @bp.task(name="reconciliar_bloqueio", pass_context=True, queueing_lock="reconciliar_bloqueio")
     async def reconciliar_bloqueio(contexto: procrastinate.JobContext, timestamp: int) -> None:
@@ -364,11 +374,21 @@ def agendar_retomada_sync(
 
 
 async def agendar_bloqueio_dataprev(app: procrastinate.App, relogio: Relogio) -> int | None:
-    """Job único de 20/11 21:50 (SP) que grava `bloqueio_entrada=true`. Idempotente (chame em todo boot); depois da DATAPREV não agenda."""
-    if relogio.agora() >= DATAPREV_ATE:
-        return None
-    trava = f"bloqueio_dataprev:{BLOQUEIO_DATAPREV_EM.date().isoformat()}"
-    # o queueing_lock só vale para `todo`: depois de executado, o job de uma vez só não pode renascer a cada boot (revisão A4)
+    """Jobs de uma vez por mês, no dia 20 às 21:50 (SP), que gravam `bloqueio_entrada=true` antes da janela DATAPREV (DEC-PIA-011).
+
+    Agenda a janela que ainda não acabou e a do mês seguinte (o próprio job, ao rodar, agenda a próxima de novo): um mês sem boot do
+    worker não deixa a virada sem bloqueio. Idempotente por `queueing_lock` (chame em todo boot). Devolve o id do job da janela que
+    ainda não acabou, ou `None` se ele já existia."""
+    atual = proxima_janela_dataprev(relogio.agora())
+    primeiro = await _agendar_bloqueio_da_janela(app, atual)
+    await _agendar_bloqueio_da_janela(app, janela_dataprev_seguinte(atual))
+    return primeiro
+
+
+async def _agendar_bloqueio_da_janela(app: procrastinate.App, janela: JanelaBloqueio) -> int | None:
+    tick = bloqueio_dataprev_em(janela)
+    trava = f"bloqueio_dataprev:{janela.de.astimezone(FUSO).date().isoformat()}"
+    # o queueing_lock só vale para `todo`: depois de executado, o job do mês não pode renascer a cada boot (revisão A4)
     existentes = await app.connector.execute_query_all_async(
         "SELECT 1 FROM procrastinate.procrastinate_jobs WHERE task_name = %(tarefa)s AND queueing_lock = %(trava)s LIMIT 1",
         tarefa=f"{NAMESPACE}:bloqueio_dataprev",
@@ -376,7 +396,7 @@ async def agendar_bloqueio_dataprev(app: procrastinate.App, relogio: Relogio) ->
     )
     if existentes:
         return None
-    return await _enfileirar(app, "bloqueio_dataprev", {"queueing_lock": trava, "schedule_at": BLOQUEIO_DATAPREV_EM})
+    return await _enfileirar(app, "bloqueio_dataprev", {"queueing_lock": trava, "schedule_at": tick})
 
 
 def _novo_worker(app: procrastinate.App, **opcoes: Any) -> Worker:

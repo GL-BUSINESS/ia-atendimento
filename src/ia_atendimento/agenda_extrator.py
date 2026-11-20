@@ -36,7 +36,7 @@ from types import MappingProxyType
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-VERSAO = "1"
+VERSAO = "2"  # 2: minuto solto colado à hora recusa (G-0090) e hedge na fronteira da palavra (F4-009, F4-010)
 FUSO = ZoneInfo("America/Sao_Paulo")
 MAX_TEXTO = 1000  # uma resposta de agendamento é curta; texto maior nem é varrido
 MAX_CANDIDATOS = 3
@@ -62,7 +62,18 @@ PERIODOS_PADRAO = MappingProxyType(
     }
 )
 FERIADOS_PADRAO = frozenset({date(2026, 11, 2), date(2026, 11, 20)})
-DATAPREV_PADRAO = (datetime(2026, 11, 20, 22, 0, tzinfo=FUSO), datetime(2026, 11, 23, 6, 0, tzinfo=FUSO))
+DATAPREV_DE_DIA, DATAPREV_DE_HORA, DATAPREV_ATE_DIA, DATAPREV_ATE_HORA = 20, time(22, 0), 23, time(6, 0)
+
+
+def na_dataprev(quando: datetime) -> bool:
+    """Janela MENSAL da DATAPREV (DEC-PIA-011): dia 20 22:00 até dia 23 06:00, São Paulo. Gêmea de `calendario.janela_dataprev_em`
+    (este módulo só usa a biblioteca padrão; `tests/test_dataprev_mensal.py` confere que as duas dizem o mesmo)."""
+    local = quando.astimezone(FUSO)
+    de = datetime.combine(local.date().replace(day=DATAPREV_DE_DIA), DATAPREV_DE_HORA, tzinfo=FUSO)
+    ate = datetime.combine(local.date().replace(day=DATAPREV_ATE_DIA), DATAPREV_ATE_HORA, tzinfo=FUSO)
+    return de <= local < ate
+
+
 _HHMM = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 _CHAVE_PERIODO = re.compile(r"^[a-z_]{1,30}$")
 
@@ -96,7 +107,7 @@ class ConfigAgenda:
     teto_dia_util_fim: str = "19:00"  # «próximo dia útil 19:00» do teto
     antecedencia_min: int = 10
     feriados: frozenset[date] = FERIADOS_PADRAO
-    bloqueios: tuple[tuple[datetime, datetime], ...] = (DATAPREV_PADRAO,)  # [início, fim)
+    bloqueios: tuple[tuple[datetime, datetime], ...] = ()  # [início, fim) da config; a DATAPREV mensal é do código (`na_dataprev`)
     usa_periodos: bool = False  # v1 = False (C2 parcial): período sem hora explícita ⇒ repasse
     domingo_aberto: bool = False  # D-18: só com `calendario_bloqueio.domingos=false` E o dia 7 em `janela_mensagem` (fechado por padrão)
     # Horário de ENVIO por dia ISO (`Calendario.dias`, fim exclusivo). A volta também tem de caber nele (R-01 da B1.8): a agenda nunca
@@ -227,8 +238,8 @@ def _lado(n: str, *, fecha: bool = True) -> str:
 
 _R_ENTRE = re.compile(rf"\bentre\s+{_lado('a', fecha=False)}\s+e\s+{_lado('b')}(?:\s+{_QUAL})?{_NAO_HORA}")
 _R_OU = re.compile(rf"{_ANTES}{_lado('a')}\s+ou\s+{_lado('b')}(?:\s+{_QUAL})?{_NAO_HORA}")
-_R_QUAL = re.compile(
-    rf"{_ANTES}(?P<pre>(?:umas?|as?)\s+)?(?P<h>{_NUM_UMA})(?::(?P<m>\d{{2}}))?\s*(?:{_UNID}\b)?\s*(?:e\s+{_MN}\s+)?{_QUAL}\b"
+_R_QUAL = re.compile(  # `\b`: o achado começa na palavra inteira, nunca dentro de «d|as»/«pel|as» (F4-009: o hedge ficava fora da janela)
+    rf"{_ANTES}\b(?P<pre>(?:umas?|as?)\s+)?(?P<h>{_NUM_UMA})(?::(?P<m>\d{{2}}))?\s*(?:{_UNID}\b)?\s*(?:e\s+{_MN}\s+)?{_QUAL}\b"
 )
 _R_UMAS = re.compile(rf"\bumas?\s+(?P<h>{_NUM})(?:\s*{_UNID}\b)?(?:\s+e\s+{_MN})?{_NAO_HORA}")
 _R_DEPOIS = re.compile(rf"\b(?:depois|dps)\s+d[aeo]s?\s+(?P<h>{_NUM})(?:\s*{_UNID}\b)?")
@@ -259,7 +270,7 @@ _R_FAIXA = re.compile(
 # aproximação ou hesitação perto da hora: a hora vale no máximo `media` («depois de amanhã» NÃO é aproximação)
 _R_HEDGE = re.compile(
     r"\b(?:por\s+volta|mais\s+ou\s+menos|aproximadamente|aprox|perto\s+d[aeo]s?|la\s+pel[ao]s|pel[ao]s|umas?|uns|tipo|por\s+ai|ou\s+mais"
-    r"|a\s+partir|apos|cerca\s+d[aeo]|em\s+torno|quase|talvez|acho\s+que|quem\s+sabe|se\s+der|se\s+puder)\b"
+    r"|a\s+partir|apos|cerca\s+d[aeo]s?|em\s+torno|quase|talvez|acho\s+que|quem\s+sabe|se\s+der|se\s+puder)\b"
 )
 _JANELA_ANTES, _JANELA_DEPOIS = 26, 16
 # duração, não horário: «trabalho 16 horas por dia», «demora 15 horas», «faz 15h que espero»
@@ -272,6 +283,9 @@ _R_REL_LISTA = re.compile(
 )
 _R_CONECTOR_DEPOIS = re.compile(rf"\s+(?:e|ou)\s+(?:as\s+)?(?=\d|(?:{_W}|{_MINW}|uma|um|meio|meia)\b)")
 _R_CONECTOR_ANTES = re.compile(r"(\d[\w:]*)\s+(?:e|ou)\s+(?:as\s+)?$")
+# G-0090: número solto colado depois da hora («às 15 30», «às 3 30 da tarde») é minuto que nenhuma regra leu; data («06/11»), hora
+# formatada («15:30») e decimal não contam.
+_R_NUMERO_COLADO = re.compile(r"[\s,;]+\d{1,2}(?![\d/:.,])")  # «às 16, 17 também serve»: a vírgula também (revisão, M5)
 
 _R_HOJE = re.compile(r"\b(?:hoje|hj)\b")
 _R_DEPOIS_AMANHA = re.compile(r"\bdepois\s+de\s+amanha+\b")
@@ -394,8 +408,12 @@ def _eh_duracao(v: _Varredura, m: re.Match[str]) -> bool:
 
 def _lista_incompleta(v: _Varredura) -> bool:
     """Depois de varrer TUDO: «15h e 16h» tem as duas pontas lidas (ambíguo); «15h ou 16:99» e «15 e trinta e cinco» têm uma ponta
-    que não virou hora, e então a outra não pode sobrar sozinha (a ordem da varredura não importa)."""
+    que não virou hora, e então a outra não pode sobrar sozinha (a ordem da varredura não importa). «às 15 30» deixa um minuto solto
+    que ninguém leu (G-0090): a hora sem ele seria a hora errada com confiança alta."""
     for h in v.horas:
+        colado = _R_NUMERO_COLADO.match(v.n, h.fim)
+        if colado and not v.ocupado[colado.end() - 1]:
+            return True
         seguinte = _R_CONECTOR_DEPOIS.match(v.n, h.fim)
         if seguinte and not v.ocupado[seguinte.end()]:
             return True
@@ -615,7 +633,7 @@ def _razoes(q: datetime, agora: datetime, teto: datetime, cfg: ConfigAgenda) -> 
     achadas = set()
     if q.date() in cfg.feriados:
         achadas.add("feriado")
-    if any(ini <= q < fim for ini, fim in cfg.bloqueios):
+    if any(ini <= q < fim for ini, fim in cfg.bloqueios) or na_dataprev(q):
         achadas.add("bloqueio_dataprev")
     if q.weekday() == 6 and not cfg.domingo_aberto:
         achadas.add("domingo")

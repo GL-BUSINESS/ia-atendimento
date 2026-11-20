@@ -128,11 +128,6 @@ def test_calendario_bloqueio_exige_domingos_booleano_feriados_e_dataprev_minimos
     domingos_nulo = {**BLOQUEIO, "domingos": None}
     domingos_numero = {**BLOQUEIO, "domingos": 0}
     sem_20_11 = {**BLOQUEIO, "feriados": ["2026-11-02"]}
-    sem_dataprev = {**BLOQUEIO, "janelas": []}
-    dataprev_curta = {
-        **BLOQUEIO,
-        "janelas": [{"de": "2026-11-20T22:00:00-03:00", "ate": "2026-11-22T06:00:00-03:00", "motivo": "dataprev"}],
-    }
     sem_fuso = {**BLOQUEIO, "janelas": [{"de": "2026-11-20T22:00:00", "ate": "2026-11-23T06:00:00", "motivo": "dataprev"}]}
     invertida = {
         **BLOQUEIO,
@@ -141,10 +136,12 @@ def test_calendario_bloqueio_exige_domingos_booleano_feriados_e_dataprev_minimos
     data_ruim = {**BLOQUEIO, "feriados": [*BLOQUEIO["feriados"], "02/11/2026"]}
     for valor in (
         sem_campo, domingos_texto, domingos_nulo, domingos_numero,
-        sem_20_11, sem_dataprev, dataprev_curta, sem_fuso, invertida, data_ruim, {"domingos": True},
+        sem_20_11, sem_fuso, invertida, data_ruim, {"domingos": True},
     ):  # fmt: skip
         with pytest.raises(CalendarioInvalido):
             validar_calendario_bloqueio(valor)
+    # a DATAPREV é do código e mensal (DEC-PIA-011): a config sem ela, ou com ela mais curta, é válida e a janela continua bloqueada
+    validar_calendario_bloqueio({**BLOQUEIO, "janelas": []})
 
 
 def test_janela_mensagem_aceita_o_domingo_dentro_de_08_20():

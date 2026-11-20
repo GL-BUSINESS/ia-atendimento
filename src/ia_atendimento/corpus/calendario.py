@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta, timezone
 
+from ia_atendimento.calendario import janela_dataprev_em
+
 FUSO_SP = timezone(timedelta(hours=-3), "America/Sao_Paulo")  # sem horário de verão desde 2019
 FERIADOS_2026: frozenset[date] = frozenset(
     date(2026, m, d) for m, d in ((1, 1), (4, 3), (4, 21), (5, 1), (6, 4), (9, 7), (10, 12), (11, 2), (11, 15), (11, 20), (12, 25))
 )
-JANELA_DATAPREV = (datetime(2026, 11, 20, 22, 0, tzinfo=FUSO_SP), datetime(2026, 11, 23, 6, 0, tzinfo=FUSO_SP))
 ABRE, FECHA = time(8, 0), time(20, 0)  # atendimento geral (TX-28)
 AGENDA_ABRE, AGENDA_FECHA, AGENDA_SABADO_FIM = time(8, 30), time(19, 0), time(12, 0)  # janela da volta combinada (M §2.4)
 ANTECEDENCIA_MINIMA = timedelta(minutes=10)
@@ -27,7 +28,7 @@ def _local(instante: datetime) -> datetime:
 
 def _dia_bloqueado(local: datetime, domingo_aberto: bool) -> bool:
     domingo_fechado = local.weekday() == 6 and not domingo_aberto
-    return domingo_fechado or local.date() in FERIADOS_2026 or JANELA_DATAPREV[0] <= local < JANELA_DATAPREV[1]
+    return domingo_fechado or local.date() in FERIADOS_2026 or janela_dataprev_em(local) is not None  # mensal (DEC-PIA-011)
 
 
 def dentro_do_horario(instante: datetime, *, domingo_aberto: bool = False) -> bool:
@@ -49,7 +50,7 @@ def cenarios_do_instante(instante: datetime) -> set[str]:
     """Rótulos de `CenarioTempo` que descrevem o instante (um instante pode ter mais de um, ex.: sábado e virada DATAPREV)."""
     local = _local(instante)
     rotulos: set[str] = set()
-    na_janela = JANELA_DATAPREV[0] <= local < JANELA_DATAPREV[1]
+    na_janela = janela_dataprev_em(local) is not None
     if dentro_do_horario(instante) and local.weekday() < 5:
         rotulos.add("horario_normal")
     if local.weekday() < 6 and local.date() not in FERIADOS_2026 and not na_janela and not ABRE <= local.time() < FECHA:

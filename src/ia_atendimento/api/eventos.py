@@ -12,16 +12,17 @@ antes de tudo.
 from __future__ import annotations
 
 from datetime import datetime
+from hashlib import sha256
 from typing import Annotated, Any, Final, Literal
 from urllib.parse import urlsplit
 
 import psycopg
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints, TypeAdapter, ValidationError
 
 from ia_atendimento.api.auth import CREDENCIAL_DE_TESTE, Identidade
 from ia_atendimento.api.contexto import ContextoApi
 from ia_atendimento.api.erros import ErroApi
-from ia_atendimento.api.validacao import erro_de_validacao, validar
+from ia_atendimento.api.validacao import erro_de_validacao, exigir_chaves_conhecidas, validar
 from ia_atendimento.estado import TOLERANCIA_RELOGIO, Hex24
 from ia_atendimento.evento_mensagem import LIMITE_TEXTO, EventoMensagem, RpaId, TipoMensagem
 from ia_atendimento.mensagens import DepsMensagem, RespostaMensagem, atendimento_ativo, registrar_mensagem
@@ -124,8 +125,9 @@ def _deps(ctx: ContextoApi) -> DepsMensagem:
 
 
 def _tratar(
-    ctx: ContextoApi, identidade: Identidade, chat_id: str, montar: Any, delegacao_externa: bool, agora: datetime, relogio_futuro: bool
-) -> tuple[int, dict[str, Any]]:
+    ctx: ContextoApi, identidade: Identidade, chat_id: str, montar: Any, delegacao_externa: bool, agora: datetime, relogio_futuro: bool,
+    *, hora_invalida: bool = False,
+) -> tuple[int, dict[str, Any]]:  # fmt: skip
     evento = montar()  # normaliza ANTES de olhar o atendimento (08 §5.3): a resposta de forma não depende do estado do chat (R2-10)
     with ctx.conexao() as conn:
         ativo = atendimento_ativo(conn, chat_id)
@@ -139,6 +141,8 @@ def _tratar(
         )
         if relogio_futuro and resposta.resultado == "gravado":
             ctx.metricas.somar("datetime_post_adiantado")  # alerta do TI: relógio (ou fuso) do ChatGuru/RPA adiantado
+        if hora_invalida and resposta.resultado == "gravado":
+            ctx.metricas.somar("datetime_post_invalido")  # G-0119: a forma do Post mudou; o TI confere a amostra no sumidouro
         return 200, resposta.corpo()
 
 
@@ -151,15 +155,53 @@ def _hora_utilizavel(instante: datetime | None, agora: datetime) -> tuple[dateti
     return instante, False
 
 
+_HORA_DO_POST: Final = TypeAdapter(DataHora)
+PREFIXO_HORA_BRUTA: Final = b"hora-bruta/v1\n"
+
+
+def _hora_bruta_invalida(corpo: dict[str, Any]) -> str | None:
+    """G-0119: no Post do ChatGuru, um `datetime_post` que não é RFC 3339 com fuso (sem fuso, espaço no lugar do «T», vazio, número,
+    ano fora da faixa) vale como AUSENTE, igual ao relógio adiantado: o 422 virava 424 no gateway, o ChatGuru repetia e a mensagem REAL do
+    cliente se perdia. Devolve o valor cru como texto (só para a chave de dedupe, nunca gravado nem ecoado) ou `None` se a hora é válida
+    ou ausente. Só o Post nativo: o `/eventos/mensagem` (RPA, replay) é código nosso e segue estrito."""
+    bruto = corpo.get("datetime_post")
+    if bruto is None:
+        return None
+    try:
+        _HORA_DO_POST.validate_python(bruto)
+    except ValidationError:
+        return str(bruto)
+    return None
+
+
+def _com_chave_da_hora_bruta(evento: EventoMensagem | None, bruta: str) -> EventoMensagem | None:
+    """Sem hora utilizável a chave seria pelo recebimento (com microssegundos) e o retry do ChatGuru viraria mensagem nova. Com a hora CRUA
+    no lugar (DEC-PIA-007: chat + horário + texto), o mesmo Post repetido cai na mesma chave: `mensagem_id` = sha256 de hora crua, tipo e
+    texto, que só entra no HMAC do `cgid:` (amarrado ao chat) e nunca é gravado. Texto igual com hora crua igual = a mesma mensagem."""
+    if evento is None or not bruta.strip():
+        return evento
+    corpo = PREFIXO_HORA_BRUTA + "\n".join([bruta, evento.tipo, evento.texto or "", evento.url_arquivo or ""]).encode("utf-8")
+    return EventoMensagem.criar(**{**evento.model_dump(), "mensagem_id": sha256(corpo).hexdigest()})
+
+
 def evento_chatguru(ctx: ContextoApi, identidade: Identidade, corpo: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Origem `gateway_chatguru` (assinatura) ⇒ `webhook`; origem `ti` (replay manual, sem `x-gl-*`) ⇒ `replay`."""
-    dados = validar(NativoChatguru, corpo, codigo_de_chave_extra="campo_fora_da_allowlist")
+    exigir_chaves_conhecidas(corpo, NativoChatguru, codigo="campo_fora_da_allowlist")  # a allowlist primeiro: chave estranha segue 422
+    bruta = _hora_bruta_invalida(corpo)
+    dados = validar(
+        NativoChatguru, corpo if bruta is None else {**corpo, "datetime_post": None}, codigo_de_chave_extra="campo_fora_da_allowlist"
+    )
     agora = ctx.relogio.agora()
     hora, adiantada = _hora_utilizavel(dados.datetime_post, agora)
     origem_evento = "webhook" if identidade.canal_origem is not None else "replay"
+
+    def montar() -> EventoMensagem | None:
+        evento = _evento_de_nativo(dados, origem_evento, hora)
+        return evento if bruta is None else _com_chave_da_hora_bruta(evento, bruta)
+
     return _tratar(
-        ctx, identidade, dados.chat_id, lambda: _evento_de_nativo(dados, origem_evento, hora),
-        _delegacao_externa(ctx, dados.responsavel_email), agora, adiantada,
+        ctx, identidade, dados.chat_id, montar, _delegacao_externa(ctx, dados.responsavel_email), agora, adiantada,
+        hora_invalida=bruta is not None,
     )  # fmt: skip
 
 

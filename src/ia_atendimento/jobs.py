@@ -19,12 +19,12 @@ from typing import Any, Literal
 import psycopg
 
 from ia_atendimento.calendario import (
-    BLOQUEIO_DATAPREV_EM,
-    DATAPREV_ATE,
     FUSO,
     HORA_BLOQUEIO_ENTRADA,
     Calendario,
+    bloqueio_dataprev_em,
     carregar_calendario,
+    proxima_janela_dataprev,
 )
 from ia_atendimento.chave import ConfigCorrida, LeitorConfig, config_vigente
 from ia_atendimento.relogio import Relogio
@@ -334,11 +334,18 @@ def reconciliar_bloqueio_diario(servicos: Servicos) -> bool:
     return gravar_bloqueio_entrada(servicos, "tarefa:reconciliacao_bloqueio", tick)
 
 
+FOLGA_DO_RELOGIO_DATAPREV = timedelta(minutes=2)
+
+
 def executar_bloqueio_dataprev(servicos: Servicos) -> bool:
-    """Job único de 20/11: fecha a entrada antes da janela DATAPREV. Atrasado para depois da janela, não faz nada (a volta é do Danilo)."""
-    if servicos.relogio.agora() >= DATAPREV_ATE:
+    """Job do mês (dia 20, 21:50 SP): fecha a entrada antes da janela DATAPREV. Só vale de 21:50 do dia 20 até o fim da janela (dia 23
+    06:00); atrasado para depois dela, ou adiantado, não faz nada (a volta é do Danilo)."""
+    agora = servicos.relogio.agora()
+    janela = proxima_janela_dataprev(agora)
+    tick = bloqueio_dataprev_em(janela)
+    if not tick - FOLGA_DO_RELOGIO_DATAPREV <= agora < janela.ate:  # o Procrastinate solta pelo relógio do banco, não pelo do worker
         return False
-    return gravar_bloqueio_entrada(servicos, "tarefa:bloqueio_dataprev", BLOQUEIO_DATAPREV_EM)
+    return gravar_bloqueio_entrada(servicos, "tarefa:bloqueio_dataprev", tick)
 
 
 # --- poda ------------------------------------------------------------------------------------------------------------------------------

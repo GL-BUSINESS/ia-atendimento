@@ -34,18 +34,23 @@ class SegredosDeSaida:
     c360_client_secret: str = field(repr=False)
 
 
+def regra_de_permissao() -> str:
+    """A regra única dos arquivos de segredo (G-0097, OPERACAO §2/§8): modo 0600 e dono = o usuário do processo (10001 no contêiner)."""
+    return f"exige modo 0600 com dono = uid {os.geteuid()} (o usuário do processo), montado :ro"
+
+
 def ler_arquivo_privado(caminho: Path | str) -> bytes:
     """Conteúdo do arquivo, só se for comum, não-link e 0600. `O_NOFOLLOW` recusa o link simbólico no próprio `open`."""
     try:
         fd = os.open(caminho, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)  # NONBLOCK: um FIFO no caminho não pode travar a subida (R2-09)
     except OSError:
-        raise SegredoInvalido("arquivo de segredo ausente, ilegível ou é um link simbólico") from None
+        raise SegredoInvalido(f"arquivo de segredo ausente, ilegível ou é um link simbólico; {regra_de_permissao()}") from None
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise SegredoInvalido("arquivo de segredo não é um arquivo comum")
         if info.st_mode & 0o077:
-            raise SegredoInvalido(f"arquivo de segredo com permissão aberta ({stat.S_IMODE(info.st_mode):04o}); exige 0600")
+            raise SegredoInvalido(f"arquivo de segredo com permissão aberta ({stat.S_IMODE(info.st_mode):04o}); {regra_de_permissao()}")
         with os.fdopen(fd, "rb", closefd=False) as f:
             return f.read()
     finally:

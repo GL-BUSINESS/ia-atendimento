@@ -5,7 +5,7 @@ Sem isto a proteção da revisão 1 não existia em produção: o `command` do c
 
 - `Settings` (a mesma validação da API), log de formato fixo (`configurar_logging`), pool de conexões com o `search_path` da fila,
   `Servicos` e `fila.rodar_worker` (reconciliação do bloqueio na subida, concorrência, `stalled_worker_timeout` de 60 s,
-  `shutdown_graceful_timeout` de 30 s, vigia do batimento). O job de 20/11 21:50 (DATAPREV) é agendado em todo boot (idempotente)
+  `shutdown_graceful_timeout` de 30 s, vigia do batimento). O job mensal do dia 20 às 21:50 (DATAPREV) é agendado em todo boot (idempotente)
   e as periódicas ficam registradas.
 - Os serviços da B1.6 (turno, iniciar, lembrete, repasse, `retomar_atendimento`...) ainda não existem: ficam `_NaoConfigurado` e o
   job que os chama FALHA ALTO (o `retomar` falha antes do CAS). Nada finge que processou.
@@ -34,6 +34,7 @@ from ia_atendimento.api.logs import configurar_logging
 from ia_atendimento.chave import LeitorConfig
 from ia_atendimento.config import ConfiguracaoInvalida, Settings, get_settings
 from ia_atendimento.jobs import Servicos
+from ia_atendimento.observabilidade import configurar as configurar_observabilidade
 from ia_atendimento.prontidao import HEARTBEAT_MAX_S
 from ia_atendimento.relogio import RelogioReal
 from ia_atendimento.worker_vivo import WorkerPerdeuOBatimento
@@ -100,6 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ConfiguracaoInvalida as erro:
         log.error("configuração inválida: %s", erro)
         return 1
+    configurar_observabilidade(settings)  # G-0085: máscara de PII em TODO log do processo (Procrastinate, psycopg_pool...) e segredos
     try:
         asyncio.run(executar(settings))
     except WorkerPerdeuOBatimento as erro:

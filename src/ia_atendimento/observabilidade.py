@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Final
+from urllib.parse import urlsplit
 
 from openinference.instrumentation.pydantic_ai import OpenInferenceSpanProcessor
 from opentelemetry import trace
@@ -70,12 +71,30 @@ def registrar_segredo(valor: str | SecretStr | None) -> None:
             _segredos = _segredos | {texto}
 
 
+def registrar_segredos_do_settings(settings: Settings) -> None:
+    """Revisão dos altos (M3 de G-0085): todo segredo que o `Settings` carrega sai como `[SEGREDO]`, não só a chave do modelo e a do
+    Phoenix. São aleatórios: a máscara de PII não os pegaria. A senha do `DATABASE_URL` entra sozinha (aparece em traceback de driver)."""
+    for valor in (
+        settings.modelo_api_key_1,
+        settings.phoenix_api_key,
+        settings.chave_h16,
+        settings.chave_fingerprint,
+        settings.chat_ref_chave,
+    ):
+        registrar_segredo(valor)
+    for token in settings.api_tokens.values():
+        registrar_segredo(token)
+    registrar_segredo(urlsplit(settings.database_url.get_secret_value()).password)
+
+
 def mascarar_texto(texto: str) -> str:
-    """`mascarar()` (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos) e depois os segredos registrados."""
-    saida = mascarar(texto)
-    for segredo in _segredos:
+    """Os segredos registrados PRIMEIRO (do mais longo ao mais curto) e depois `mascarar()` (CPF, telefone, e-mail, CEP, UUID, 8+ dígitos).
+    Na ordem inversa a máscara de PII trocava os dígitos de dentro do segredo (`token-…-[TELEFONE]…`) e o literal não casava mais: o
+    resto do segredo saía em claro (achado ao estender o registro a todos os segredos, revisão dos altos de 20/11)."""
+    saida = texto
+    for segredo in sorted(_segredos, key=len, reverse=True):
         saida = saida.replace(segredo, SEGREDO)
-    return saida
+    return mascarar(saida)
 
 
 def _limpar_json(texto: str) -> str | None:
@@ -262,8 +281,7 @@ def configurar(settings: Settings, *, exportador: SpanExporter | None = None, in
     (`incluir_conteudo=False` o tira de vez). Segredos do `Settings` são registrados para sair como `[SEGREDO]`."""
     global _atual, _tracer
     _atual.encerrar()  # `configurar` duas vezes não deixa a thread do `BatchSpanProcessor` do provedor anterior vazar (B-8)
-    registrar_segredo(settings.modelo_api_key_1)
-    registrar_segredo(settings.phoenix_api_key)
+    registrar_segredos_do_settings(settings)
     instalar_filtro_de_logs()
     if exportador is None and not settings.phoenix_endpoint:
         _atual, _tracer = _DESLIGADA, None

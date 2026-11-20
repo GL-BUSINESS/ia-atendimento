@@ -186,6 +186,16 @@ def test_job_unico_so_vale_antes_do_fim_da_janela_dataprev(banco, relogio, conn_
     assert jobs.executar_bloqueio_dataprev(montar_servicos(banco, na_hora, Chamadas())) is False  # já estava true: nada novo
 
 
+def test_job_da_dataprev_com_relogio_do_worker_um_pouco_atras_do_banco_ainda_fecha(banco, conn_app):
+    """Revisão (B1): o job sai pelo `now()` do banco; o worker com o relógio 1 min atrás não pode concluir sem fechar a entrada."""
+    cedo_demais = RelogioFalso(utc(21, 0, 40))  # 20/11 21:40 SP, 10 min antes do tick: não é este job
+    assert jobs.executar_bloqueio_dataprev(montar_servicos(banco, cedo_demais, Chamadas())) is False
+    assert config_vigente(conn_app, "bloqueio_entrada").valor is False
+    um_pouco_antes = RelogioFalso(utc(21, 0, 49))  # 21:49 SP, o tick é 21:50
+    assert jobs.executar_bloqueio_dataprev(montar_servicos(banco, um_pouco_antes, Chamadas())) is True
+    assert config_vigente(conn_app, "bloqueio_entrada").valor is True
+
+
 # --- poda ------------------------------------------------------------------------------------------------------------------------------------
 
 

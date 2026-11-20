@@ -433,7 +433,13 @@ async def test_cpf_so_em_memoria_do_gateway(caplog, spans_crus, logs_crus):
 
     async def t1(chamada):
         recebidos.append(chamada.cpf.revelar())
-        return {"encontrado": True, "primeiro_nome": "Fulano", "cpf": chamada.cpf.revelar(), "nao_perturbe": False}
+        return {
+            "encontrado": True,
+            "primeiro_nome": "Fulano",
+            "cpf": chamada.cpf.revelar(),
+            "nao_perturbe": False,
+            "limite_contratos": False,
+        }
 
     async def t7(chamada):
         recebidos.append(chamada.cpf.revelar())
@@ -484,7 +490,7 @@ def test_nenhuma_migracao_tem_coluna_de_cpf():
 
 
 async def test_sem_leitor_de_cpf_a_ferramenta_que_precisa_falha_fechado():
-    t1 = Espiao({"encontrado": True})
+    t1 = Espiao({"encontrado": True, "nao_perturbe": False, "limite_contratos": False})
     r = await _chamar(gateway(executores={"T1": t1}, leitor_de_cpf=None), "T1", {})
     assert r.erro.codigo == "DESCONHECIDO" and t1.chamadas == []
 
@@ -496,7 +502,7 @@ async def test_fixture_e_interceptado_nao_leem_cpf():
         lidos.append(pessoa_id)
         return CpfEmMemoria(CPF)
 
-    t1 = Espiao({"encontrado": True})
+    t1 = Espiao({"encontrado": True, "nao_perturbe": False, "limite_contratos": False})
     r = await _chamar(gateway(executores={"T1": t1}, leitor_de_cpf=ler), "T1", {}, contexto("duble"))
     assert r.ok and r.destino.tipo == "fixture" and lidos == [] and t1.chamadas[0].cpf is None
 
