@@ -16,7 +16,8 @@ if [ -z "${ENSAIO_KIT:-}" ]; then
   ENSAIO_KIT="$(cd "$(dirname "$0")" && pwd)" exec bash "$copia" "$@"
 fi
 KIT="$ENSAIO_KIT"
-REPO="$(cd "$KIT/../.." && pwd)"
+REPO="${ENSAIO_REPO:-$(cd "$KIT/../.." && pwd)}"   # na cópia da fila (~/retomada-2809/…/s5) use ENSAIO_REPO=<checkout do ia-atendimento>
+[ -d "$REPO/migrations" ] || { echo "ENSAIO_REPO: preciso de um checkout do ia-atendimento (com migrations/)"; exit 2; }
 MANTER=0; [ "${1:-}" = --manter ] && MANTER=1
 P=ia-s5-ensaio
 REDE="$P-rede"; S5="$P-s5"; S3="$P-s3"; IMG="$P:local"

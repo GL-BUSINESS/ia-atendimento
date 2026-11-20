@@ -13,6 +13,12 @@ passou para a faixa sintética `000.000.0nn` e a chave falsa ficou de baixa entr
 
 PULOU: NTP, `tailscale up`, `20-docker --aplicar` e o `verificar.sh` com FALHOU esperados no contêiner (abaixo).
 
+## Imagem da esteira (G-0094)
+
+`docker build` local da árvore deste PR (descartável, apagada em seguida): o pacote leva as 5 migrações (0001–0005) e as 3 fixtures do
+dublê; `ia_atendimento.api.ambiente:criar_app_de_ambiente` e `ia_atendimento.worker.main` existem; o processo roda como `uid=10001`;
+o `ia-entrada` sai 78 sem o diretório de segredos.
+
 ## O que o ensaio cobre
 
 | Etapa | Prova |
