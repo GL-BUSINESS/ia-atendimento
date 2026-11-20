@@ -29,6 +29,9 @@ Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamen
   - `ia_ativa` relida sem cache em `encerrar_por_chave`, `iniciar` (aborta o reservado antes do `assumir`) e `retomar` do reservado agendado.
   - `espera.py` (`aguardar_cliente_com_espera`, faixa na versão de `iniciado_em`), `chave.config_em`, `expiracao.py` (`expirar_parados` injetado no worker),
     `espelho.py` (`encerrou` no outbox na transação da mudança de estado).
+  - Retomada de 20/11 (rebase sobre B1.8 + B5.1; `DECISOES-B1.6a-0411.md` D24–D26): órfã `enviada` de ação interna volta a `transitorio` e repete
+    (G-0131); `transitorio` de irreversível real sem `Desfecho.nada_saiu` vira `indeterminado` (G-0087, ledger); irreversível exige `args_hash` (G-0454);
+    runbook na `OPERACAO.md` §12 (F4-027).
   - Correção da revisão de 04/11 (`docs/REVISAO-B1.6a-0411.md`, A1 a A10): devolução sem posse real simulada também com o global `real`; T7 só com
     confirmação `digitacao` do mesmo banco, no prazo, não vencida e não gasta; chave presa ao pedido (`ChaveDivergente`); `transitorio` real não se
     rebaixa sob parada dura; cerca reconferida na reivindicação; simulação que falha fica `transitorio`; limite zero sem gasto é crítico;

@@ -270,3 +270,32 @@ quando divergem. Mudou uma persona do corpus ⇒ regrave, rode `scripts/atualiza
 ## 11. Release
 
 Tag semver e `gh release create` só depois da revisão (rodízio: quem implementa não revisa). Esta fundação é a `v0.1.0`; **a tag ainda não foi criada**.
+
+## 12. Ledger dos efeitos, gasto e `expirar_parados` (B1.6a) — o que a TI faz
+
+Nada aqui escreve sozinho em produção: são consultas de leitura e a decisão é de quem está de plantão. (A hospedagem do orquestrador está em revisão: a
+VPS citada nas seções 8 a 10 pode virar a S5; as consultas abaixo não dependem do host.)
+
+**Achar efeitos `indeterminado`** (efeito irreversível em `real|teste` que pode ter saído: nunca se repete sozinho; RS-10):
+
+```sql
+SELECT chamada_id, atendimento_id, ferramenta, banco, modo, enviada_em, concluida_em, http_bucket
+FROM ia.ferramenta_chamada WHERE estado = 'indeterminado' ORDER BY enviada_em DESC LIMIT 50;
+```
+
+- **T11 (mensagem ao cliente):** abrir o chat no ChatGuru e ver se a mensagem saiu. Não há reenvio automático; se não saiu, o próximo turno escreve outra.
+- **T7 (digitação):** quem decide é a T8 (conferir por CPF na FACTA, B5.4). Até ela existir, a TI confere no painel do banco antes de qualquer nova
+  digitação da mesma pessoa: o índice `ferramenta_chamada_t7_viva_uq` mantém a vaga (pessoa, banco) ocupada enquanto a linha for `indeterminado`.
+- **`t12`/`assumir`/`restaurar` NUNCA ficam `indeterminado`** (G-0131): órfãos voltam a `transitorio` e o job repete com a mesma chave.
+
+**Linhas presas** (`reservada`/`enviada` sem fechar há mais de 10 min): a execução morreu. O próximo retry da mesma chave as resolve; se nenhum retry
+vier (atendimento já encerrado), quem fecha é o `reaper_ledger` (B1.6b). Consulta: `… WHERE concluida_em IS NULL AND reservada_em < now() - interval '10 min'`.
+
+**503 `nao_pronto` na entrada por gasto:** a soma de `ia.passo.custo_brl` falhou (`GastoIndisponivel`; o log crítico não traz valor). Conferir o banco
+(`/readyz`), não zerar limite. `409 teto_diario`/`teto_atingido` são o limite batendo: subir `subteto_dia`/`teto_mensal_brl` só com o dono. Para
+barrar entrada nova sem repassar os abertos use `bloqueio_entrada`, não limite zero (limite zero com gasto do dia > 0 repassa os abertos; D3).
+`custo_ausente` > 0 (passo com tokens e sem custo) é alerta crítico: preço ausente no `Settings` ou provedor sem `usage`.
+
+**`expirar_parados`** (job a cada 30 min): encerra `aberto|aguardando_cliente` com mais de `dias_max` da faixa desde `iniciado_em`, grava `encerrou`
+(`desfecho=expirar_parados`) no outbox. Conferir: `SELECT count(*) FROM ia.atendimento WHERE desfecho = 'expirado' AND encerrado_em > now() - interval '1 day'`.
+Na B1.6b, quem tem posse real passa pelo repasse (o chat volta ao vendedor) em vez de encerrar direto (G-0093).

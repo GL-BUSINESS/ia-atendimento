@@ -3,7 +3,7 @@
 O que se prova, contra o Postgres 18 descartável e com `chamar` espião (nada sai para fora):
 - a linha `reservada` e o `enviada` estão COMMITADOS antes da chamada; a mesma chave nunca executa duas vezes;
 - timeout, exceção e `CancelledError` no meio do envio de efeito irreversível ⇒ `indeterminado`, e `indeterminado` nunca reenvia;
-- `transitorio` e `reservada` (a chamada nunca começou) podem ser reexecutados com a MESMA chave; `enviada` achada no retry ⇒ `indeterminado`;
+- `transitorio` e `reservada` (a chamada nunca começou) podem ser reexecutados com a MESMA chave; `enviada` órfã ⇒ `indeterminado` só para irreversível real (G-0131);
 - cerca de `versao`: a reserva e o CAS do atendimento na mesma transação; a execução superada (rodada velha) não envia;
 - `modo_efetivo` = o mais restritivo entre `atendimento.modo` e `config.modo`, relido a cada efeito (cache ≤ 5 s), gravado no ledger;
 - posse real (assumir `ok` em `real|teste`) e a devolução real sob parada dura; T7 sem confirmação aceita ⇒ `ConfirmacaoAusente` antes do banco.
@@ -71,9 +71,16 @@ def _linha(conn, chave: str):
     ).fetchone()
 
 
-def _t11(atd, rodada: int = 1, seq: int = 1) -> Pedido:
+HASH_TEXTO = "a" * 64
+
+
+def _t11(atd, rodada: int = 1, seq: int = 1, args_hash: str = HASH_TEXTO) -> Pedido:
     return Pedido(
-        ferramenta="t11", ferramenta_versao="1.0.0", classe_efeito="efeito_irreversivel", chave_logica=chave_t11(atd, rodada, seq)
+        ferramenta="t11",
+        ferramenta_versao="1.0.0",
+        classe_efeito="efeito_irreversivel",
+        chave_logica=chave_t11(atd, rodada, seq),
+        args_hash=args_hash,
     )
 
 
@@ -195,12 +202,14 @@ async def test_cancelled_no_meio_do_envio_deixa_indeterminado_e_nao_reenvia(conn
     assert espia.destinos == [] and de_novo.estado == "indeterminado"
 
 
-def _inserir_linha(conn, atd, chave: str, estado: str, enviada_em=None) -> None:
+def _inserir_linha(conn, atd, chave: str, estado: str, enviada_em=None, *, classe="efeito_irreversivel", modo="real") -> None:
     pessoa = conn.execute("SELECT pessoa_id FROM ia.atendimento WHERE atendimento_id = %s", (atd,)).fetchone()[0]
+    ferramenta = chave.split(":", 1)[0]
+    args_hash = HASH_TEXTO if classe == "efeito_irreversivel" else None
     conn.execute(
         "INSERT INTO ia.ferramenta_chamada (atendimento_id, pessoa_id, ferramenta, ferramenta_versao, classe_efeito, chave_logica, idem_key,"
-        " estado, modo, enviada_em) VALUES (%s, %s, 't11', '1.0.0', 'efeito_irreversivel', %s, %s, %s, 'real', %s)",
-        (atd, pessoa, chave, hashlib.sha256(chave.encode()).hexdigest(), estado, enviada_em),
+        " estado, modo, enviada_em, args_hash) VALUES (%s, %s, %s, '1.0.0', %s, %s, %s, %s, %s, %s, %s)",
+        (atd, pessoa, ferramenta, classe, chave, hashlib.sha256(chave.encode()).hexdigest(), estado, modo, enviada_em, args_hash),
     )
 
 
@@ -219,6 +228,60 @@ async def test_enviada_recente_esta_em_andamento_e_nao_muda(conn_app, conn_super
     r = await _executar(conn_app, relogio, real, _t11(real), espia)
     assert espia.destinos == [] and (r.estado, r.executou, r.repetido) == ("enviada", False, True)
     assert _linha(conn_super, chave_t11(real, 1, 1))[0] == "enviada"
+
+
+@pytest.mark.parametrize("ferramenta", ["t12", "assumir"])
+async def test_orfa_de_acao_interna_volta_a_transitorio_e_executa_uma_vez(conn_app, conn_super, relogio, real, ferramenta):
+    """G-0131: o worker morreu esperando o `ia-repasse` (ou o `assumir`). A linha `enviada` de 10 min atrás não vira `indeterminado`
+    terminal (o repasse nunca mais se repetiria e o chat ficaria no Amado): volta a `transitorio` e o retry chama UMA vez."""
+    chave = f"{ferramenta}:{real}"
+    _inserir_linha(conn_super, real, chave, "enviada", relogio.agora() - timedelta(minutes=10), classe="acao_interna")
+    espia = Espia()
+    pedido = Pedido(ferramenta=ferramenta, ferramenta_versao="1.0.0", classe_efeito="acao_interna", chave_logica=chave)
+    r = await _executar(conn_app, relogio, real, pedido, espia)
+    assert espia.destinos == ["real"] and (r.estado, r.executou, r.repetido) == ("ok", True, True)
+    de_novo = await _executar(conn_app, relogio, real, pedido, espia)
+    assert espia.destinos == ["real"] and de_novo.estado == "ok"
+
+
+async def test_orfa_simulada_de_irreversivel_volta_a_transitorio(conn_app, conn_super, relogio):
+    """Simulado nada saiu: a órfã de um T11 em `sombra` repete (simulada), não vira `indeterminado`."""
+    atd = inserir_atendimento(conn_super, estado="aberto", modo="sombra", iniciado_em=relogio.agora())
+    _inserir_linha(conn_super, atd, chave_t11(atd, 1, 1), "enviada", relogio.agora() - timedelta(minutes=10), modo="sombra")
+    espia = Espia()
+    r = await _executar(conn_app, relogio, atd, _t11(atd), espia)
+    assert espia.destinos == [] and (r.estado, r.modo) == ("ok", "sombra")
+
+
+async def test_transitorio_de_irreversivel_sem_prova_vira_indeterminado(conn_app, conn_super, relogio, real):
+    """G-0087 (ledger): o destino devolveu `transitorio` depois do disparo sem provar que nada saiu: nunca se repete."""
+    espia = Espia(Desfecho("transitorio", http_bucket="5xx"))
+    r = await _executar(conn_app, relogio, real, _t11(real), espia)
+    assert r.estado == "indeterminado"
+    de_novo = await _executar(conn_app, relogio, real, _t11(real), espia)
+    assert espia.destinos == ["real"] and de_novo.estado == "indeterminado"
+
+
+async def test_transitorio_de_irreversivel_com_prova_repete(conn_app, conn_super, relogio, real):
+    espia = Espia(Desfecho("transitorio", http_bucket="5xx", nada_saiu=True))
+    r = await _executar(conn_app, relogio, real, _t11(real), espia)
+    assert r.estado == "transitorio"
+    await _executar(conn_app, relogio, real, _t11(real), espia)
+    assert espia.destinos == ["real", "real"]
+
+
+def test_irreversivel_sem_args_hash_e_recusado():
+    """G-0454: sem o hash do conteúdo, outra mensagem na mesma (rodada, seq) seria engolida como repetição."""
+    with pytest.raises(ValueError, match="args_hash"):
+        _t11(uuid.uuid4(), args_hash=None)
+
+
+async def test_t11_mesma_chave_outro_texto_e_chave_divergente(conn_app, conn_super, relogio, real):
+    espia = Espia()
+    await _executar(conn_app, relogio, real, _t11(real), espia)
+    with pytest.raises(ChaveDivergente):
+        await _executar(conn_app, relogio, real, _t11(real, args_hash="b" * 64), espia)
+    assert espia.destinos == ["real"]
 
 
 async def test_reservada_achada_no_retry_e_reivindicada_e_executa_uma_vez(conn_app, conn_super, relogio, real):
@@ -474,7 +537,7 @@ async def test_t7_nao_reusa_a_confirmacao_gasta_por_outra_chave(conn_app, conn_s
     """A2 · uso único: a 1ª T7 ficou `transitorio` (fora dos índices de vaga única) e ainda pode digitar; a 2ª tentativa com o mesmo
     «sim» é barrada antes do banco."""
     confirmacao = _confirmacao(conn_super, real)
-    await _executar(conn_app, relogio, real, _t7(real, confirmacao), Espia(Desfecho("transitorio", http_bucket="5xx")))
+    await _executar(conn_app, relogio, real, _t7(real, confirmacao), Espia(Desfecho("transitorio", http_bucket="5xx", nada_saiu=True)))
     espia = Espia()
     with pytest.raises(ConfirmacaoAusente):
         await _executar(conn_app, relogio, real, _t7(real, confirmacao, tentativa=2), espia)
@@ -494,7 +557,7 @@ async def test_t7_repetida_confere_a_confirmacao_so_quando_vai_chamar(conn_app, 
     """A repetição de uma T7 `transitorio` vai chamar de novo: com o «sim» vencido, não chama. A de uma T7 terminal só devolve o
     gravado, mesmo vencido (quem pergunta «já digitou?» não pode ouvir `ConfirmacaoAusente`)."""
     transitoria = _t7(real, _confirmacao(conn_super, real))
-    await _executar(conn_app, relogio, real, transitoria, Espia(Desfecho("transitorio", http_bucket="5xx")))
+    await _executar(conn_app, relogio, real, transitoria, Espia(Desfecho("transitorio", http_bucket="5xx", nada_saiu=True)))
     outro = inserir_atendimento(conn_super, estado="aberto", modo="real", iniciado_em=relogio.agora())
     terminal = _t7(outro, _confirmacao(conn_super, outro))
     await _executar(conn_app, relogio, outro, terminal, Espia())
@@ -519,7 +582,7 @@ async def test_chave_de_outro_atendimento_e_recusada_sem_chamar(conn_app, conn_s
 
 async def test_chave_com_outros_argumentos_e_recusada_sem_chamar(conn_app, conn_super, relogio, real):
     confirmacao = _confirmacao(conn_super, real)
-    await _executar(conn_app, relogio, real, _t7(real, confirmacao), Espia(Desfecho("transitorio", http_bucket="5xx")))
+    await _executar(conn_app, relogio, real, _t7(real, confirmacao), Espia(Desfecho("transitorio", http_bucket="5xx", nada_saiu=True)))
     espia = Espia()
     with pytest.raises(ChaveDivergente):
         await _executar(conn_app, relogio, real, _t7(real, confirmacao, args_hash="c" * 64), espia)

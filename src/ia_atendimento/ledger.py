@@ -17,7 +17,9 @@ Ciclo de uma chamada, cada passo commitado antes do seguinte (a conexão TEM de 
 Chave já existente: a linha tem de ser do MESMO pedido (`atendimento_id`, `ferramenta`, `banco`, `args_hash`, `confirmacao_id`), senão
 `ChaveDivergente` sem chamar; terminal ⇒ devolve o gravado sem chamar; `transitorio`/`reservada` ⇒ reexecuta com a MESMA chave (passo 2);
 `enviada|em_andamento` recente ⇒ em andamento em outra execução (devolve sem mexer); `enviada|em_andamento` mais velha que o timeout da
-chamada + folga ⇒ a execução que a reivindicou morreu depois de talvez ter chamado: vira `indeterminado` (nunca reenvia).
+chamada + folga ⇒ a execução que a reivindicou morreu (G-0131): efeito irreversível em `real|teste` vira `indeterminado` (nunca reenvia);
+ação interna, leitura e efeito simulado voltam a `transitorio` e são reivindicados na mesma chamada (o T12 é idempotente por `repasse_id`).
+Efeito irreversível exige `args_hash` (G-0454); `transitorio` dele em `real|teste` só repete com `Desfecho.nada_saiu` (G-0087).
 
 **`modo_efetivo`** = o mais restritivo entre `atendimento.modo` e `config.modo` (real > teste > duble > sombra; menor vence), relido a cada
 efeito (o `LeitorConfig` guarda ≤ 5 s); o ledger grava o `modo` com que o efeito correu. **Posse real** = o `assumir` do atendimento fechou
@@ -83,6 +85,7 @@ ESTADOS_DA_CONVERSA: Final = frozenset({"aberto", "aguardando_cliente"})
 TIMEOUT_PADRAO_S: Final = 10.0
 FOLGA_EM_VOO: Final = timedelta(seconds=30)  # além do timeout da chamada: quem reivindicou e não fechou nesse prazo morreu
 _FERRAMENTA: Final = re.compile(r"^[a-z][a-z0-9_]{1,19}$")
+_ARGS_HASH: Final = re.compile(r"^[0-9a-f]{64}$")
 _CHAVE: Final = re.compile(r"^[a-z][a-z0-9_]{1,19}:[A-Za-z0-9_.:-]{1,180}$")
 
 
@@ -147,6 +150,11 @@ class Pedido:
             raise ValueError("ferramenta ou chave_logica fora da forma do ledger")
         if self.chave_logica.split(":", 1)[0] != self.ferramenta:
             raise ValueError("a chave_logica começa pelo nome da ferramenta")
+        if self.args_hash is not None and not _ARGS_HASH.fullmatch(self.args_hash):
+            raise ValueError("args_hash é sha256 hex (64)")
+        if self.classe_efeito == "efeito_irreversivel" and self.args_hash is None:
+            # G-0454: sem o hash do conteúdo, duas mensagens diferentes com a mesma (rodada, seq) seriam «o mesmo pedido» e a 2ª sumiria
+            raise ValueError("efeito irreversível exige args_hash: chave repetida com outro conteúdo vira ChaveDivergente")
 
     @property
     def idem_key(self) -> str:
@@ -169,6 +177,8 @@ class Desfecho:
     http_bucket: HttpBucket | None = None
     ref_externa: str | None = None
     custo_brl: Decimal | None = None
+    # o protocolo PROVA que nada chegou ao destino (recusa de conexão, 503 antes do envio): só assim o irreversível repete
+    nada_saiu: bool = False
 
 
 @dataclass(frozen=True)
@@ -425,10 +435,6 @@ def _fechar(conn: psycopg.Connection, chamada_id: int, desfecho: Desfecho, laten
     return _Linha(*linha) if linha is not None else None
 
 
-def _dar_como_indeterminada(conn: psycopg.Connection, chamada_id: int, agora: datetime) -> _Linha | None:
-    return _fechar(conn, chamada_id, Desfecho("indeterminado"), 0, agora)
-
-
 def _resultado(linha: _Linha, *, executou: bool, repetido: bool, versao: int | None = None) -> ResultadoEfeito:
     return ResultadoEfeito(
         chamada_id=linha.chamada_id, estado=linha.estado, modo=linha.modo, executou=executou, repetido=repetido, versao=versao,
@@ -448,6 +454,19 @@ def _desfecho_da_falha(pedido: Pedido, modo: str, bucket: HttpBucket) -> Desfech
 
 
 async def _chamar(pedido: Pedido, modo: str, chamar: Chamada, simular: Chamada | None, timeout_s: float) -> Desfecho:
+    return _sem_repeticao_em_duvida(pedido, modo, await _chamar_cru(pedido, modo, chamar, simular, timeout_s))
+
+
+def _sem_repeticao_em_duvida(pedido: Pedido, modo: str, desfecho: Desfecho) -> Desfecho:
+    """G-0087 (parte do ledger): efeito irreversível em `real|teste` que volta `transitorio` sem a prova `nada_saiu` pode ter acontecido
+    (erro tipado depois do disparo, resposta que não se reconstrói): vira `indeterminado` e nunca se repete."""
+    irreversivel_real = pedido.classe_efeito == "efeito_irreversivel" and modo in DESTINOS_REAIS
+    if desfecho.estado == "transitorio" and not desfecho.nada_saiu and irreversivel_real:
+        return Desfecho("indeterminado", http_bucket=desfecho.http_bucket, ref_externa=desfecho.ref_externa, custo_brl=desfecho.custo_brl)
+    return desfecho
+
+
+async def _chamar_cru(pedido: Pedido, modo: str, chamar: Chamada, simular: Chamada | None, timeout_s: float) -> Desfecho:
     if modo not in DESTINOS_REAIS:
         if simular is None:
             return Desfecho("ok")
@@ -500,17 +519,28 @@ async def _repetida(
     existente = await asyncio.to_thread(_ler, conn, pedido)
     if not existente.do_mesmo_pedido(atd, pedido):
         raise ChaveDivergente("a chave_logica já está no ledger para outro pedido")
+    if existente.estado in EM_VOO and _morta(existente, relogio.agora(), timeout_s):
+        existente = await asyncio.to_thread(_fechar_orfa, conn, pedido, existente, relogio.agora()) or await asyncio.to_thread(
+            _ler, conn, pedido
+        )
     if existente.estado in REEXECUTAVEIS:
         reivindicada, existente = await asyncio.to_thread(
             _reivindicar, conn, atd, pedido, existente.chamada_id, cerca, leitor, relogio.agora()
         )
         if reivindicada is not None:
             return reivindicada, None
-    if existente.estado in EM_VOO and _morta(existente, relogio.agora(), timeout_s):
-        existente = await asyncio.to_thread(
-            _dar_como_indeterminada, conn, existente.chamada_id, relogio.agora()
-        ) or await asyncio.to_thread(_ler, conn, pedido)
     return None, _resultado(existente, executou=False, repetido=True)
+
+
+def desfecho_da_orfa(classe_efeito: str, modo: str) -> EstadoFinal:
+    """G-0131: a execução que reivindicou morreu (OOM, deploy) sem fechar. Só o efeito irreversível que correu em `real|teste` pode ter
+    saído e não se repete (`indeterminado`); ação interna (T12 idempotente por `repasse_id`, `assumir`, `restaurar`), leitura e qualquer
+    efeito simulado voltam a `transitorio` e se repetem com a MESMA chave (08 §7.1: «indeterminado nunca reenvia» não vale para o T12)."""
+    return "indeterminado" if classe_efeito == "efeito_irreversivel" and modo in DESTINOS_REAIS else "transitorio"
+
+
+def _fechar_orfa(conn: psycopg.Connection, pedido: Pedido, linha: _Linha, agora: datetime) -> _Linha | None:
+    return _fechar(conn, linha.chamada_id, Desfecho(desfecho_da_orfa(pedido.classe_efeito, linha.modo)), 0, agora)
 
 
 def _morta(linha: _Linha, agora: datetime, timeout_s: float) -> bool:

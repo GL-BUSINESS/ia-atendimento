@@ -102,3 +102,24 @@ lambda do worker trocada por outra que não expira nada. O A10 não muda código
 | A9 teste do job de produção só confere `configurado()` | BAIXO | corrigido: o teste executa a injeção de produção (reprova com a lambda trocada) | `test_o_job_usa_o_servico_de_producao` |
 | A10 teste instável na virada do dia | BAIXO | corrigido: relógio fixo, com um passo do dia seguinte que não pode entrar | `test_gasto_do_dia_soma_passos_em_brt_e_todos_os_modos` |
 | A11 itens da v3.3 sem dono declarado | BAIXO | registrado (Ficou de fora, item 4) | — |
+
+## Retomada de 20/11 (rebase sobre a `main` com B1.8 e B5.1; achados da revisão geral de 10/11)
+
+O ramo foi rebaseado sobre `origin/main` (`9a4baca`, com B1.8 e B5.1): o único conflito foi de texto no `CHANGELOG.md` (as duas entradas
+ficam). Nenhum conflito de código; B1.6a, B1.8 e B5.1 passam juntas pelo portão (G-0076/RG-045), menos os 11 testes que já falham na
+própria `main` em 20/11 (dependem do relógio de parede ou do irmão `cliente360-api`; tratados em PR à parte).
+
+| # | Achado (REVISAO-GERAL-0911) | Decisão | Testes |
+|---|---|---|---|
+| D24 | **G-0131 (ALTO)** linha `enviada` órfã virava `indeterminado` terminal para qualquer classe: o T12 morto no meio nunca mais se repetia | `desfecho_da_orfa`: só efeito irreversível que correu em `real\|teste` vira `indeterminado`; ação interna (T12, `assumir`, `restaurar`), leitura e qualquer efeito simulado voltam a `transitorio` e são reivindicados NA MESMA chamada (executa uma vez). Corrige D7 e alinha com D8 e o 08 §7.1 | `test_orfa_de_acao_interna_volta_a_transitorio_e_executa_uma_vez[t12,assumir]`, `test_orfa_simulada_de_irreversivel_volta_a_transitorio` |
+| D25 | **G-0087 (ALTO, parte do ledger)** efeito irreversível despachado podia voltar `transitorio` (erro tipado depois do disparo) e se repetir | `Desfecho.nada_saiu` (padrão `False`): `transitorio` de efeito irreversível em `real\|teste` só fica `transitorio` se o protocolo PROVA que nada chegou ao destino; senão vira `indeterminado`. A parte do gateway (reconstrução inválida, `BANCO_INDISPONIVEL` e `CancelledError` depois do disparo) é da B5.4 | `test_transitorio_de_irreversivel_sem_prova_vira_indeterminado`, `test_transitorio_de_irreversivel_com_prova_repete` |
+| D26 | **G-0454 (MÉDIO)** T11 sem `args_hash`: mensagem diferente na mesma `(rodada, seq)` era engolida como repetição | `Pedido` de `efeito_irreversivel` exige `args_hash` (sha256 hex do conteúdo); a mesma chave com outro conteúdo dá `ChaveDivergente`. A regra de `seq` para lembrete, TX-42 e volta é da B1.6b | `test_irreversivel_sem_args_hash_e_recusado`, `test_t11_mesma_chave_outro_texto_e_chave_divergente` |
+| — | **F4-027 (MÉDIO)** runbook | `docs/OPERACAO.md` §12: `indeterminado`, linhas presas, 503 por gasto, `expirar_parados` | — |
+
+Mutação conferida: com o `ledger.py` anterior, 6 dos 7 testes novos reprovam (o 7º, `…_outro_texto_…`, já passava: guarda de regressão).
+
+Ficam para a B1.6b (critério de aceite dela, não deste PR): G-0093 (`expirar_parados` com posse real passa pelo repasse), G-0116
+(`reaper_ledger`), G-0216 (batimento, `publicar_espelho`, repasse em etapas), G-0020/G-0032 (R-c2), G-0565 (desligamento), RG-104
+(texto > 4000 trunca) e RG-006 (`turnos_max = 24`). **G-0085** (máscara de logs nunca ligada) é da `main` desde a B1.5 e segue aberto
+(critério da B1.7). **Decisões que seguem com o dono:** D3 (limite zero com gasto > 0 repassa os abertos) e D20 (o `assumir` sem
+resposta não dá posse real); aplicado o padrão documentado.
